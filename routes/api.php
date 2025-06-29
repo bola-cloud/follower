@@ -27,3 +27,5 @@ Route::middleware('auth:sanctum')->group(function () {
     // Logout route
     Route::post('logout', [AuthController::class, 'logout']);
 });
+
+Route::post('/login/google', [AuthController::class, 'googleLogin']);
