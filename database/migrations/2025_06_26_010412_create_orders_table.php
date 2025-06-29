@@ -16,6 +16,11 @@ return new class extends Migration
             $table->enum('type', ['follow', 'like']);
             $table->unsignedInteger('total_count');  // total likes or follows
             $table->unsignedInteger('done_count')->default(0); // completed likes or follows
+            $table->integer('cost')->default(0); // remaining likes or follows
+            $table->enum('status', ['active', 'inactive'])->default('active');
+            $table->text('targetUrl')->nullable(); // URL to target for likes or follows
+            $table->unsignedBigInteger('user_id'); // user who created the order
+            $table->foreign('user_id')->references('id')->on('users')->onDelete('cascade');
             $table->timestamps();
         });
     }
