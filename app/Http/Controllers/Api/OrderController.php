@@ -27,9 +27,14 @@ class OrderController extends Controller
 
         $targetUrl = $data['target_url'];
         $targetUrlHash = sha1($targetUrl);
-        $cost = $data['cost'] ?? $data['total_count'];
 
-        // Optional: prevent duplicates
+        // 🧠 Get cost per unit from settings (default to 1 if not set)
+        $pointsPerAction = setting("points_per_{$data['type']}", 1);
+
+        // 💰 Calculate total cost
+        $cost = $data['cost'] ?? ($data['total_count'] * $pointsPerAction);
+
+        // ❌ Prevent duplicate active orders for the same user and target
         $alreadyExists = Order::where('user_id', $user->id)
             ->where('target_url_hash', $targetUrlHash)
             ->where('status', '!=', 'completed')
@@ -39,10 +44,12 @@ class OrderController extends Controller
             return response()->json(['error' => 'You already have an active order for this link.'], 409);
         }
 
+        // ❌ Check user points
         if ($user->points < $cost) {
             return response()->json(['error' => 'Insufficient points.'], 403);
         }
 
+        // ✅ Deduct points and create the order
         $user->decrement('points', $cost);
 
         $order = Order::create([
@@ -61,5 +68,4 @@ class OrderController extends Controller
             'order' => $order,
         ], 201);
     }
-
 }
