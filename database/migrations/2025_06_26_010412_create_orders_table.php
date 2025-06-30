@@ -18,10 +18,12 @@ return new class extends Migration
             $table->unsignedInteger('done_count')->default(0);
             $table->integer('cost')->default(0);
             $table->enum('status', ['active', 'paused', 'completed'])->default('active');
-            $table->string('target_url', 2048)->index(); // ✅ fixed
+            $table->string('target_url', 2048);
+            $table->index(['target_url'], 'orders_target_url_index'); // Add index manually later
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->timestamps();
         });
+        DB::statement('ALTER TABLE orders ADD INDEX orders_target_url_index (target_url(191))');
     }
 
     /**
