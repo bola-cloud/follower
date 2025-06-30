@@ -11,38 +11,48 @@ class OrderController extends Controller
 {
     public function store(Request $request)
     {
-        // Validate input
         $validator = Validator::make($request->all(), [
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
             'target_url' => 'required|url',
-            'cost' => 'nullable|integer|min:0', // optionally override cost
+            'cost' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['errors' => $validator->errors()], 422);
         }
 
+        $data = $validator->validated();
         $user = $request->user();
 
-        // Optional: calculate cost (e.g., 1 point per action)
-        $cost = $request->input('cost', $request->total_count);
+        $targetUrl = $data['target_url'];
+        $targetUrlHash = sha1($targetUrl);
+        $cost = $data['cost'] ?? $data['total_count'];
+
+        // Optional: prevent duplicates
+        $alreadyExists = Order::where('user_id', $user->id)
+            ->where('target_url_hash', $targetUrlHash)
+            ->where('status', '!=', 'completed')
+            ->exists();
+
+        if ($alreadyExists) {
+            return response()->json(['error' => 'You already have an active order for this link.'], 409);
+        }
 
         if ($user->points < $cost) {
             return response()->json(['error' => 'Insufficient points.'], 403);
         }
 
-        // Deduct points
         $user->decrement('points', $cost);
 
-        // Create order
         $order = Order::create([
-            'type' => $request->type,
-            'total_count' => $request->total_count,
+            'type' => $data['type'],
+            'total_count' => $data['total_count'],
             'done_count' => 0,
             'cost' => $cost,
             'status' => 'active',
-            'target_url' => $request->target_url,
+            'target_url' => $targetUrl,
+            'target_url_hash' => $targetUrlHash,
             'user_id' => $user->id,
         ]);
 
@@ -51,4 +61,5 @@ class OrderController extends Controller
             'order' => $order,
         ], 201);
     }
+
 }
