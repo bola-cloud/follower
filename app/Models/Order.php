@@ -16,6 +16,7 @@ class Order extends Model
         'cost',
         'status',
         'target_url',
+        'target_url_hash', // ✅ ADD THIS
         'user_id',
     ];
 }
