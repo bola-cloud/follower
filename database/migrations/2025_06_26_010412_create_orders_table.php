@@ -19,7 +19,7 @@ return new class extends Migration
             $table->integer('cost')->default(0);
             $table->enum('status', ['active', 'paused', 'completed'])->default('active');
             $table->text('target_url');
-            $table->index('target_url'); // ← move this *after* the column
+            $table->index('target_url', 'orders_target_url_index', length: 255);
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->timestamps();
         });
