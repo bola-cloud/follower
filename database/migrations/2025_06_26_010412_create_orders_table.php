@@ -3,6 +3,7 @@
 use Illuminate\Database\Migrations\Migration;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 
 return new class extends Migration
 {
@@ -11,6 +12,7 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Create the table
         Schema::create('orders', function (Blueprint $table) {
             $table->id();
             $table->enum('type', ['follow', 'like']);
@@ -18,11 +20,12 @@ return new class extends Migration
             $table->unsignedInteger('done_count')->default(0);
             $table->integer('cost')->default(0);
             $table->enum('status', ['active', 'paused', 'completed'])->default('active');
-            $table->string('target_url', 2048);
-            $table->index(['target_url'], 'orders_target_url_index'); // Add index manually later
+            $table->string('target_url', 2048); // We'll index it manually below
             $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->timestamps();
         });
+
+        // Add a safe index to the target_url column
         DB::statement('ALTER TABLE orders ADD INDEX orders_target_url_index (target_url(191))');
     }
 
