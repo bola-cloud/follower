@@ -18,12 +18,10 @@ return new class extends Migration
             $table->unsignedInteger('done_count')->default(0);
             $table->integer('cost')->default(0);
             $table->enum('status', ['active', 'paused', 'completed'])->default('active');
-            $table->text('target_url'); // Instagram profile or post link
-            $table->foreignId('user_id')->constrained()->onDelete('cascade'); // Creator of the order
+            $table->text('target_url');
+            $table->index('target_url'); // ← move this *after* the column
+            $table->foreignId('user_id')->constrained()->onDelete('cascade');
             $table->timestamps();
-
-            // Index for filtering
-            $table->index('target_url');
         });
     }
 
