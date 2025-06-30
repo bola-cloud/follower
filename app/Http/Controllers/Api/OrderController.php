@@ -72,7 +72,7 @@ class OrderController extends Controller
             return response()->json([
                 'message' => 'Order created successfully.',
                 'order' => $order,
-            ], 201);
+            ], 200);
 
         } catch (Throwable $e) {
             DB::rollBack();
