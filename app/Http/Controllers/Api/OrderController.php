@@ -5,7 +5,9 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 use App\Models\Order;
+use Throwable;
 
 class OrderController extends Controller
 {
@@ -28,13 +30,11 @@ class OrderController extends Controller
         $targetUrl = $data['target_url'];
         $targetUrlHash = sha1($targetUrl);
 
-        // 🧠 Get cost per unit from settings (default to 1 if not set)
+        // Get point cost per action from settings (default = 1)
         $pointsPerAction = setting("points_per_{$data['type']}", 1);
-
-        // 💰 Calculate total cost
         $cost = $data['cost'] ?? ($data['total_count'] * $pointsPerAction);
 
-        // ❌ Prevent duplicate active orders for the same user and target
+        // Prevent duplicate active orders from the same user for the same link
         $alreadyExists = Order::where('user_id', $user->id)
             ->where('target_url_hash', $targetUrlHash)
             ->where('status', '!=', 'completed')
@@ -44,28 +44,42 @@ class OrderController extends Controller
             return response()->json(['error' => 'You already have an active order for this link.'], 409);
         }
 
-        // ❌ Check user points
-        if ($user->points < $cost) {
-            return response()->json(['error' => 'Insufficient points.'], 403);
+        try {
+            DB::beginTransaction();
+
+            // Check user points before proceeding
+            if ($user->points < $cost) {
+                return response()->json(['error' => 'Insufficient points.'], 403);
+            }
+
+            // Deduct user points
+            $user->decrement('points', $cost);
+
+            // Create the order
+            $order = Order::create([
+                'type' => $data['type'],
+                'total_count' => $data['total_count'],
+                'done_count' => 0,
+                'cost' => $cost,
+                'status' => 'active',
+                'target_url' => $targetUrl,
+                'target_url_hash' => $targetUrlHash,
+                'user_id' => $user->id,
+            ]);
+
+            DB::commit();
+
+            return response()->json([
+                'message' => 'Order created successfully.',
+                'order' => $order,
+            ], 201);
+
+        } catch (Throwable $e) {
+            DB::rollBack();
+            return response()->json([
+                'error' => 'Failed to create order.',
+                'details' => $e->getMessage(),
+            ], 500);
         }
-
-        // ✅ Deduct points and create the order
-        $user->decrement('points', $cost);
-
-        $order = Order::create([
-            'type' => $data['type'],
-            'total_count' => $data['total_count'],
-            'done_count' => 0,
-            'cost' => $cost,
-            'status' => 'active',
-            'target_url' => $targetUrl,
-            'target_url_hash' => $targetUrlHash,
-            'user_id' => $user->id,
-        ]);
-
-        return response()->json([
-            'message' => 'Order created successfully.',
-            'order' => $order,
-        ], 201);
     }
 }
