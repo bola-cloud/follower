@@ -2,8 +2,9 @@
 
 use Illuminate\Support\Facades\Route;
 use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
+use Illuminate\Support\Facades\Broadcast;
+use Illuminate\Support\Facades\Event;
 use App\Events\TestBroadcast;
-
 /*
 |--------------------------------------------------------------------------
 | Web Routes
