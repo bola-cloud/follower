@@ -11,11 +11,11 @@ use Illuminate\Queue\SerializesModels;
 
 class TestBroadcast implements ShouldBroadcast
 {
-    use InteractsWithSockets, SerializesModels;
+    use Dispatchable, InteractsWithSockets, SerializesModels;
 
-    public string $message;
+    public $message;
 
-    public function __construct($message = "Hello from Laravel + Soketi!")
+    public function __construct($message)
     {
         $this->message = $message;
     }
