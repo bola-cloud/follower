@@ -27,6 +27,7 @@ Route::group([
 });
 
 Route::get('/broadcast-test', function () {
-    broadcast(new TestBroadcast());
+    $message = 'Hello from Soketi!';
+    broadcast(new TestBroadcast($message));
     return 'Broadcast sent!';
 });
