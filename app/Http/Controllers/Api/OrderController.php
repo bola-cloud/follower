@@ -82,4 +82,18 @@ class OrderController extends Controller
             ], 500);
         }
     }
+
+    public function index(Request $request)
+    {
+        $user = $request->user(); // Automatically retrieved from auth:sanctum middleware
+
+        $orders = \App\Models\Order::where('user_id', $user->id)
+            ->orderByDesc('created_at')
+            ->get();
+
+        return response()->json([
+            'orders' => $orders,
+        ]);
+    }
+
 }
