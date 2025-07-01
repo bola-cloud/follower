@@ -2,6 +2,7 @@
 
 use Illuminate\Support\Facades\Route;
 use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
+use App\Events\TestBroadcast;
 
 /*
 |--------------------------------------------------------------------------
@@ -22,4 +23,9 @@ Route::group([
     ]
 ], function () {
     Route::get('/', [\App\Http\Controllers\Admin\Dashboard::class, 'index'])->name('dashboard');
+});
+
+Route::get('/broadcast-test', function () {
+    broadcast(new TestBroadcast());
+    return 'Broadcast sent!';
 });
