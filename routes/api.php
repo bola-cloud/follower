@@ -4,6 +4,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\OrderController;
+use App\Http\Controllers\Api\SettingController;
 
 /*
 |--------------------------------------------------------------------------
@@ -26,6 +27,8 @@ Route::middleware('auth:sanctum')->group(function () {
     });
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/orders', [\App\Http\Controllers\Api\OrderController::class, 'index']);
+
+    Route::get('/settings', [SettingController::class, 'index']);
 
     // Logout route
     Route::post('logout', [AuthController::class, 'logout']);
