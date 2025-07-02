@@ -3,10 +3,12 @@
 namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
-use Illuminate\Queue\SerializesModels;
-use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Broadcasting\InteractsWithSockets;
+use Illuminate\Broadcasting\PresenceChannel;
+use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
+use Illuminate\Foundation\Events\Dispatchable;
+use Illuminate\Queue\SerializesModels;
 
 class TestBroadcast implements ShouldBroadcast
 {
@@ -26,6 +28,6 @@ class TestBroadcast implements ShouldBroadcast
 
     public function broadcastAs()
     {
-        return 'test-event';
+        return 'test.broadcast';
     }
 }

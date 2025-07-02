@@ -5,6 +5,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Api\AuthController;
 use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\SettingController;
+use App\Http\Controllers\TestBroadcastController;
 
 /*
 |--------------------------------------------------------------------------
@@ -19,6 +20,8 @@ use App\Http\Controllers\Api\SettingController;
 
 Route::post('register', [AuthController::class, 'register']);
 Route::post('login', [AuthController::class, 'login']);
+
+Route::post('/test-broadcast', [TestBroadcastController::class, 'trigger']);
 
 // Protected Routes (Require authentication)
 Route::middleware('auth:sanctum')->group(function () {
