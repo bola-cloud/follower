@@ -7,11 +7,15 @@ use App\Events\TestBroadcast;
 
 class SoketiTestController extends Controller
 {
-    public function trigger(Request $request)
+    public function triggerTestEvent(Request $request)
     {
-        $message = $request->input('message', 'Test Broadcast at 01:30 AM');
-        broadcast(new TestBroadcast($message));
+        // Get message from request or set a default one
+        $message = $request->input('message', 'Hello, WebSocket!');
 
-        return response()->json(['status' => 'Broadcast triggered', 'message' => $message]);
+        // Trigger the event
+        event(new TestBroadcast($message));
+
+        // Return a response
+        return response()->json(['status' => 'success', 'message' => $message]);
     }
 }

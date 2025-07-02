@@ -21,7 +21,7 @@ use App\Http\Controllers\SoketiTestController;
 Route::post('register', [AuthController::class, 'register']);
 Route::post('login', [AuthController::class, 'login']);
 
-Route::post('/test-broadcast', [SoketiTestController::class, 'trigger']);
+Route::post('/trigger-test-event', [SoketiTestController::class, 'triggerTestEvent']);
 
 // Protected Routes (Require authentication)
 Route::middleware('auth:sanctum')->group(function () {

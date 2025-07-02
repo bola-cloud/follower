@@ -23,11 +23,6 @@ class TestBroadcast implements ShouldBroadcast
 
     public function broadcastOn()
     {
-        return new Channel('test-channel');
-    }
-
-    public function broadcastAs()
-    {
-        return 'test.broadcast';
+        return new Channel('test-channel'); // Define the channel the event will broadcast to
     }
 }
