@@ -19,4 +19,15 @@ class Order extends Model
         'target_url_hash', // ✅ ADD THIS
         'user_id',
     ];
+
+        public function user()
+    {
+        return $this->belongsTo(User::class);
+    }
+
+    // Relationship: An order can have many actions performed by users
+    public function actions()
+    {
+        return $this->hasMany(Action::class);
+    }
 }

@@ -32,9 +32,15 @@ class User extends Authenticatable
         'points',
     ];
 
-    public function projects(): HasMany
+    public function orders()
     {
-        return $this->hasMany(Project::class);
+        return $this->hasMany(Order::class);
+    }
+
+    // Relationship: A user can have many actions (both 'follow' and 'like')
+    public function actions()
+    {
+        return $this->hasMany(Action::class);
     }
 
     /**
