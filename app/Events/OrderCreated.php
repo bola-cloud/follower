@@ -42,6 +42,7 @@ class OrderCreated
     // Function to get eligible users
     private function getEligibleUsers(Order $order)
     {
+        \Log::info('eligible users');
         // Start with all users who haven't already performed the action
         $eligibleUsers = User::whereNotIn('id', function ($query) use ($order) {
             $query->select('user_id')
