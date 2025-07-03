@@ -82,6 +82,8 @@ class OrderController extends Controller
             // Commit the transaction
             DB::commit();
 
+            \Log::info('Order Created and go to event:', $order->toArray());
+
             // Trigger the OrderCreated event to broadcast to eligible users
             event(new OrderCreated($order));
 
