@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
 use App\Models\Order;
+use App\Events\OrderCreated;
 use Throwable;
 
 class OrderController extends Controller
@@ -67,8 +68,19 @@ class OrderController extends Controller
                 'user_id' => $user->id,
             ]);
 
+            // Commit the transaction
             DB::commit();
 
+            // Trigger the OrderCreated event to broadcast to the mobile app
+            event(new OrderCreated($user->id, $data['type'], $targetUrl, $order));
+
+            // Log the data being sent in the event
+            \Log::info('Order Created:', [
+                'user_id' => $user->id,
+                'type' => $data['type'],
+                'target_url' => $targetUrl,
+                'order' => $order,
+            ]);
             return response()->json([
                 'message' => 'Order created successfully.',
                 'order' => $order,
