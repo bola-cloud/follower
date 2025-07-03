@@ -14,6 +14,7 @@ class OrderController extends Controller
 {
     public function store(Request $request)
     {
+        // Validate input
         $validator = Validator::make($request->all(), [
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
@@ -26,7 +27,12 @@ class OrderController extends Controller
         }
 
         $data = $validator->validated();
-        $user = $request->user();
+        $user = $request->user(); // Get authenticated user
+
+        // Check if the user exists (this ensures $user is not null)
+        if (!$user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
 
         $targetUrl = $data['target_url'];
         $targetUrlHash = sha1($targetUrl);
@@ -48,7 +54,7 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
-            // Check user points before proceeding
+            // Check if user has enough points before proceeding
             if ($user->points < $cost) {
                 return response()->json(['error' => 'Insufficient points.'], 403);
             }
@@ -68,11 +74,16 @@ class OrderController extends Controller
                 'user_id' => $user->id,
             ]);
 
+            // Ensure order is created
+            if (!$order) {
+                return response()->json(['error' => 'Failed to create order.'], 500);
+            }
+
             // Commit the transaction
             DB::commit();
 
-            // Trigger the OrderCreated event to broadcast to eligible users (those without 'done' or 'external' status)
-            event(new OrderCreated($order)); // Send the order to the event for broadcasting
+            // Trigger the OrderCreated event to broadcast to eligible users
+            event(new OrderCreated($order));
 
             return response()->json([
                 'message' => 'Order created and event broadcasted.',
@@ -87,6 +98,7 @@ class OrderController extends Controller
             ], 500);
         }
     }
+
 
     public function index(Request $request)
     {
