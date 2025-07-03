@@ -71,18 +71,11 @@ class OrderController extends Controller
             // Commit the transaction
             DB::commit();
 
-            // Trigger the OrderCreated event to broadcast to the mobile app
-            event(new OrderCreated($user->id, $data['type'], $targetUrl, $order));
+            // Trigger the OrderCreated event to broadcast to eligible users (those without 'done' or 'external' status)
+            event(new OrderCreated($order)); // Send the order to the event for broadcasting
 
-            // Log the data being sent in the event
-            \Log::info('Order Created:', [
-                'user_id' => $user->id,
-                'type' => $data['type'],
-                'target_url' => $targetUrl,
-                'order' => $order,
-            ]);
             return response()->json([
-                'message' => 'Order created successfully.',
+                'message' => 'Order created and event broadcasted.',
                 'order' => $order,
             ], 200);
 
