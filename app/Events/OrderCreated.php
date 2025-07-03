@@ -43,27 +43,30 @@ class OrderCreated
     private function getEligibleUsers(Order $order)
     {
         \Log::info('eligible users');
-        // Start with all users who haven't already performed the action
+        
+        // Get the users
         $eligibleUsers = User::whereNotIn('id', function ($query) use ($order) {
             $query->select('user_id')
-                  ->from('actions')
-                  ->where('order_id', $order->id)
-                  ->whereIn('status', ['done', 'external']);
+                ->from('actions')
+                ->where('order_id', $order->id)
+                ->whereIn('status', ['done', 'external']);
         });
 
-        // Get the user who made the order
         $user = $order->user;
 
-        // If the user is a follow, add the related users
         if ($order->type == 'follow') {
-            // Add the user who is being followed to the eligible list
             $eligibleUsers->orWhere(function ($query) use ($user) {
-                $query->where('id', '!=', $user->id); // Exclude the current user
+                $query->where('id', '!=', $user->id);
             });
         }
 
-        return $eligibleUsers->get();
+        // Log how many users are being returned
+        $eligibleUsersList = $eligibleUsers->get();
+        \Log::info('Eligible users count:', ['count' => $eligibleUsersList->count()]);
+
+        return $eligibleUsersList;
     }
+
 
     public function broadcastAs()
     {
