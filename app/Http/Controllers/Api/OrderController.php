@@ -101,7 +101,6 @@ class OrderController extends Controller
         }
     }
 
-
     public function index(Request $request)
     {
         $user = $request->user(); // Automatically retrieved from auth:sanctum middleware
