@@ -38,7 +38,7 @@ class OrderController extends Controller
         $targetUrlHash = sha1($targetUrl);
 
         // Get point cost per action from settings (default = 1)
-        $pointsPerAction = setting("points_per_{$data['type']}", 1);
+        $pointsPerAction = function_exists('setting') ? setting("points_per_{$data['type']}", 1) : 1;
         $cost = $data['cost'] ?? ($data['total_count'] * $pointsPerAction);
 
         // Prevent duplicate active orders from the same user for the same link
@@ -113,5 +113,4 @@ class OrderController extends Controller
             'orders' => $orders,
         ]);
     }
-
 }

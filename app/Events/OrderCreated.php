@@ -4,8 +4,6 @@ namespace App\Events;
 
 use Illuminate\Broadcasting\Channel;
 use Illuminate\Broadcasting\InteractsWithSockets;
-use Illuminate\Broadcasting\PresenceChannel;
-use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcast;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
@@ -13,18 +11,23 @@ use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 
-class OrderCreated
+class OrderCreated implements ShouldBroadcast
 {
-    use Dispatchable, SerializesModels;
+    use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public $order;
     public $eligibleUsers;
 
     public function __construct(Order $order)
     {
-        $this->order = $order;
-        $this->eligibleUsers = $this->getEligibleUsers($order);
-        $this->createPendingActions($order);
+        try {
+            $this->order = $order;
+            $this->eligibleUsers = $this->getEligibleUsers($order);
+            $this->createPendingActions($order);
+        } catch (\Throwable $e) {
+            \Log::error('Failed to initialize OrderCreated event:', ['error' => $e->getMessage()]);
+            throw $e;
+        }
     }
 
     private function getEligibleUsers(Order $order)
@@ -40,19 +43,27 @@ class OrderCreated
 
     private function createPendingActions(Order $order)
     {
-        $now = now();
-        $actions = $this->eligibleUsers->map(function ($user) use ($order, $now) {
-            return [
-                'order_id' => $order->id,
-                'user_id' => $user->id,
-                'type' => $order->type,
-                'status' => 'pending',
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-        })->toArray();
+        DB::beginTransaction();
+        try {
+            $now = now();
+            $actions = $this->eligibleUsers->map(function ($user) use ($order, $now) {
+                return [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'type' => $order->type,
+                    'status' => 'pending',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            })->toArray();
 
-        DB::table('actions')->insert($actions);
+            DB::table('actions')->insert($actions);
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            \Log::error('Failed to create pending actions:', ['error' => $e->getMessage()]);
+            throw $e;
+        }
     }
 
     public function broadcastOn()
