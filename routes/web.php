@@ -26,8 +26,6 @@ Route::group([
     Route::get('/', [\App\Http\Controllers\Admin\Dashboard::class, 'index'])->name('dashboard');
 });
 
-Route::get('/broadcast-test', function () {
-    $message = 'Hello from Soketi!';
-    broadcast(new TestBroadcast($message));
-    return 'Broadcast sent!';
+Route::get('/active-users', function () {
+    return view('active-users');
 });
