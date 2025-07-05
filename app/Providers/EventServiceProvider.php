@@ -18,9 +18,12 @@ class EventServiceProvider extends ServiceProvider
         Registered::class => [
             SendEmailVerificationNotification::class,
         ],
-        'action.response' => [
-        \App\Listeners\HandleActionResponse::class,
-    ],
+        \App\Events\OrderCreated::class => [
+            // Any listeners for OrderCreated
+        ],
+        \App\Events\ActionResponse::class => [
+            \App\Listeners\HandleActionResponse::class,
+        ],
     ];
 
     /**
