@@ -37,6 +37,8 @@ class HandleActionResponse
                     // Check if order is complete
                     if ($order->done_count >= $order->total_count) {
                         $order->update(['status' => 'completed']);
+                        // Broadcast completion to order creator
+                        event(new \App\Events\OrderCompleted($order));
                     }
                 }
             }

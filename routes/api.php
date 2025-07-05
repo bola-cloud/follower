@@ -23,7 +23,8 @@ Broadcast::routes(['middleware' => ['auth:sanctum']]);
 Route::post('register', [AuthController::class, 'register']);
 Route::post('login', [AuthController::class, 'login']);
 
-Route::post('/trigger-test-event', [SoketiTestController::class, 'triggerTestEvent']);
+Route::post('/trigger-test-order', [SoketiTestController::class, 'triggerTestOrder']);
+Route::post('/trigger-test-response', [SoketiTestController::class, 'triggerTestResponse']);
 
 // Protected Routes (Require authentication)
 Route::middleware('auth:sanctum')->group(function () {
