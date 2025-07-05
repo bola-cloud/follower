@@ -19,3 +19,6 @@ Broadcast::channel('App.Models.User.{id}', function ($user, $id) {
 Broadcast::channel('actions.{user_id}', function ($user, $userId) {
     return $user->id == $userId;
 });
+Broadcast::channel('presence.active.users', function ($user) {
+    return ['id' => $user->id, 'name' => $user->name];
+});

@@ -32,11 +32,9 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
     Route::post('/orders', [OrderController::class, 'store']);
-    Route::get('/orders', [\App\Http\Controllers\Api\OrderController::class, 'index']);
-
+    Route::get('/orders', [OrderController::class, 'index']);
+    Route::post('/orders/{orderId}/complete', [OrderController::class, 'complete']);
     Route::get('/settings', [SettingController::class, 'index']);
-
-    // Logout route
     Route::post('logout', [AuthController::class, 'logout']);
 });
 

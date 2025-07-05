@@ -37,7 +37,6 @@ class OrderCreated implements ShouldBroadcast
                   ->where('order_id', $order->id)
                   ->whereIn('status', ['done', 'external']);
             })
-            ->where('id', '!=', $order->user_id)
             ->get();
     }
 
