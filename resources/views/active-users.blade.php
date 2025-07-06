@@ -24,7 +24,7 @@
                 url: '/api/active-users-count',
                 method: 'GET',
                 headers: {
-                    'Authorization': 'Bearer {{ auth()->check() ? auth()->user()->createToken('auth_token')->plainTextToken : '' }}',
+                    // 'Authorization': 'Bearer {{ auth()->check() ? auth()->user()->createToken('auth_token')->plainTextToken : '' }}',
                     'Accept': 'application/json'
                 },
                 success: function(response) {
