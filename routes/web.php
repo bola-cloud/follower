@@ -26,6 +26,6 @@ Route::group([
     Route::get('/', [\App\Http\Controllers\Admin\Dashboard::class, 'index'])->name('dashboard');
 });
 
-Route::get('/admin-active', function () {
+Route::get('/dashboard', function () {
     return view('dashboard');
 });
