@@ -74,20 +74,29 @@ class SoketiTestController extends Controller
     public function getActiveUsersCount(Request $request)
     {
         try {
-            // Query Soketi's server API for presence channel members
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . env('PUSHER_APP_SECRET'),
             ])->get('http://127.0.0.1:6001/api/channels/presence.active.users');
 
             if ($response->failed()) {
-                Log::error('Failed to fetch active users from Soketi:', ['error' => $response->body()]);
-                return response()->json(['error' => 'Failed to fetch active users count.'], 500);
+                $errorDetails = $response->json() ?? $response->body();
+                Log::error('Failed to fetch active users from Soketi:', [
+                    'status' => $response->status(),
+                    'body' => $errorDetails,
+                ]);
+                return response()->json([
+                    'error' => 'Failed to fetch active users count.',
+                    'details' => $errorDetails,
+                ], 500);
             }
 
             $data = $response->json();
             $count = $data['count'] ?? 0;
 
-            Log::info('Active users count requested:', ['count' => $count, 'user_id' => $request->user()?->id]);
+            Log::info('Active users count retrieved:', [
+                'count' => $count,
+                'user_id' => $request->user()?->id,
+            ]);
 
             return response()->json([
                 'message' => 'Active users count retrieved.',
@@ -95,7 +104,10 @@ class SoketiTestController extends Controller
             ], 200);
         } catch (\Throwable $e) {
             Log::error('Failed to fetch active users count:', ['error' => $e->getMessage()]);
-            return response()->json(['error' => 'Failed to fetch active users count.', 'details' => $e->getMessage()], 500);
+            return response()->json([
+                'error' => 'Failed to fetch active users count.',
+                'details' => $e->getMessage(),
+            ], 500);
         }
     }
 }
