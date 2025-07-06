@@ -76,17 +76,19 @@ class SoketiTestController extends Controller
         try {
             $response = Http::withHeaders([
                 'Authorization' => 'Bearer ' . env('PUSHER_APP_SECRET'),
-            ])->get('http://127.0.0.1:6001/api/channels/presence.active.users');
+            ])->timeout(5)->get('http://127.0.0.1:6001/api/channels/presence.active.users');
 
             if ($response->failed()) {
                 $errorDetails = $response->json() ?? $response->body();
                 Log::error('Failed to fetch active users from Soketi:', [
                     'status' => $response->status(),
                     'body' => $errorDetails,
+                    'headers' => $response->headers(),
+                    'url' => 'http://127.0.0.1:6001/api/channels/presence.active.users',
                 ]);
                 return response()->json([
                     'error' => 'Failed to fetch active users count.',
-                    'details' => $errorDetails,
+                    'details' => 'Soketi API returned ' . $response->status() . ': ' . ($errorDetails ?: 'No response body. Check Soketi server API configuration.'),
                 ], 500);
             }
 
@@ -103,7 +105,10 @@ class SoketiTestController extends Controller
                 'active_users_count' => $count,
             ], 200);
         } catch (\Throwable $e) {
-            Log::error('Failed to fetch active users count:', ['error' => $e->getMessage()]);
+            Log::error('Failed to fetch active users count:', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ]);
             return response()->json([
                 'error' => 'Failed to fetch active users count.',
                 'details' => $e->getMessage(),

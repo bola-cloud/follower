@@ -34,7 +34,7 @@
                 error: function(xhr) {
                     console.error('Failed to fetch active users count:', xhr.responseText);
                     $('#activeUsersCount').text('Error');
-                    $('#error').text('Failed to load active users: ' + (xhr.responseJSON?.error || 'Unknown error')).removeClass('hidden');
+                    $('#error').text('Failed to load active users: ' + (xhr.responseJSON?.details || 'Unknown error')).removeClass('hidden');
                 }
             });
         }
