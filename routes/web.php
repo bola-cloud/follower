@@ -27,5 +27,5 @@ Route::group([
 });
 
 Route::get('/active', function () {
-    return view('dashboard');
+    return view('active-users');
 });
