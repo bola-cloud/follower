@@ -24,7 +24,7 @@
                 url: '/api/active-users-count',
                 method: 'GET',
                 headers: {
-                    // 'Authorization': 'Bearer {{ auth()->check() ? auth()->user()->createToken('auth_token')->plainTextToken : '' }}',
+                    'Authorization': 'Bearer 1|9WoJt8nVp2sjNCc6nsJKHNUL5hv7nLVPbswtU2Ywe3f05add',
                     'Accept': 'application/json'
                 },
                 success: function(response) {
@@ -34,7 +34,7 @@
                 error: function(xhr) {
                     console.error('Failed to fetch active users count:', xhr.responseText);
                     $('#activeUsersCount').text('Error');
-                    $('#error').text('Failed to load active users: ' + (xhr.responseJSON?.details || 'Unknown error')).removeClass('hidden');
+                    $('#error').text('Failed to load active users: ' + (xhr.responseJSON?.details || xhr.responseJSON?.message || 'Unknown error')).removeClass('hidden');
                 }
             });
         }
@@ -45,5 +45,7 @@
         // Refresh every 10 seconds
         setInterval(fetchActiveUsersCount, 10000);
     </script>
+
+
 </body>
 </html>
