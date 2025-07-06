@@ -57,3 +57,4 @@ Route::get('/api/active-users-count', function () {
         'active_users_count' => $count
     ]);
 });
+Route::get('/test-active', fn () => view('test-active'));
