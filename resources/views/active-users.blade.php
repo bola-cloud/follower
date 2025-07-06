@@ -1,59 +1,49 @@
 <!DOCTYPE html>
-  <html>
-  <head>
-      <title>Active Users</title>
-      <script src="https://js.pusher.com/8.2/pusher.min.js"></script>
-      <style>
-          .user-list { margin: 20px; }
-          .user { padding: 10px; border-bottom: 1px solid #ccc; }
-      </style>
-  </head>
-  <body>
-      <h1>Active Users</h1>
-      <div class="user-list" id="userList"></div>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+</head>
+<body class="bg-gray-100">
+    <div class="container mx-auto p-4">
+        <h1 class="text-2xl font-bold mb-4">Admin Dashboard</h1>
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div class="bg-white p-6 rounded-lg shadow-md">
+                <h2 class="text-lg font-semibold text-gray-700">Active Users</h2>
+                <p id="activeUsersCount" class="text-3xl font-bold text-blue-600">0</p>
+                <p id="error" class="text-sm text-red-500 hidden"></p>
+                <p class="text-sm text-gray-500">Users currently online</p>
+            </div>
+        </div>
+    </div>
 
-      <script>
-          // Initialize Pusher
-          const pusher = new Pusher('{{ env('PUSHER_APP_KEY') }}', {
-              wsHost: '127.0.0.1',
-              wsPort: 6001,
-              forceTLS: false,
-              disableStats: true,
-              authEndpoint: '/api/broadcasting/auth',
-              auth: {
-                  headers: {
-                      'Authorization': 'Bearer {{ auth()->check() ? auth()->user()->createToken('auth_token')->plainTextToken : '' }}'
-                  }
-              }
-          });
+    <script>
+        function fetchActiveUsersCount() {
+            $.ajax({
+                url: '/api/active-users-count',
+                method: 'GET',
+                headers: {
+                    'Authorization': 'Bearer {{ auth()->check() ? auth()->user()->createToken('auth_token')->plainTextToken : '' }}',
+                    'Accept': 'application/json'
+                },
+                success: function(response) {
+                    $('#activeUsersCount').text(response.active_users_count);
+                    $('#error').addClass('hidden');
+                },
+                error: function(xhr) {
+                    console.error('Failed to fetch active users count:', xhr.responseText);
+                    $('#activeUsersCount').text('Error');
+                    $('#error').text('Failed to load active users: ' + (xhr.responseJSON?.error || 'Unknown error')).removeClass('hidden');
+                }
+            });
+        }
 
-          // Subscribe to presence channel
-          const channel = pusher.subscribe('presence.active.users');
+        // Fetch count on page load
+        fetchActiveUsersCount();
 
-          // Update user list
-          function updateUserList(members) {
-              const userList = document.getElementById('userList');
-              userList.innerHTML = '';
-              Object.values(members).forEach(member => {
-                  const div = document.createElement('div');
-                  div.className = 'user';
-                  div.textContent = `User: ${member.name} (ID: ${member.id})`;
-                  userList.appendChild(div);
-              });
-          }
-
-          // Bind to presence events
-          channel.bind('pusher:subscription_succeeded', (members) => {
-              updateUserList(members.members);
-          });
-
-          channel.bind('pusher:member_added', (member) => {
-              updateUserList(channel.members.members);
-          });
-
-          channel.bind('pusher:member_removed', (member) => {
-              updateUserList(channel.members.members);
-          });
-      </script>
-  </body>
-  </html>
+        // Refresh every 10 seconds
+        setInterval(fetchActiveUsersCount, 10000);
+    </script>
+</body>
+</html>
