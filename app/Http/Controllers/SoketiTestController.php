@@ -9,25 +9,18 @@ use App\Events\ActionResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Http;
 
 class SoketiTestController extends Controller
 {
-    /**
-     * Trigger a test OrderCreated event.
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function triggerTestOrder(Request $request)
     {
         try {
-            // Get an authenticated user or use a test user
-            $user = $request->user() ?? User::find(1); // Fallback to user ID 1 for testing
+            $user = $request->user() ?? User::find(1);
             if (!$user) {
                 return response()->json(['error' => 'No authenticated user or test user found.'], 401);
             }
 
-            // Create a test order
             $order = Order::create([
                 'type' => 'follow',
                 'total_count' => 10,
@@ -39,7 +32,6 @@ class SoketiTestController extends Controller
                 'user_id' => $user->id,
             ]);
 
-            // Trigger OrderCreated event
             event(new OrderCreated($order));
 
             return response()->json([
@@ -47,17 +39,11 @@ class SoketiTestController extends Controller
                 'order' => $order,
             ], 200);
         } catch (\Throwable $e) {
-            Log::error('Failed to trigger test order:', ['error' => $e->getMessage()]);
+            Log::error('Test order failed:', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Failed to trigger test order.', 'details' => $e->getMessage()], 500);
         }
     }
 
-    /**
-     * Simulate an ActionResponse event.
-     *
-     * @param Request $request
-     * @return \Illuminate\Http\JsonResponse
-     */
     public function triggerTestResponse(Request $request)
     {
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
@@ -73,7 +59,6 @@ class SoketiTestController extends Controller
         $payload = $validator->validated();
 
         try {
-            // Trigger ActionResponse event
             event(new ActionResponse($payload));
 
             return response()->json([
@@ -81,8 +66,36 @@ class SoketiTestController extends Controller
                 'payload' => $payload,
             ], 200);
         } catch (\Throwable $e) {
-            Log::error('Failed to trigger test response:', ['error' => $e->getMessage()]);
+            Log::error('Test response failed:', ['error' => $e->getMessage()]);
             return response()->json(['error' => 'Failed to trigger test response.', 'details' => $e->getMessage()], 500);
+        }
+    }
+
+    public function getActiveUsersCount(Request $request)
+    {
+        try {
+            // Query Soketi's server API for presence channel members
+            $response = Http::withHeaders([
+                'Authorization' => 'Bearer ' . env('PUSHER_APP_SECRET'),
+            ])->get('http://127.0.0.1:6001/api/channels/presence.active.users');
+
+            if ($response->failed()) {
+                Log::error('Failed to fetch active users from Soketi:', ['error' => $response->body()]);
+                return response()->json(['error' => 'Failed to fetch active users count.'], 500);
+            }
+
+            $data = $response->json();
+            $count = $data['count'] ?? 0;
+
+            Log::info('Active users count requested:', ['count' => $count, 'user_id' => $request->user()?->id]);
+
+            return response()->json([
+                'message' => 'Active users count retrieved.',
+                'active_users_count' => $count,
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Failed to fetch active users count:', ['error' => $e->getMessage()]);
+            return response()->json(['error' => 'Failed to fetch active users count.', 'details' => $e->getMessage()], 500);
         }
     }
 }

@@ -36,6 +36,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders/{orderId}/complete', [OrderController::class, 'complete']);
     Route::get('/settings', [SettingController::class, 'index']);
     Route::post('logout', [AuthController::class, 'logout']);
+    Route::get('/active-users-count', [SoketiTestController::class, 'getActiveUsersCount']);
 });
 
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
