@@ -59,23 +59,31 @@ Route::get('/api/active-users-count', function () {
 });
 Route::get('/test-active', fn () => view('test-active'));
 
-
-Route::get('/api/mobile-active-count', function () {
+Route::get('/api/active-users-count', function () {
     $appId = config('broadcasting.connections.pusher.app_id');
     $apiToken = env('SOKETI_SERVER_API_TOKEN');
 
-    $response = Http::withToken($apiToken)
-        ->get("http://127.0.0.1:6001/api/v1/apps/{$appId}/channels/presence.active.users");
+    $response = \Illuminate\Support\Facades\Http::withToken($apiToken)
+        ->get("http://127.0.0.1:6001/api/v1/apps/{$appId}/channels/presence-mobile-active");
 
-    if ($response->failed()) {
-        return response()->json(['active' => false, 'error' => 'Failed to fetch'], 500);
+    if ($response->status() === 404) {
+        return response()->json([
+            'active_users_count' => 0
+        ]);
     }
 
-    $data = $response->json();
-    $count = $data['subscription_count'] ?? 0;
+    if ($response->failed()) {
+        return response()->json([
+            'error' => 'Failed to fetch active users count.',
+            'details' => $response->body()
+        ], 500);
+    }
+
+    $channel = $response->json();
+    $count = $channel['subscription_count'] ?? 0;
 
     return response()->json([
-        'active_clients' => $count,
-        'active' => $count > 0,
+        'active_users_count' => $count
     ]);
 });
+
