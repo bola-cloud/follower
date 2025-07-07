@@ -64,7 +64,7 @@ Route::get('/api/active-users-count', function () {
     $apiToken = env('SOKETI_SERVER_API_TOKEN');
 
     $response = \Illuminate\Support\Facades\Http::withToken($apiToken)
-        ->get("http://127.0.0.1:6001/api/v1/apps/{$appId}/channels/presence-mobile-active");
+        ->get("http://127.0.0.1:6001/api/v1/apps/{$appId}/channels/presence.active.users");
 
     if ($response->status() === 404) {
         return response()->json([
