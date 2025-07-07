@@ -2,33 +2,56 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Test Active User</title>
+<title>Presence Active Users Test</title>
 <script src="https://js.pusher.com/7.2/pusher.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/laravel-echo/dist/echo.iife.js"></script>
 </head>
 <body>
-<h1>Simulating Active User…</h1>
+<h1>Testing Presence Channel: presence-active-users</h1>
+
+<div id="log" style="background:#eee;padding:1em;margin-top:1em;"></div>
 
 <script>
-const Echo = new window.Echo({
+const log = (msg) => {
+    const div = document.getElementById('log');
+    div.innerHTML += `<p>${msg}</p>`;
+    console.log(msg);
+};
+
+// 🔷 Laravel user API token
+const userToken = '1|9WoJt8nVp2sjNCc6nsJKHNUL5hv7nLVPbswtU2Ywe3f05add';
+
+const echo = new Echo({
     broadcaster: 'pusher',
-    key: '{{ env('PUSHER_APP_KEY') }}',
-    wsHost: '{{ env('PUSHER_HOST') }}',
-    wsPort: {{ env('PUSHER_PORT') }},
+    key: 'localkey123',
+    wsHost: 'egfollow.com',
+    wsPort: 6001,
     forceTLS: false,
     disableStats: true,
-    authEndpoint: '/broadcasting/auth',
+    authEndpoint: 'https://egfollow.com/broadcasting/auth',
     auth: {
         headers: {
-            Authorization: 'Bearer {{ auth()->check() ? auth()->user()->createToken("auth_token")->plainTextToken : "" }}'
+            Authorization: `Bearer ${userToken}`
         }
     }
 });
 
-Echo.join('presence-active-users')
-    .here(users => console.log('Current users:', users))
-    .joining(user => console.log('User joined:', user))
-    .leaving(user => console.log('User left:', user));
+log('Connecting to Soketi and joining presence-active-users…');
+
+echo.join('presence-active-users')
+    .here(users => {
+        log(`Currently online: ${users.length}`);
+        users.forEach(u => log(`- ${u.name} (ID: ${u.id})`));
+    })
+    .joining(user => {
+        log(`User joined: ${user.name} (ID: ${user.id})`);
+    })
+    .leaving(user => {
+        log(`User left: ${user.name} (ID: ${user.id})`);
+    })
+    .error(error => {
+        log(`Error: ${error}`);
+    });
 </script>
 </body>
 </html>
