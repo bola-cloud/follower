@@ -65,7 +65,7 @@ Route::get('/api/mobile-active-count', function () {
     $apiToken = env('SOKETI_SERVER_API_TOKEN');
 
     $response = Http::withToken($apiToken)
-        ->get("http://127.0.0.1:6001/api/v1/apps/{$appId}/channels/presence-mobile-active");
+        ->get("http://127.0.0.1:6001/api/v1/apps/{$appId}/channels/presence.active.users");
 
     if ($response->failed()) {
         return response()->json(['active' => false, 'error' => 'Failed to fetch'], 500);
