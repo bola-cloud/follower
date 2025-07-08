@@ -19,5 +19,24 @@
             </div>
         </div>
     </div>
+
+    <script src="https://js.pusher.com/7.2/pusher.min.js"></script>
+    <script>
+        Pusher.logToConsole = true;
+
+        const pusher = new Pusher('local', {
+            wsHost: window.location.hostname,
+            wsPort: 6001,
+            forceTLS: false,
+            cluster: 'mt1',
+            enabledTransports: ['ws', 'wss'],
+        });
+
+        const channel = pusher.subscribe('test-channel');
+        channel.bind('test-event', function(data) {
+            console.log('Received test event:', data);
+        });
+    </script>
+
 </body>
 </html>
