@@ -1,0 +1,21 @@
+{
+    "port": 6001,
+    "host": "0.0.0.0",
+    "ssl": {
+        "key": "/etc/nginx/ssl-certificates/egfollow.com.key",
+        "cert": "/etc/nginx/ssl-certificates/egfollow.com.crt"
+    },
+    "appManager": {
+        "driver": "array",
+        "apps": [
+            {
+                "id": "egfollow-app",
+                "key": "egfollow-key",
+                "secret": "egfollow-secret",
+                "maxConnections": -1,
+                "enableClientMessages": true,
+                "enabled": true
+            }
+        ]
+    }
+}

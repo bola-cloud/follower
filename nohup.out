@@ -1,0 +1,26 @@
+PHP Deprecated:  Ratchet\WebSocket\WsServer::onOpen(): Implicitly marking parameter $request as nullable is deprecated, the explicit nullable type must be used instead in /home/egfollow/htdocs/egfollow.com/vendor/cboden/ratchet/src/Ratchet/WebSocket/WsServer.php on line 107
+PHP Deprecated:  Ratchet\Http\HttpServerInterface::onOpen(): Implicitly marking parameter $request as nullable is deprecated, the explicit nullable type must be used instead in /home/egfollow/htdocs/egfollow.com/vendor/cboden/ratchet/src/Ratchet/Http/HttpServerInterface.php on line 13
+PHP Deprecated:  Ratchet\RFC6455\Messaging\Frame::__construct(): Implicitly marking parameter $ufExceptionFactory as nullable is deprecated, the explicit nullable type must be used instead in /home/egfollow/htdocs/egfollow.com/vendor/ratchet/rfc6455/src/Messaging/Frame.php on line 76
+PHP Deprecated:  BeyondCode\LaravelWebSockets\HttpApi\Controllers\Controller::onOpen(): Implicitly marking parameter $request as nullable is deprecated, the explicit nullable type must be used instead in /home/egfollow/htdocs/egfollow.com/vendor/beyondcode/laravel-websockets/src/HttpApi/Controllers/Controller.php on line 42
+Starting the WebSocket server on port 6001...
+
+   RuntimeException 
+
+  Failed to listen on "tcp://0.0.0.0:6001": Address already in use (EADDRINUSE)
+
+  at vendor/react/socket/src/TcpServer.php:188
+    184▕                 // @link https://3v4l.org/3qOBl
+    185▕                 $errno = SocketServer::errno($errstr);
+    186▕             }
+    187▕ 
+  ➜ 188▕             throw new \RuntimeException(
+    189▕                 'Failed to listen on "' . $uri . '": ' . $errstr . SocketServer::errconst($errno),
+    190▕                 $errno
+    191▕             );
+    192▕         }
+
+      [2m+16 vendor frames [22m
+
+  17  artisan:35
+      Illuminate\Foundation\Console\Kernel::handle()
+
