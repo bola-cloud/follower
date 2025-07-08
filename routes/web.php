@@ -25,7 +25,7 @@ Route::group([
 ], function () {
     Route::get('/', [\App\Http\Controllers\Admin\Dashboard::class, 'index'])->name('dashboard');
 });
-
+Route::get('/active-users', [\App\Http\Controllers\DashboardController::class, 'index'])->name('actives');
 Route::get('/active', function () {
     return view('active-users');
 });
