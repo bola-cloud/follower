@@ -17,9 +17,9 @@ class DashboardController extends Controller
             $data = $response->json();
             $activeConnections = $data['peak_connection_count'] ?? 0;
 
-            return view('dashboard.active-users', compact('activeConnections'));
+            return view('test-active', compact('activeConnections'));
         }
 
-        return view('dashboard.active-users', ['activeConnections' => 0]);
+        return view('test-active', ['activeConnections' => 0]);
     }
 }
