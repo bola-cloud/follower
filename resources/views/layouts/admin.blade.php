@@ -182,13 +182,30 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.6.0/jquery.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/sortablejs@1.13.0/Sortable.min.js"></script>
+    <script src="https://js.pusher.com/7.2/pusher.min.js"></script>
+    <script>
+        Pusher.logToConsole = true;
+
+        const pusher = new Pusher('localkey123', {
+            wsHost: '127.0.0.1',
+            wsPort: 6001,
+            forceTLS: false,
+            cluster: 'mt1',
+            enabledTransports: ['ws', 'wss'],
+        });
+
+        const channel = pusher.subscribe('your-channel-name');
+        channel.bind('YourEventName', function(data) {
+            console.log('Received event:', data);
+        });
+    </script>
 
     <script>
         document.addEventListener('livewire:load', function () {
             let sortableList = document.getElementById('sortable-list');
             let confirmButton = document.getElementById('confirm-order-btn');
             let updatedOrder = [];
-    
+
             // Ensure that the sortableList exists in the DOM
             if (sortableList) {
                 // Initialize SortableJS manually
@@ -198,18 +215,18 @@
                     onEnd: function (event) {
                         // Capture the new order
                         updatedOrder = Array.from(event.target.children).map((el, index) => el.getAttribute('wire:sortable.item'));
-    
+
                         // Show the confirm button
                         confirmButton.style.display = 'block';
                     }
                 });
             }
-    
+
             // Handle the confirm button click
             confirmButton.addEventListener('click', function () {
                 // Emit the Livewire event with the updated order
                 Livewire.emit('updateOrder', updatedOrder);
-    
+
                 // Hide the confirm button after order is confirmed
                 confirmButton.style.display = 'none';
             });
