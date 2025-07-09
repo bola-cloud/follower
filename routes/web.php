@@ -25,10 +25,11 @@ Route::group([
         'auth:sanctum',
         config('jetstream.auth_session'),
         'verified',
-        'admin', // تأكد أن المستخدم مدير
+        'admin',
     ]
 ], function () {
     Route::get('/', 'Dashboard@index')->name('dashboard');
+
     Route::prefix('admin/users')->group(function () {
         Route::get('/', 'AdminUserController@index')->name('users.index');
         Route::get('/create', 'AdminUserController@create')->name('users.create');
@@ -37,10 +38,19 @@ Route::group([
         Route::put('/{user}', 'AdminUserController@update')->name('users.update');
         Route::delete('/{user}', 'AdminUserController@destroy')->name('users.destroy');
     });
-    // Only index for normal users
+
     Route::get('/users', 'UserController@index')->name('normal_users.index');
     Route::get('/users/{user}/orders', 'UserController@orders')->name('normal_users.orders');
+
+    // Admin orders management
+    Route::prefix('orders')->group(function () {
+        Route::get('/', 'OrderController@index')->name('orders.index');
+        Route::get('/create', 'OrderController@create')->name('orders.create');
+        Route::post('/', 'OrderController@store')->name('orders.store');
+        Route::post('/{order}/complete', 'OrderController@complete')->name('orders.complete');
+    });
 });
+
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
 
 Route::get('/active', function () {

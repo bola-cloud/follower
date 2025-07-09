@@ -129,6 +129,17 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
                 </ul>
             </li>
 
+            <li class=" nav-item"><a href="#"><i class="la la-envelope"></i><span class="menu-title" data-i18n="nav.dash.main"> المستخدمين والمدراء </a>
+                <ul class="menu-content">
+                    <li class="{{ Route::currentRouteName() == 'admin.orders.index' ? 'active':'' }} ">
+                        <a class="menu-item" href="{{route('admin.orders.index')}}" data-i18n="nav.dash.ecommerce"> عرض الطلبات </a>
+                    </li>
+                    <li class="{{ Route::currentRouteName() == 'admin.orders.create' ? 'active':'' }} ">
+                        <a class="menu-item" href="{{route('admin.orders.create')}}" data-i18n="nav.dash.crypto"> اضافة طلب </a>
+                    </li>
+                </ul>
+            </li>
+
         </ul>
     </div>
 </div>
