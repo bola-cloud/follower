@@ -36,6 +36,10 @@ class SettingsTableSeeder extends Seeder
                 'key' => 'build_number',
                 'value' => '1001',
             ],
+            [
+                'key' => 'added_points',
+                'value' => '50',
+            ],
         ];
 
         foreach ($settings as $setting) {

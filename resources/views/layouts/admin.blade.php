@@ -111,6 +111,10 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
     <div class="main-menu-content">
         <ul class="navigation navigation-main" id="main-menu-navigation" data-menu="menu-navigation">
 
+            <li class="{{ Route::currentRouteName() == 'dashboard' ? 'active':'' }} nav-item">
+                <a href="{{route('admin.dashboard')}}"><i class="la la-home"></i><span class="menu-title" data-i18n="">لوحة التحكم</span></a>
+            </li>
+
             <li class=" nav-item"><a href="#"><i class="la la-envelope"></i><span class="menu-title" data-i18n="nav.dash.main"> المستخدمين والمدراء </a>
                 <ul class="menu-content">
                     <li class="{{ Route::currentRouteName() == 'admin.users.index' ? 'active':'' }} ">

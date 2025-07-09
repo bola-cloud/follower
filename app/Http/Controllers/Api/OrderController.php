@@ -79,6 +79,9 @@ class OrderController extends Controller
             if (!$order) {
                 return response()->json(['error' => 'Failed to create order.'], 500);
             }
+            if ($user->points === 0) {
+                \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
+            }
 
             // Commit the transaction
             DB::commit();
