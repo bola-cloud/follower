@@ -27,7 +27,7 @@ return [
             'name' => env('APP_NAME', 'Laravel'),
             'key' => env('PUSHER_APP_KEY', 'localkey123'),
             'secret' => env('PUSHER_APP_SECRET', 'localsecret123'),
-            'path' => env('PUSHER_APP_PATH'),
+            'path' => '/app/localkey123', // Match the Pusher client's expected path
             'capacity' => null,
             'enable_client_messages' => false,
             'enable_statistics' => true,
@@ -114,16 +114,9 @@ return [
      * You can see all available options at: http://php.net/manual/en/context.ssl.php
      */
     'ssl' => [
-        /*
-         * Path to local certificate file on filesystem. It must be a PEM encoded file which
-         * contains your certificate and private key. It can optionally contain the
-         * certificate chain of issuers. The private key also may be contained
-         * in a separate file specified by local_pk.
-         */
         'local_cert' => '/etc/letsencrypt/live/egfollow.com/fullchain.pem',
         'local_pk' => '/etc/letsencrypt/live/egfollow.com/privkey.pem',
         'passphrase' => null,
-        
     ],
 
     /*

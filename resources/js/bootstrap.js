@@ -29,5 +29,5 @@ window.Echo = new Echo({
     wssPort: import.meta.env.VITE_PUSHER_PORT ?? 443,
     wsPath: import.meta.env.VITE_PUSHER_APP_PATH ?? '/', // Should be empty or removed
     forceTLS: (import.meta.env.VITE_PUSHER_SCHEME ?? 'https') === 'https',
-    enabledTransports: ['ws', 'wss'],
+    enabledTransports: ['ws'],
 });
