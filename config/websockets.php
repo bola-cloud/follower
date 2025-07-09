@@ -23,10 +23,10 @@ return [
      */
     'apps' => [
         [
-            'id' => env('PUSHER_APP_ID'),
-            'name' => env('APP_NAME'),
-            'key' => env('PUSHER_APP_KEY'),
-            'secret' => env('PUSHER_APP_SECRET'),
+            'id' => env('PUSHER_APP_ID', 'local'),
+            'name' => env('APP_NAME', 'Laravel'),
+            'key' => env('PUSHER_APP_KEY', 'localkey123'),
+            'secret' => env('PUSHER_APP_SECRET', 'localsecret123'),
             'path' => env('PUSHER_APP_PATH'),
             'capacity' => null,
             'enable_client_messages' => false,
