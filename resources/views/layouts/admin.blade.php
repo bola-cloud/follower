@@ -4,7 +4,7 @@
   <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui">
-  <title> sketo</title>
+  <title> EG Followers</title>
    <link rel="shortcut icon" type="image/x-icon" href="{{asset('logo.png')}}">
    <link rel="icon" type="image/x-icon" href="{{asset('logo.png')}}">
 
@@ -69,7 +69,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
           <li class="nav-item mr-auto">
             <a class="navbar-brand" href="{{route('dashboard')}}">
               <img class="brand-logo"  src="{{asset('logo.png')}}">
-              <h3 class="brand-text">sketo </h3>
+              <h3 class="brand-text">EG Followers </h3>
             </a>
           </li>
           <li class="nav-item d-none d-md-block float-right"><a class="nav-link modern-nav-toggle pr-0" data-toggle="collapse"><i class="toggle-icon ft-toggle-right font-medium-3 white" data-ticon="ft-toggle-right"></i></a></li>

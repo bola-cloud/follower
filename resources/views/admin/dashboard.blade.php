@@ -151,3 +151,8 @@
     </div>
 
 @endsection
+
+@push('scripts')
+    <script src="{{asset('assets/js/flatpickr.js')}}"></script>
+    <script src="{{asset('assets/js/jquery.js')}}"></script>
+@endpush
