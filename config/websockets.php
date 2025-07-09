@@ -27,7 +27,7 @@ return [
             'name' => env('APP_NAME', 'Laravel'),
             'key' => env('PUSHER_APP_KEY', 'localkey123'),
             'secret' => env('PUSHER_APP_SECRET', 'localsecret123'),
-            'path' => '/app/localkey123', // Match the Pusher client's expected path
+            'path' => '', 
             'capacity' => null,
             'enable_client_messages' => false,
             'enable_statistics' => true,
