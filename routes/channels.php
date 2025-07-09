@@ -14,7 +14,7 @@ Broadcast::channel('actions.{user_id}', function ($user, $userId) {
 //     return $user ? ['id' => $user->id, 'name' => $user->name] : false;
 // });
 
-Broadcast::channel('presence-active-users', function ($user) {
+Broadcast::channel('presence-active-users', function ($user, $id) {
     if ($user) {
         return [
             'id' => $user->id,
@@ -22,8 +22,11 @@ Broadcast::channel('presence-active-users', function ($user) {
         ];
     }
 
+    // Get guestId from header
+    $guestId = request()->header('X-Guest-Id', uniqid());
+
     return [
-        'id' => uniqid(),
+        'id' => $guestId,
         'name' => 'Guest'
     ];
 });
