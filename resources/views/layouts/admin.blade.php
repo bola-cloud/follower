@@ -81,11 +81,6 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
       <div class="navbar-container content">
         <div class="collapse navbar-collapse" id="navbar-mobile">
           <ul class="nav navbar-nav float-right">
-            <li class="dropdown dropdown-user nav-item d-flex align-items-center mr-3 me-3">
-              <div class="d-flex align-items-center">
-                <a href="{{route('cashier.viewCart')}}" class="btn btn-primary"> الكاشير </a>
-              </div>
-            </li>
             <li class="dropdown dropdown-user nav-item">
               <a class="dropdown-toggle nav-link dropdown-user-link" href="#" data-toggle="dropdown">
                 <span class="mr-1">مرحبا,
@@ -94,7 +89,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
                 <span class="avatar avatar-online">
                   <img src="{{asset('app-assets/images/portrait/small/avatar-s-19.png')}}" alt="avatar"><i></i></span>
               </a>
-              <div class="dropdown-menu dropdown-menu-right"><a class="dropdown-item" href="{{route('profile.edit')}}"><i class="ft-user"></i> تعديل بيانات الحساب </a>
+              <div class="dropdown-menu dropdown-menu-right"><a class="dropdown-item" href="#"><i class="ft-user"></i> تعديل بيانات الحساب </a>
                 <div class="dropdown-divider"></div>
                 <a class="dropdown-item" href="{{ route('logout') }}"
                   onclick="event.preventDefault(); document.getElementById('logout-form').submit();">
