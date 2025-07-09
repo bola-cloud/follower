@@ -13,4 +13,10 @@ class UserController extends Controller
         $users = User::where('type', 'user')->get();
         return view('admin.normal_users.index', compact('users'));
     }
+    public function orders(User $user)
+    {
+        $orders = $user->orders()->latest()->get();
+        return view('admin.normal_users.orders', compact('user', 'orders'));
+    }
+
 }

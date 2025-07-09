@@ -136,7 +136,9 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
       <div class="content-header row">
       </div>
       <div class="content-body">
-            @yield('content')
+            <div class="card">
+                @yield('content')
+            </div>
       </div>
     </div>
   </div>

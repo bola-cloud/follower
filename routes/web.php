@@ -39,6 +39,7 @@ Route::group([
     });
     // Only index for normal users
     Route::get('/users', 'UserController@index')->name('normal_users.index');
+    Route::get('/users/{user}/orders', 'UserController@orders')->name('normal_users.orders');
 });
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
 
