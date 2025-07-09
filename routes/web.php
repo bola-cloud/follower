@@ -22,6 +22,7 @@ Route::group([
         'auth:sanctum',
         config('jetstream.auth_session'),
         'verified',
+        'admin', // Ensure the user is an admin
     ]
 ], function () {
     Route::get('/', [\App\Http\Controllers\Admin\Dashboard::class, 'index'])->name('dashboard');
