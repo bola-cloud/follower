@@ -19,11 +19,12 @@
     <script>
         Pusher.logToConsole = true;
         const pusher = new Pusher('localkey123', {
-            wsHost: '127.0.0.1', // Explicitly set to 127.0.0.1
+            wsHost: '127.0.0.1',
             wsPort: 6001,
             forceTLS: false,
             disableStats: true,
             enabledTransports: ['ws'],
+            encrypted: false // Explicitly disable encryption
         });
         const presence = pusher.subscribe('presence-dashboard');
         presence.bind('pusher:subscription_succeeded', members => {
