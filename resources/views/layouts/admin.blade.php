@@ -67,7 +67,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
         <ul class="nav navbar-nav flex-row">
           <li class="nav-item mobile-menu d-md-none mr-auto"><a class="nav-link nav-menu-main menu-toggle hidden-xs" href="#"><i class="ft-menu font-large-1"></i></a></li>
           <li class="nav-item mr-auto">
-            <a class="navbar-brand" href="{{route('dashboard')}}">
+            <a class="navbar-brand" href="{{route('admin.dashboard')}}">
               <img class="brand-logo"  src="{{asset('logo.png')}}">
               <h3 class="brand-text">EG Followers </h3>
             </a>
@@ -109,12 +109,20 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
   <!-- ////////////////////////////////////////////////////////////////////////////-->
   <div class="main-menu menu-fixed menu-dark menu-accordion menu-shadow" data-scroll-to-active="true">
     <div class="main-menu-content">
-      <ul class="navigation navigation-main" id="main-menu-navigation" data-menu="menu-navigation">
+        <ul class="navigation navigation-main" id="main-menu-navigation" data-menu="menu-navigation">
 
+            <li class=" nav-item"><a href="#"><i class="la la-envelope"></i><span class="menu-title" data-i18n="nav.dash.main">فئة المنتجات</a>
+                <ul class="menu-content">
+                    <li class="{{ Route::currentRouteName() == 'admin.users.index' ? 'active':'' }} ">
+                        <a class="menu-item" href="{{route('admin.users.index')}}" data-i18n="nav.dash.ecommerce"> عرض فئات المنتجات </a>
+                    </li>
+                    <li class="{{ Route::currentRouteName() == 'admin.users.create' ? 'active':'' }} ">
+                        <a class="menu-item" href="{{route('admin.users.create')}}" data-i18n="nav.dash.crypto">اضافة فئة منتج</a>
+                    </li>
+                </ul>
+            </li>
 
-
-
-      </ul>
+        </ul>
     </div>
 </div>
 

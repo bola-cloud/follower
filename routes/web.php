@@ -16,16 +16,27 @@ use App\Events\TestBroadcast;
 |
 */
 
+
 Route::group([
-    'prefix' => LaravelLocalization::setLocale(), // Set the language prefix correctly
+    'prefix' => LaravelLocalization::setLocale(),
+    'as' => 'admin.',
+    'namespace' => 'App\Http\Controllers\Admin',
     'middleware' => [
         'auth:sanctum',
         config('jetstream.auth_session'),
         'verified',
-        'admin', // Ensure the user is an admin
+        'admin', // تأكد أن المستخدم مدير
     ]
 ], function () {
-    Route::get('/', [\App\Http\Controllers\Admin\Dashboard::class, 'index'])->name('dashboard');
+    Route::get('/', 'Dashboard@index')->name('dashboard');
+    Route::prefix('admin/users')->group(function () {
+        Route::get('/', 'AdminUserController@index')->name('users.index');
+        Route::get('/create', 'AdminUserController@create')->name('users.create');
+        Route::post('/', 'AdminUserController@store')->name('users.store');
+        Route::get('/{user}/edit', 'AdminUserController@edit')->name('users.edit');
+        Route::put('/{user}', 'AdminUserController@update')->name('users.update');
+        Route::delete('/{user}', 'AdminUserController@destroy')->name('users.destroy');
+    });
 });
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
 
