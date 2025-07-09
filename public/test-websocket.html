@@ -8,11 +8,13 @@
     <h1>WebSocket Test</h1>
     <p>Open the browser console to see received events.</p>
     <script>
+        Pusher.logToConsole = true; // Enable Pusher logging
         const pusher = new Pusher('localkey123', {
             wsHost: '127.0.0.1',
             wsPort: 6001,
             forceTLS: false,
             disableStats: true,
+            enabledTransports: ['ws'], // Explicitly use ws
         });
         const channel = pusher.subscribe('test-channel');
         channel.bind('App\\Events\\TestBroadcast', function(data) {
