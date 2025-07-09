@@ -4,13 +4,11 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Simulate Active User</title>
+@vite('resources/js/app.js')
 </head>
 <body>
     <h1>Simulated Active Users: <span id="active-count">0</span></h1>
     <ul id="user-list"></ul>
-
-    {{-- Laravel Mix compiled JS --}}
-    <script src="{{ mix('js/app.js') }}"></script>
 
     <script>
         const ACTIVE_USERS_CHANNEL = 'presence-active-users';
