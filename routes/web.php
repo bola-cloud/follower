@@ -15,6 +15,8 @@ use App\Events\TestBroadcast;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
+Broadcast::routes(['middleware' => []]);
+
 Route::group([
     'prefix' => LaravelLocalization::setLocale(), // Set the language prefix correctly
     'middleware' => [

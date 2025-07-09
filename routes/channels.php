@@ -14,5 +14,8 @@ Broadcast::channel('presence.active.users', function ($user) {
     return $user ? ['id' => $user->id, 'name' => $user->name] : false;
 });
 Broadcast::channel('presence-dashboard', function () {
-    return ['id' => uniqid(), 'name' => 'Guest'];
+    return [
+        'id' => uniqid(),
+        'name' => 'Guest'
+    ];
 });
