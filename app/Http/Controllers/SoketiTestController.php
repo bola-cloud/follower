@@ -75,25 +75,26 @@ class SoketiTestController extends Controller
     {
         try {
             $response = Http::withHeaders([
-                'Authorization' => 'Bearer ' . env('PUSHER_APP_SECRET'),
-            ])->timeout(5)->get('http://127.0.0.1:6001/api/channels/presence.active.users');
+                'X-App-Id' => env('PUSHER_APP_ID', 'local'),
+                'X-App-Secret' => env('PUSHER_APP_SECRET', 'localsecret123'),
+            ])->timeout(5)->get('http://127.0.0.1:6001/laravel-websockets/api/apps/' . env('PUSHER_APP_ID', 'local') . '/channels/presence-dashboard');
 
             if ($response->failed()) {
                 $errorDetails = $response->json() ?? $response->body();
-                Log::error('Failed to fetch active users from Soketi:', [
+                Log::error('Failed to fetch active users from Laravel WebSockets:', [
                     'status' => $response->status(),
                     'body' => $errorDetails,
                     'headers' => $response->headers(),
-                    'url' => 'http://127.0.0.1:6001/api/channels/presence.active.users',
+                    'url' => 'http://127.0.0.1:6001/laravel-websockets/api/apps/' . env('PUSHER_APP_ID', 'local') . '/channels/presence-dashboard',
                 ]);
                 return response()->json([
                     'error' => 'Failed to fetch active users count.',
-                    'details' => 'Soketi API returned ' . $response->status() . ': ' . ($errorDetails ?: 'No response body. Check Soketi server API configuration.'),
+                    'details' => 'WebSockets API returned ' . $response->status() . ': ' . ($errorDetails ?: 'No response body.'),
                 ], 500);
             }
 
             $data = $response->json();
-            $count = $data['count'] ?? 0;
+            $count = $data['channels']['presence-dashboard']['subscription_count'] ?? 0;
 
             Log::info('Active users count retrieved:', [
                 'count' => $count,

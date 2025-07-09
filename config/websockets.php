@@ -106,6 +106,7 @@ return [
          * default is to resolve everything to 127.0.0.1.
          */
         'perform_dns_lookup' => false,
+        'enable_statistics' => false,
     ],
 
     /*
