@@ -1,57 +1,47 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Admin Dashboard - Active Users</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Simulate 1 Active User</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/laravel-echo/1.15.0/echo.iife.js"></script>
+<script src="https://js.pusher.com/7.2/pusher.min.js"></script>
 </head>
-<body class="bg-gray-100">
-    <div class="container mx-auto p-4">
-        <h1 class="text-2xl font-bold mb-4">Admin Dashboard</h1>
-
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div class="bg-white p-6 rounded-lg shadow-md">
-                <h2 class="text-lg font-semibold text-gray-700">Active Users</h2>
-                <p id="activeUsersCount" class="text-3xl font-bold text-blue-600">0</p>
-                <p id="statusMessage" class="text-sm text-gray-500">Checking online users…</p>
-                <p id="error" class="text-sm text-red-500 hidden"></p>
-            </div>
-        </div>
-    </div>
+<body>
+    <h1>Simulated Active Users: <span id="active-count">0</span></h1>
 
     <script>
-        function fetchActiveUsersCount() {
-            $.ajax({
-                url: '/api/active-users-count',
-                method: 'GET',
-                headers: {
-                    'Authorization': 'Bearer 1|9WoJt8nVp2sjNCc6nsJKHNUL5hv7nLVPbswtU2Ywe3f05add',
-                    'Accept': 'application/json'
-                },
-                success: function(response) {
-                    $('#activeUsersCount').text(response.active_users_count);
-                    $('#statusMessage').text(
-                        response.active_users_count === 0
-                            ? 'No active users currently online.'
-                            : response.active_users_count + ' user(s) currently online.'
-                    );
-                    $('#error').addClass('hidden');
-                },
-                error: function(xhr) {
-                    console.error('Failed to fetch active users count:', xhr.responseText);
-                    $('#activeUsersCount').text('Error');
-                    $('#statusMessage').text('');
-                    $('#error').text('Failed to load active users: ' + (xhr.responseJSON?.details || xhr.responseJSON?.message || 'Unknown error')).removeClass('hidden');
-                }
+        // Use app key from your env
+        const appKey = "{{ env('PUSHER_APP_KEY', 'localkey123') }}";
+
+        // Use Laravel Echo to connect
+        window.Echo = new Echo({
+            broadcaster: 'pusher',
+            key: appKey,
+            wsHost: window.location.hostname,
+            wsPort: 6001,
+            forceTLS: false,
+            disableStats: true,
+            enabledTransports: ['ws', 'wss'],
+        });
+
+        const ACTIVE_USERS_CHANNEL = 'presence-active-users';
+        let activeCountEl = document.getElementById('active-count');
+
+        window.Echo.join(ACTIVE_USERS_CHANNEL)
+            .here((users) => {
+                // You will see yourself as 1 active user
+                activeCountEl.textContent = users.length;
+                console.log('Currently here:', users);
+            })
+            .joining((user) => {
+                let count = parseInt(activeCountEl.textContent);
+                activeCountEl.textContent = count + 1;
+            })
+            .leaving((user) => {
+                let count = parseInt(activeCountEl.textContent);
+                activeCountEl.textContent = count - 1;
             });
-        }
-
-        // Fetch count on page load
-        fetchActiveUsersCount();
-
-        // Refresh every 10 seconds
-        setInterval(fetchActiveUsersCount, 10000);
     </script>
 </body>
 </html>

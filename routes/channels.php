@@ -10,9 +10,14 @@ Broadcast::channel('actions.{user_id}', function ($user, $userId) {
     return $user && (int) $user->id === (int) $userId;
 });
 
-Broadcast::channel('presence.active.users', function ($user) {
-    return $user ? ['id' => $user->id, 'name' => $user->name] : false;
+// Broadcast::channel('presence.active.users', function ($user) {
+//     return $user ? ['id' => $user->id, 'name' => $user->name] : false;
+// });
+
+Broadcast::channel('presence-active-users', function () {
+    return true;
 });
+
 Broadcast::channel('presence-dashboard', function () {
     return [
         'id' => uniqid(),

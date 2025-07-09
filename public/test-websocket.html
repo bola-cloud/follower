@@ -15,7 +15,7 @@
             forceTLS: false,
             disableStats: true,
             enabledTransports: ['ws'],
-            encrypted: false // Explicitly disable encryption
+            encrypted: false
         });
         const channel = pusher.subscribe('test-channel');
         channel.bind('App\\Events\\TestBroadcast', function(data) {
