@@ -13,3 +13,6 @@ Broadcast::channel('actions.{user_id}', function ($user, $userId) {
 Broadcast::channel('presence.active.users', function ($user) {
     return $user ? ['id' => $user->id, 'name' => $user->name] : false;
 });
+Broadcast::channel('presence-dashboard', function ($user) {
+    return ['id' => $user->id, 'name' => $user->name];
+});
