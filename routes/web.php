@@ -32,31 +32,3 @@ Route::get('/active', function () {
     return view('active-users');
 });
 Route::get('/test-active', fn () => view('test-active'));
-
-Route::get('/api/active-users-count', function () {
-    $appId = config('broadcasting.connections.pusher.app_id', 'local');
-
-    $response = \Illuminate\Support\Facades\Http::get(
-        "http://127.0.0.1:6001/api/v1/apps/{$appId}/channels/presence-active-users"
-    );
-
-    if ($response->status() === 404) {
-        return response()->json([
-            'active_users_count' => 0
-        ]);
-    }
-
-    if ($response->failed()) {
-        return response()->json([
-            'error' => 'Failed to fetch active users count.',
-            'details' => $response->body()
-        ], 500);
-    }
-
-    $channel = $response->json();
-    $count = $channel['subscription_count'] ?? 0;
-
-    return response()->json([
-        'active_users_count' => $count
-    ]);
-});

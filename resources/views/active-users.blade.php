@@ -21,7 +21,7 @@
         wsPort: 6001,
         wssPort: 6001,
         wsPath: '{{ env("PUSHER_APP_PATH", "/") }}',
-        forceTLS: false,
+        forceTLS: true,
         disableStats: true,
         enabledTransports: ['ws', 'wss'],
     });
