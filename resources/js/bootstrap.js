@@ -22,12 +22,12 @@ window.Pusher = Pusher;
 
 window.Echo = new Echo({
     broadcaster: 'pusher',
-    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    key: import.meta.env.VITE_PUSHER_APP_KEY, // localkey123
     cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER ?? 'mt1',
-    wsHost: import.meta.env.VITE_PUSHER_HOST,
+    wsHost: import.meta.env.VITE_PUSHER_HOST, // egfollow.com
     wsPort: import.meta.env.VITE_PUSHER_PORT ?? 6001,
     wssPort: import.meta.env.VITE_PUSHER_PORT ?? 443,
-    wsPath: import.meta.env.VITE_PUSHER_APP_PATH ?? '/',
+    wsPath: import.meta.env.VITE_PUSHER_APP_PATH ?? '/', // Should be empty or removed
     forceTLS: (import.meta.env.VITE_PUSHER_SCHEME ?? 'https') === 'https',
     enabledTransports: ['ws', 'wss'],
 });
