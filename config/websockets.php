@@ -51,6 +51,9 @@ return [
         //
     ],
 
+
+    'logger' => BeyondCode\LaravelWebSockets\Statistics\Logger\HttpStatisticsLogger::class,
+
     /*
      * The maximum request size in kilobytes that is allowed for an incoming WebSocket request.
      */
