@@ -14,8 +14,18 @@ Broadcast::channel('actions.{user_id}', function ($user, $userId) {
 //     return $user ? ['id' => $user->id, 'name' => $user->name] : false;
 // });
 
-Broadcast::channel('presence-active-users', function () {
-    return true;
+Broadcast::channel('presence-active-users', function ($user) {
+    if ($user) {
+        return [
+            'id' => $user->id,
+            'name' => $user->name,
+        ];
+    }
+
+    return [
+        'id' => uniqid(),
+        'name' => 'Guest'
+    ];
 });
 
 // Broadcast::channel('presence-dashboard', function () {
