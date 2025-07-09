@@ -18,9 +18,9 @@ Broadcast::channel('presence-active-users', function () {
     return true;
 });
 
-Broadcast::channel('presence-dashboard', function () {
-    return [
-        'id' => uniqid(),
-        'name' => 'Guest'
-    ];
-});
+// Broadcast::channel('presence-dashboard', function () {
+//     return [
+//         'id' => uniqid(),
+//         'name' => 'Guest'
+//     ];
+// });
