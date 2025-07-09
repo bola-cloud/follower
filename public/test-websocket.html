@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Test</title>
+    <script src="https://js.pusher.com/7.2/pusher.min.js"></script>
+</head>
+<body>
+    <h1>WebSocket Test</h1>
+    <p>Open the browser console to see received events.</p>
+    <script>
+        const pusher = new Pusher('localkey123', {
+            wsHost: '127.0.0.1',
+            wsPort: 6001,
+            forceTLS: false,
+            disableStats: true,
+        });
+        const channel = pusher.subscribe('test-channel');
+        channel.bind('App\\Events\\TestBroadcast', function(data) {
+            console.log('Received event:', data);
+        });
+        pusher.connection.bind('connected', function() {
+            console.log('Connected to WebSocket server!');
+        });
+        pusher.connection.bind('error', function(err) {
+            console.error('Pusher error:', err);
+        });
+    </script>
+</body>
+</html>
