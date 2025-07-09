@@ -37,4 +37,34 @@ class AdminUserController extends Controller
 
         return redirect()->route('admin.users.create')->with('success', 'Admin user created successfully.');
     }
+
+     public function edit(User $user)
+    {
+        return view('admin.users.edit', compact('user'));
+    }
+
+    public function update(Request $request, User $user)
+    {
+        $request->validate([
+            'name' => 'required',
+            'email' => 'required|email|unique:users,email,' . $user->id,
+        ]);
+
+        $user->update([
+            'name' => $request->name,
+            'email' => $request->email,
+        ]);
+
+        if ($request->filled('password')) {
+            $user->update(['password' => Hash::make($request->password)]);
+        }
+
+        return redirect()->route('admin.users.index')->with('success', 'تم تحديث المدير بنجاح.');
+    }
+
+    public function destroy(User $user)
+    {
+        $user->delete();
+        return redirect()->route('admin.users.index')->with('success', 'تم حذف المدير بنجاح.');
+    }
 }

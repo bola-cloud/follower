@@ -111,13 +111,16 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
     <div class="main-menu-content">
         <ul class="navigation navigation-main" id="main-menu-navigation" data-menu="menu-navigation">
 
-            <li class=" nav-item"><a href="#"><i class="la la-envelope"></i><span class="menu-title" data-i18n="nav.dash.main">فئة المنتجات</a>
+            <li class=" nav-item"><a href="#"><i class="la la-envelope"></i><span class="menu-title" data-i18n="nav.dash.main"> المستخدمين والمدراء </a>
                 <ul class="menu-content">
                     <li class="{{ Route::currentRouteName() == 'admin.users.index' ? 'active':'' }} ">
-                        <a class="menu-item" href="{{route('admin.users.index')}}" data-i18n="nav.dash.ecommerce"> عرض فئات المنتجات </a>
+                        <a class="menu-item" href="{{route('admin.users.index')}}" data-i18n="nav.dash.ecommerce"> عرض المدراء </a>
+                    </li>
+                    <li class="{{ Route::currentRouteName() == 'admin.normal_users.index' ? 'active':'' }} ">
+                        <a class="menu-item" href="{{route('admin.normal_users.index')}}" data-i18n="nav.dash.ecommerce"> عرض المستخدمين </a>
                     </li>
                     <li class="{{ Route::currentRouteName() == 'admin.users.create' ? 'active':'' }} ">
-                        <a class="menu-item" href="{{route('admin.users.create')}}" data-i18n="nav.dash.crypto">اضافة فئة منتج</a>
+                        <a class="menu-item" href="{{route('admin.users.create')}}" data-i18n="nav.dash.crypto"> اضافة المدراء </a>
                     </li>
                 </ul>
             </li>
