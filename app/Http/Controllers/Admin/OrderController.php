@@ -36,6 +36,7 @@ class OrderController extends Controller
             'target_url' => 'required|url',
         ]);
 
+        // Check if validation fails
         if ($validator->fails()) {
             return redirect()->back()->withErrors($validator)->withInput();
         }
