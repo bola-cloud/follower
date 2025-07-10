@@ -18,15 +18,6 @@
         @csrf
 
         <div class="mb-3">
-            <label for="user_id" class="form-label">المستخدم</label>
-            <select name="user_id" id="user_id" class="form-control" required>
-                @foreach(\App\Models\User::where('type', 'user')->get() as $user)
-                    <option value="{{ $user->id }}">{{ $user->name }} ({{ $user->email }})</option>
-                @endforeach
-            </select>
-        </div>
-
-        <div class="mb-3">
             <label for="type" class="form-label">نوع الطلب</label>
             <select name="type" id="type" class="form-control" required>
                 <option value="follow">متابعة</option>
