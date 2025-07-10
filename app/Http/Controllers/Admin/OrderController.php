@@ -30,31 +30,30 @@ class OrderController extends Controller
 
     public function store(Request $request)
     {
-        \Log::debug('Form Data:', $request->all());
-        $validator = Validator::make($request->all(), [
+        // Validate the input directly using the built-in validate() method
+        $validated = $request->validate([
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
             'target_url' => 'required|url',
         ]);
 
-        // Check if validation fails
-        if ($validator->fails()) {
-            return redirect()->back()->withErrors($validator)->withInput();
-        }
+        // Get the authenticated user
+        $user = $request->user();
 
-        $data = $validator->validated();
-        $user = auth()->user();
-
+        // If the user is not authenticated, redirect back with an error message
         if (!$user) {
             return redirect()->back()->with('error', 'User not authenticated.');
         }
 
-        $targetUrl = $data['target_url'];
+        // Extract validated data
+        $targetUrl = $validated['target_url'];
         $targetUrlHash = sha1($targetUrl);
 
-        $pointsPerAction = function_exists('setting') ? setting("points_per_{$data['type']}", 1) : 1;
-        $cost = $data['cost'] ?? ($data['total_count'] * $pointsPerAction);
+        // Get the cost for the action
+        $pointsPerAction = function_exists('setting') ? setting("points_per_{$validated['type']}", 1) : 1;
+        $cost = $validated['cost'] ?? ($validated['total_count'] * $pointsPerAction);
 
+        // Prevent duplicate active orders from the same user for the same link
         $alreadyExists = Order::where('user_id', $user->id)
             ->where('target_url_hash', $targetUrlHash)
             ->where('status', '!=', 'completed')
@@ -67,15 +66,18 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
+            // Check if the user has enough points
             if ($user->points < $cost) {
                 return redirect()->back()->with('error', 'Insufficient points.');
             }
 
+            // Deduct points from the user
             $user->decrement('points', $cost);
 
+            // Create the order
             $order = Order::create([
-                'type' => $data['type'],
-                'total_count' => $data['total_count'],
+                'type' => $validated['type'],
+                'total_count' => $validated['total_count'],
                 'done_count' => 0,
                 'cost' => $cost,
                 'status' => 'active',
@@ -84,17 +86,19 @@ class OrderController extends Controller
                 'user_id' => $user->id,
             ]);
 
+            // Check if the order was created successfully
             if (!$order) {
                 return redirect()->back()->with('error', 'Failed to create order.');
             }
 
+            // If the user points are zero, schedule a job to add points
             if ($user->points === 0) {
                 \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
             }
 
             DB::commit();
 
-            \Log::info('Order Created and go to event:', $order->toArray());
+            // Trigger the OrderCreated event
             event(new OrderCreated($order));
 
             return redirect()->route('admin.orders.index')->with('success', 'Order created and event broadcasted.');
