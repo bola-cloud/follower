@@ -30,19 +30,19 @@ class OrderController extends Controller
 
     public function store(Request $request)
     {
-
-        $validator = $request->validate([
+        \Log::debug('Form Data:', $request->all());
+        $validator = Validator::make($request->all(), [
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
             'target_url' => 'required|url',
         ]);
 
-        // // Check if validation fails
-        // if ($validator->fails()) {
-        //     return redirect()->back()->withErrors($validator)->withInput();
-        // }
+        // Check if validation fails
+        if ($validator->fails()) {
+            return redirect()->back()->withErrors($validator)->withInput();
+        }
 
-        $data = $validator;
+        $data = $validator->validated();
         $user = auth()->user();
 
         if (!$user) {
