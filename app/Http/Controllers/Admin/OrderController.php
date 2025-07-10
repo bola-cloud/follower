@@ -41,7 +41,7 @@ class OrderController extends Controller
         }
 
         $data = $validator->validated();
-        $user = $request->user();
+        $user = auth()->user();
 
         if (!$user) {
             return redirect()->back()->with('error', 'User not authenticated.');
