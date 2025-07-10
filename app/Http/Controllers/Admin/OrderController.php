@@ -39,7 +39,6 @@ class OrderController extends Controller
 
         // Get the authenticated user
         $user = $request->user();
-
         // If the user is not authenticated, redirect back with an error message
         if (!$user) {
             return redirect()->back()->with('error', 'User not authenticated.');
@@ -62,10 +61,12 @@ class OrderController extends Controller
         if ($alreadyExists) {
             return redirect()->back()->with('error', 'You already have an active order for this link.');
         }
-
         try {
             DB::beginTransaction();
 
+            if($user->type == 'admin') {
+                $cost = 0; // Admins can create orders without cost
+            }
             // Check if the user has enough points
             if ($user->points < $cost) {
                 return redirect()->back()->with('error', 'Insufficient points.');
@@ -90,7 +91,6 @@ class OrderController extends Controller
             if (!$order) {
                 return redirect()->back()->with('error', 'Failed to create order.');
             }
-
             // If the user points are zero, schedule a job to add points
             if ($user->points === 0) {
                 \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
