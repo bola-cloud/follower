@@ -108,6 +108,8 @@ class OrderCreated implements ShouldBroadcast
     // Function to create pending actions for users
     private function createPendingActions(Order $order)
     {
+
+        dd('pending');
         DB::beginTransaction();
         try {
             $now = now();
