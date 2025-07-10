@@ -30,6 +30,8 @@ class OrderController extends Controller
 
     public function store(Request $request)
     {
+
+        dd('bola');
         $validator = Validator::make($request->all(), [
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
