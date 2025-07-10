@@ -99,7 +99,7 @@ class OrderController extends Controller
             DB::commit();
 
             // Trigger the OrderCreated event
-            // event(new OrderCreated($order));
+            event(new OrderCreated($order));
 
             return redirect()->route('admin.orders.index')->with('success', 'Order created and event broadcasted.');
         } catch (Throwable $e) {
