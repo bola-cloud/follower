@@ -34,7 +34,6 @@ class OrderController extends Controller
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
             'target_url' => 'required|url',
-            'cost' => 'nullable|integer|min:0',
         ]);
 
         if ($validator->fails()) {
