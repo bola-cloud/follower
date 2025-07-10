@@ -42,7 +42,7 @@ class OrderController extends Controller
         //     return redirect()->back()->withErrors($validator)->withInput();
         // }
 
-        $data = $validator->validated();
+        $data = $validator;
         $user = auth()->user();
 
         if (!$user) {
