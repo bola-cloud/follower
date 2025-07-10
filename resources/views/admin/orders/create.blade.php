@@ -35,11 +35,6 @@
             <input type="url" name="target_url" id="target_url" class="form-control" required>
         </div>
 
-        <div class="mb-3">
-            <label for="cost" class="form-label">التكلفة (اختياري)</label>
-            <input type="number" name="cost" id="cost" class="form-control">
-        </div>
-
         <button type="submit" class="btn btn-primary">إنشاء الطلب</button>
     </form>
 </div>
