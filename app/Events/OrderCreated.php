@@ -30,86 +30,19 @@ class OrderCreated implements ShouldBroadcast
         }
     }
 
-    // Get eligible users for the order
     private function getEligibleUsers(Order $order)
     {
-        // If the order creator is an admin
-        if ($order->user->type === 'admin') {
-            return $this->getEligibleUsersForAdmin($order);
-        }
-
-        // If the user is a non-admin, check for 'follow' or 'like' actions
-        if ($order->type === 'follow') {
-            return $this->getEligibleUsersForFollow($order);
-        }
-
-        // If the order type is 'like', we check if the users have interacted with the same post
-        if ($order->type === 'like') {
-            return $this->getEligibleUsersForLike($order);
-        }
-
-        return collect(); // If none of the above, return an empty collection
-    }
-
-    // Logic for non-admin users with 'follow' order type
-    private function getEligibleUsersForFollow(Order $order)
-    {
         return User::whereNotIn('id', function ($q) use ($order) {
-            $q->select('user_id')->from('actions')
-              ->where('order_id', $order->id)
-              ->where('type', 'user')
-              ->whereIn('status', ['done', 'external']);
-        })
-        ->get();
+                $q->select('user_id')->from('actions')
+                ->where('order_id', $order->id)
+                ->where('type', 'user')
+                ->whereIn('status', ['done', 'external']);
+            })
+            ->get();
     }
 
-    // Logic for non-admin users with 'like' order type
-    private function getEligibleUsersForLike(Order $order)
-    {
-        $targetUrl = $this->stripInstagramQueryParams($order->target_url);
-        return User::whereNotIn('id', function ($q) use ($order, $targetUrl) {
-            $q->select('user_id')->from('actions')
-              ->where('order_id', $order->id)
-              ->where('type', 'user')
-              ->where('target_url', 'like', "%$targetUrl%") // Match the link (without query string)
-              ->whereIn('status', ['done', 'external']);
-        })
-        ->get();
-    }
-
-    // Logic for admin users checking 'target_url' against existing actions
-    private function getEligibleUsersForAdmin(Order $order)
-    {
-        // Get target_url from the order and strip the query params
-        $targetUrl = $this->stripInstagramQueryParams($order->target_url);
-
-        // Get users who haven't already interacted (via actions table) with this post link
-        return User::whereNotIn('id', function ($q) use ($order, $targetUrl) {
-            $q->select('user_id')->from('actions')
-              ->where('order_id', $order->id)
-              ->where('type', 'user')
-              ->where('target_url', 'like', "%$targetUrl%") // Ensure link matches without query string
-              ->whereIn('status', ['done', 'external']);
-        })
-        ->get();
-    }
-
-    // Helper function to strip query params from Instagram URLs
-    private function stripInstagramQueryParams($url)
-    {
-        // Check if the URL is an Instagram URL and contains a query string
-        if (preg_match('/^(https:\/\/www\.instagram\.com\/reel\/[A-Za-z0-9_-]+)\/?/', $url, $matches)) {
-            return $matches[1]; // Return only the core URL without query parameters
-        }
-
-        return $url; // Return the URL as-is if it's not an Instagram URL or doesn't match
-    }
-
-    // Function to create pending actions for users
     private function createPendingActions(Order $order)
     {
-
-        dd('pending');
         DB::beginTransaction();
         try {
             $now = now();
@@ -133,13 +66,11 @@ class OrderCreated implements ShouldBroadcast
         }
     }
 
-    // Broadcasting to the eligible users
     public function broadcastOn()
     {
         return $this->eligibleUsers->map(fn ($user) => new Channel("orders.{$user->id}"))->toArray();
     }
 
-    // The event name to be used when broadcasting
     public function broadcastAs()
     {
         return 'order.created';
