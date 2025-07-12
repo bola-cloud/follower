@@ -10,12 +10,11 @@ return [
 
     'apps' => [
         [
-            'id' => env('PUSHER_APP_ID', 'local'),
-            'name' => 'LocalApp',
-            'key' => env('PUSHER_APP_KEY', 'localkey123'),
-            'secret' => env('PUSHER_APP_SECRET', 'localsecret123'),
-            'path' => env('PUSHER_APP_PATH', '/app'),
-            'capacity' => null,
+            'id' => env('PUSHER_APP_ID'),
+            'name' => env('APP_NAME'),
+            'key' => env('PUSHER_APP_KEY'),
+            'secret' => env('PUSHER_APP_SECRET'),
+            'path' => env('PUSHER_APP_PATH', null), // Set to null or remove
             'enable_client_messages' => true,
             'enable_statistics' => true,
         ],
