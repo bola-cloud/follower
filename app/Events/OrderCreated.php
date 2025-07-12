@@ -44,8 +44,10 @@ class OrderCreated implements ShouldBroadcast
     private function createPendingActions(Order $order)
     {
         DB::beginTransaction();
+
         try {
             $now = now();
+
             $actions = $this->eligibleUsers->map(function ($user) use ($order, $now) {
                 return [
                     'order_id' => $order->id,
@@ -55,9 +57,16 @@ class OrderCreated implements ShouldBroadcast
                     'created_at' => $now,
                     'updated_at' => $now,
                 ];
+            })->filter(function ($action) {
+                // Prevent duplicates
+                return !DB::table('actions')
+                    ->where('order_id', $action['order_id'])
+                    ->where('user_id', $action['user_id'])
+                    ->exists();
             })->toArray();
 
             DB::table('actions')->insert($actions);
+
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();
@@ -65,6 +74,7 @@ class OrderCreated implements ShouldBroadcast
             throw $e;
         }
     }
+
 
     public function broadcastOn()
     {
