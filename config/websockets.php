@@ -11,13 +11,13 @@ return [
     'apps' => [
         [
             'id' => env('PUSHER_APP_ID', 'local'),
-            'name' => env('APP_NAME', 'Laravel'),
+            'name' => 'LocalApp',
             'key' => env('PUSHER_APP_KEY', 'localkey123'),
             'secret' => env('PUSHER_APP_SECRET', 'localsecret123'),
-            'path' => '',
+            'path' => env('PUSHER_APP_PATH', '/app'),
             'capacity' => null,
-            'enable_client_messages' => false,
-            'enable_statistics' => true, // ✅ Must be true to see logs and usage
+            'enable_client_messages' => true,
+            'enable_statistics' => true,
         ],
     ],
 
