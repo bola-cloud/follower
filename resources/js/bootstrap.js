@@ -23,12 +23,20 @@ window.Pusher = Pusher;
 window.Echo = new Echo({
     broadcaster: 'pusher',
     key: import.meta.env.VITE_PUSHER_APP_KEY,
-    wsHost: window.location.hostname, // Use current host
-    wsPort: 443, // Use standard HTTPS port
-    wssPort: 443, // Use standard HTTPS port
+    wsHost: window.location.hostname,
+    wsPort: 443,
+    wssPort: 443,
     forceTLS: true,
     encrypted: true,
     disableStats: true,
     enabledTransports: ['ws', 'wss'],
-    // Remove any path configuration unless specifically needed
+    // Explicitly disable the path since we're using root
+    wsPath: '',
+    // Add these for better connection handling
+    authEndpoint: '/broadcasting/auth',
+    auth: {
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    }
 });
