@@ -22,7 +22,7 @@ window.Pusher = Pusher;
 
 window.Echo = new Echo({
     broadcaster: 'pusher',
-    key: import.meta.env.VITE_PUSHER_APP_KEY,
+    key: 'localkey123',
     wsHost: window.location.hostname,
     wsPort: 443,
     wssPort: 443,
@@ -30,11 +30,5 @@ window.Echo = new Echo({
     encrypted: true,
     disableStats: true,
     enabledTransports: ['ws', 'wss'],
-    wsPath: '/ws-app',
-    authEndpoint: '/broadcasting/auth',
-    auth: {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-        }
-    }
+    wsPath: '/ws-app/app'
 });
