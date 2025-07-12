@@ -30,9 +30,7 @@ window.Echo = new Echo({
     encrypted: true,
     disableStats: true,
     enabledTransports: ['ws', 'wss'],
-    // Explicitly disable the path since we're using root
-    wsPath: '',
-    // Add these for better connection handling
+    wsPath: '/ws', // Custom WebSocket path
     authEndpoint: '/broadcasting/auth',
     auth: {
         headers: {
