@@ -30,6 +30,11 @@ window.Echo = new Echo({
     encrypted: true,
     disableStats: true,
     enabledTransports: ['ws', 'wss'],
-    wsPath: '/ws-app',  // Changed from /ws to avoid conflicts
-    authEndpoint: '/broadcasting/auth'
+    wsPath: '/ws-app',
+    authEndpoint: '/broadcasting/auth',
+    auth: {
+        headers: {
+            'X-Requested-With': 'XMLHttpRequest'
+        }
+    }
 });
