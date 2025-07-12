@@ -14,10 +14,9 @@ return [
             'name' => env('APP_NAME'),
             'key' => env('PUSHER_APP_KEY'),
             'secret' => env('PUSHER_APP_SECRET'),
-            'path' => 'ws', // Match the wsPath in Echo config
+            'path' => 'app', // This should match your WebSocket server path
             'enable_client_messages' => true,
             'enable_statistics' => true,
-            'path' => 'ws-app',  // Must match wsPath
         ],
     ],
 
