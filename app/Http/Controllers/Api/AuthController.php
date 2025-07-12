@@ -153,6 +153,6 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Profile link successfully updated.',
             'profile_link' => $user->profile_link,
-        ],202);
+        ],200);
     }
 }
