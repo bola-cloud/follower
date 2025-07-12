@@ -30,11 +30,6 @@ window.Echo = new Echo({
     encrypted: true,
     disableStats: true,
     enabledTransports: ['ws', 'wss'],
-    wsPath: '/ws', // Custom WebSocket path
-    authEndpoint: '/broadcasting/auth',
-    auth: {
-        headers: {
-            'X-Requested-With': 'XMLHttpRequest'
-        }
-    }
+    wsPath: '/ws-app',  // Changed from /ws to avoid conflicts
+    authEndpoint: '/broadcasting/auth'
 });

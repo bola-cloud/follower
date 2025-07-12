@@ -17,6 +17,7 @@ return [
             'path' => 'ws', // Match the wsPath in Echo config
             'enable_client_messages' => true,
             'enable_statistics' => true,
+            'path' => 'ws-app',  // Must match wsPath
         ],
     ],
 
