@@ -143,7 +143,7 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Profile link already set and matches.',
                 'profile_link' => $user->profile_link,
-            ]);
+            ],200);
         }
 
         // Save new profile_link
@@ -153,6 +153,6 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Profile link successfully updated.',
             'profile_link' => $user->profile_link,
-        ]);
+        ],202);
     }
 }
