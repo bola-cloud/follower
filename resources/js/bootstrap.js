@@ -23,13 +23,12 @@ window.Pusher = Pusher;
 window.Echo = new Echo({
     broadcaster: 'pusher',
     key: import.meta.env.VITE_PUSHER_APP_KEY,
-    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
-    wsHost: import.meta.env.VITE_PUSHER_HOST,
-    wsPort: import.meta.env.VITE_PUSHER_PORT,
-    wssPort: import.meta.env.VITE_PUSHER_PORT,
+    wsHost: window.location.hostname, // Use current host
+    wsPort: 443, // Use standard HTTPS port
+    wssPort: 443, // Use standard HTTPS port
     forceTLS: true,
     encrypted: true,
     disableStats: true,
-    enabledTransports: ['ws', 'wss'], // Add this line
-    // path: '/app' // Uncomment if your WebSockets are served under /app
+    enabledTransports: ['ws', 'wss'],
+    // Remove any path configuration unless specifically needed
 });
