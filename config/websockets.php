@@ -58,6 +58,7 @@ return [
         'local_cert' => '/etc/letsencrypt/live/egfollow.com/fullchain.pem',
         'local_pk' => '/etc/letsencrypt/live/egfollow.com/privkey.pem',
         'passphrase' => null,
+        'verify_peer' => false, // <- ✅ add this if not already present
     ],
 
     'channel_manager' => \BeyondCode\LaravelWebSockets\WebSockets\Channels\ChannelManagers\ArrayChannelManager::class,
