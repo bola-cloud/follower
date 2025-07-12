@@ -116,4 +116,43 @@ class AuthController extends Controller
             'token' => $token,
         ]);
     }
+
+    public function updateProfileLink(Request $request)
+    {
+        $user = $request->user();
+
+        // Validate input
+        $validator = Validator::make($request->all(), [
+            'profile_link' => ['required', 'string', 'regex:/^[_a-zA-Z0-9.]+$/'], // Instagram username style
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $newProfile = $request->input('profile_link');
+
+        // If user already has a profile link, ensure it's the same
+        if (!empty($user->profile_link)) {
+            if ($user->profile_link !== $newProfile) {
+                return response()->json([
+                    'error' => 'This account username does not match your previously linked account.'
+                ], 409); // Conflict
+            }
+
+            return response()->json([
+                'message' => 'Profile link already set and matches.',
+                'profile_link' => $user->profile_link,
+            ]);
+        }
+
+        // Save new profile_link
+        $user->profile_link = $newProfile;
+        $user->save();
+
+        return response()->json([
+            'message' => 'Profile link successfully updated.',
+            'profile_link' => $user->profile_link,
+        ]);
+    }
 }

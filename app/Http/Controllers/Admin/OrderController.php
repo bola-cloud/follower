@@ -45,7 +45,14 @@ class OrderController extends Controller
         }
 
         // Extract validated data
-        $targetUrl = $validated['target_url'];
+        $fullUrl = $data['target_url'];
+        $targetId = self::extractInstagramId($fullUrl);
+
+        if (!$targetId) {
+            return response()->json(['error' => 'Invalid Instagram URL format.'], 422);
+        }
+
+        $targetUrl = $targetId;  // We overwrite it to store only the ID
         $targetUrlHash = sha1($targetUrl);
 
         // Get the cost for the action
@@ -53,14 +60,14 @@ class OrderController extends Controller
         $cost = $validated['cost'] ?? ($validated['total_count'] * $pointsPerAction);
 
         // Prevent duplicate active orders from the same user for the same link
-        $alreadyExists = Order::where('user_id', $user->id)
-            ->where('target_url_hash', $targetUrlHash)
-            ->where('status', '!=', 'completed')
-            ->exists();
+        // $alreadyExists = Order::where('user_id', $user->id)
+        //     ->where('target_url_hash', $targetUrlHash)
+        //     ->where('status', '!=', 'completed')
+        //     ->exists();
 
-        if ($alreadyExists) {
-            return redirect()->back()->with('error', 'You already have an active order for this link.');
-        }
+        // if ($alreadyExists) {
+        //     return redirect()->back()->with('error', 'You already have an active order for this link.');
+        // }
         try {
             DB::beginTransaction();
 

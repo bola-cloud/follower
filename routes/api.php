@@ -34,10 +34,11 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/orders', [OrderController::class, 'store']);
     Route::get('/orders', [OrderController::class, 'index']);
     Route::post('/orders/{orderId}/complete', [OrderController::class, 'complete']);
-    Route::get('/settings', [SettingController::class, 'index']);
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('/active-users-count', [SoketiTestController::class, 'getActiveUsersCount']);
+    Route::put('/user/profile-link', [AuthController::class, 'updateProfileLink']);
+
 });
 
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
-
+Route::get('/settings', [SettingController::class, 'index']);

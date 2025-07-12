@@ -35,22 +35,30 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        $targetUrl = $data['target_url'];
+        $fullUrl = $data['target_url'];
+        $targetId = self::extractInstagramId($fullUrl);
+
+        if (!$targetId) {
+            return response()->json(['error' => 'Invalid Instagram URL format.'], 422);
+        }
+
+        $targetUrl = $targetId;  // We overwrite it to store only the ID
         $targetUrlHash = sha1($targetUrl);
+
 
         // Get point cost per action from settings (default = 1)
         $pointsPerAction = function_exists('setting') ? setting("points_per_{$data['type']}", 1) : 1;
         $cost = $data['cost'] ?? ($data['total_count'] * $pointsPerAction);
 
         // Prevent duplicate active orders from the same user for the same link
-        $alreadyExists = Order::where('user_id', $user->id)
-            ->where('target_url_hash', $targetUrlHash)
-            ->where('status', '!=', 'completed')
-            ->exists();
+        // $alreadyExists = Order::where('user_id', $user->id)
+        //     ->where('target_url_hash', $targetUrlHash)
+        //     ->where('status', '!=', 'completed')
+        //     ->exists();
 
-        if ($alreadyExists) {
-            return response()->json(['error' => 'You already have an active order for this link.'], 409);
-        }
+        // if ($alreadyExists) {
+        //     return response()->json(['error' => 'You already have an active order for this link.'], 409);
+        // }
 
         try {
             DB::beginTransaction();
@@ -70,7 +78,7 @@ class OrderController extends Controller
                 'done_count' => 0,
                 'cost' => $cost,
                 'status' => 'active',
-                'target_url' => $targetUrl,
+                'target_url' => $targetUrl, // ✅ only the ID (e.g. DLsNPlfu1V6)
                 'target_url_hash' => $targetUrlHash,
                 'user_id' => $user->id,
             ]);
@@ -103,6 +111,17 @@ class OrderController extends Controller
             ], 500);
         }
     }
+
+    private static function extractInstagramId($url)
+    {
+        // Match Instagram reel or post URLs
+        if (preg_match('/(?:\/reel\/|\/p\/)([A-Za-z0-9_-]+)/', $url, $matches)) {
+            return $matches[1];
+        }
+
+        return null;
+    }
+
 
     public function index(Request $request)
     {
