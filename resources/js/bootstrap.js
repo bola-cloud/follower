@@ -22,14 +22,13 @@ window.Pusher = Pusher;
 
 window.Echo = new Echo({
     broadcaster: 'pusher',
-    key: import.meta.env.VITE_PUSHER_APP_KEY,
-    cluster: import.meta.env.VITE_PUSHER_APP_CLUSTER,
-    wsHost: import.meta.env.VITE_PUSHER_HOST,
-    wsPort: import.meta.env.VITE_PUSHER_PORT,
-    wssPort: import.meta.env.VITE_PUSHER_PORT,
+    key: 'localkey123',
+    wsHost: 'egfollow.com',
+    wsPort: 443,
+    wssPort: 443,
     forceTLS: true,
     encrypted: true,
     disableStats: true,
-    // ❌ REMOVE THIS LINE:
+    // ✅ Hardcoded path if needed (but only once!)
     // path: '/app',
 });
