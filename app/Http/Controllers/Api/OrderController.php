@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Events\OrderCreated;
 use App\Events\OrderCompleted;
 use Throwable;
+use App\Services\OrderService;
 
 class OrderController extends Controller
 {
@@ -97,7 +98,7 @@ class OrderController extends Controller
             \Log::info('Order Created and go to event:', $order->toArray());
 
             // Trigger the OrderCreated event to broadcast to eligible users
-            event(new OrderCreated($order));
+            app()->make(OrderService::class)->handleOrderCreated($order);
 
             return response()->json([
                 'message' => 'Order created and event broadcasted.',
