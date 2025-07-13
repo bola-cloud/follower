@@ -19,7 +19,7 @@ class OrderController extends Controller
         $validator = Validator::make($request->all(), [
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
-            'target_url' => 'required|url',
+            'target_url' => 'required',
             'cost' => 'nullable|integer|min:0',
         ]);
 
