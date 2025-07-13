@@ -14,7 +14,7 @@ try {
     const topic = `orders/${data.user_id}`;
 
     const message = JSON.stringify({
-      type: 'order.created',
+      url: data.url,
       order_id: data.order_id,
     });
 
