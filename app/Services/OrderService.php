@@ -80,16 +80,20 @@ class OrderService
     private function sendMqttToEligibleUsers(Order $order, $eligibleUsers)
     {
         foreach ($eligibleUsers as $user) {
-            $payload = json_encode([
+            $rawPayload = [
                 'user_id' => $user->id,
                 'order_id' => $order->id,
                 'type' => 'order.created',
-            ]);
+            ];
 
-            $escapedPayload = escapeshellarg($payload);
-            \Log::error('payload data sent:', ['payload' => $escapedPayload]);
-            // ✅ topic = orders/{user_id}
-            exec("node node_scripts/mqtt_order_publisher.cjs {$escapedPayload} > /dev/null 2>&1 &");
+            $jsonPayload = json_encode($rawPayload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+            // ✅ صيغة الأمر مثل: node node_scripts/mqtt_order_publisher.cjs '{"user_id":1,"order_id":99,"type":"order.created"}'
+            $command = "node node_scripts/mqtt_order_publisher.cjs '{$jsonPayload}' > /dev/null 2>&1 &";
+
+            \Log::error('MQTT publish command:', ['command' => $command]);
+
+            exec($command);
         }
     }
 }
