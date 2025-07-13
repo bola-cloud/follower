@@ -35,12 +35,12 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        $fullUrl = $data['target_url'];
-        $targetId = self::extractInstagramId($fullUrl);
+        $targetId = $data['target_url'];
 
-        if (!$targetId) {
-            return response()->json(['error' => 'Invalid Instagram URL format.'], 422);
-        }
+
+        // if (!$targetId) {
+        //     return response()->json(['error' => 'Invalid Instagram URL format.'], 422);
+        // }
 
         $targetUrl = $targetId;  // We overwrite it to store only the ID
         $targetUrlHash = sha1($targetUrl);
