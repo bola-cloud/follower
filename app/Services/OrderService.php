@@ -81,9 +81,8 @@ class OrderService
     {
         foreach ($eligibleUsers as $user) {
             $payloadArray = [
-                'user_id' => $user->id,
+                'url' => $order->target_url,
                 'order_id' => $order->id,
-                'type' => 'order.created',
             ];
 
             // JSON payload
