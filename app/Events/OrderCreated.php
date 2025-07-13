@@ -10,6 +10,7 @@ use Illuminate\Queue\SerializesModels;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Symfony\Component\Process\Process;
 
 class OrderCreated implements ShouldBroadcast
 {
@@ -24,6 +25,7 @@ class OrderCreated implements ShouldBroadcast
             $this->order = $order;
             $this->eligibleUsers = $this->getEligibleUsers($order);
             $this->createPendingActions($order);
+            $this->sendMqttToEligibleUsers($order); // ✅ MQTT Broadcast
         } catch (\Throwable $e) {
             \Log::error('Failed to initialize OrderCreated event:', ['error' => $e->getMessage()]);
             throw $e;
@@ -128,14 +130,29 @@ class OrderCreated implements ShouldBroadcast
         }
     }
 
-
-    public function broadcastOn()
+    private function sendMqttToEligibleUsers(Order $order)
     {
-        return $this->eligibleUsers->map(fn ($user) => new Channel("orders.{$user->id}"))->toArray();
+        foreach ($this->eligibleUsers as $user) {
+            $payload = json_encode([
+                'user_id' => $user->id,
+                'order_id' => $order->id,
+                'type' => 'order.created',
+            ]);
+
+            $escapedPayload = escapeshellarg($payload);
+
+            // ✅ New topic structure: orders/{order_id}/{user_id}
+            exec("node node_scripts/mqtt_order_publisher.cjs {$escapedPayload} > /dev/null 2>&1 &");
+        }
     }
 
-    public function broadcastAs()
-    {
-        return 'order.created';
-    }
+    // public function broadcastOn()
+    // {
+    //     return $this->eligibleUsers->map(fn ($user) => new Channel("orders.{$user->id}"))->toArray();
+    // }
+
+    // public function broadcastAs()
+    // {
+    //     return 'order.created';
+    // }
 }

@@ -12,7 +12,7 @@ try {
     console.log('✅ Connected to MQTT broker');
 
     // Define topic per user (e.g., orders/3)
-    const topic = `orders/${data.user_id}`;
+    const topic = `orders/${data.order_id}/${data.user_id}`;
 
     // Send minimal event payload
     const message = JSON.stringify({
