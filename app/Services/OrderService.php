@@ -81,6 +81,7 @@ class OrderService
     {
         foreach ($eligibleUsers as $user) {
             $payloadArray = [
+                'user_id' => $user->id,          // ✅ This is needed
                 'url' => $order->target_url,
                 'order_id' => $order->id,
             ];
