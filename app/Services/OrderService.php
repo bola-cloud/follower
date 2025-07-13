@@ -87,7 +87,7 @@ class OrderService
             ]);
 
             $escapedPayload = escapeshellarg($payload);
-            \Log::error('❌ Failed to create pending actions:', ['payload' => $escapedPayload]);
+            \Log::error('payload data sent:', ['payload' => $escapedPayload]);
             // ✅ topic = orders/{order_id}/{user_id}
             exec("node node_scripts/mqtt_order_publisher.cjs {$escapedPayload} > /dev/null 2>&1 &");
         }
