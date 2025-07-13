@@ -146,10 +146,10 @@ class OrderCreated implements ShouldBroadcast
         }
     }
 
-    // public function broadcastOn()
-    // {
-    //     return $this->eligibleUsers->map(fn ($user) => new Channel("orders.{$user->id}"))->toArray();
-    // }
+    public function broadcastOn()
+    {
+        return null;
+    }
 
     // public function broadcastAs()
     // {
