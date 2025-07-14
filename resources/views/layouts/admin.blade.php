@@ -68,7 +68,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
           <li class="nav-item mobile-menu d-md-none mr-auto"><a class="nav-link nav-menu-main menu-toggle hidden-xs" href="#"><i class="ft-menu font-large-1"></i></a></li>
           <li class="nav-item mr-auto">
             <a class="navbar-brand" href="{{route('admin.dashboard')}}">
-              <img class="brand-logo"  src="{{asset('logo.png')}}">
+              <img class="brand-logo"  src="{{asset('app-assets/images/instagram.jpeg')}}">
               <h3 class="brand-text">EG Followers </h3>
             </a>
           </li>
