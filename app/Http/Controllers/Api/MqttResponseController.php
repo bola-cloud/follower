@@ -16,13 +16,27 @@ class MqttResponseController extends Controller
             'status' => 'required|in:done,external',
         ]);
 
+        $action = DB::table('actions')
+            ->where('order_id', $validated['order_id'])
+            ->where('user_id', $validated['user_id'])
+            ->first();
+
+        if (!$action) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Action record not found.',
+                'data' => $validated
+            ], 404);
+        }
+
         $updated = DB::table('actions')
             ->where('order_id', $validated['order_id'])
             ->where('user_id', $validated['user_id'])
             ->update(['status' => $validated['status']]);
 
         return response()->json([
-            'success' => $updated > 0,
+            'success' => true,
+            'message' => 'Action status updated successfully.',
             'updated_rows' => $updated
         ]);
     }
