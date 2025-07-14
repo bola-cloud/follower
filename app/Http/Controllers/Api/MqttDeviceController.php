@@ -27,8 +27,8 @@ class MqttDeviceController extends Controller
             $existingDevices[] = $deviceId;
 
             // Store updated list with short expiry (e.g., 30 minutes)
-            Cache::put($cacheSetKey, $existingDevices, now()->addMinutes(8));
-            Cache::put($cacheCountKey, count($existingDevices), now()->addMinutes(8));
+            Cache::put($cacheSetKey, $existingDevices, now()->addMinutes(1));
+            Cache::put($cacheCountKey, count($existingDevices), now()->addMinutes(1));
         }
 
         return response()->json([
