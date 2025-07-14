@@ -40,6 +40,8 @@ Route::middleware('auth:sanctum')->group(function () {
 
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
+// routes/api.php
+Route::post('/mqtt/device-activation', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handle']);
 
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
 Route::get('/settings', [SettingController::class, 'index']);
