@@ -144,7 +144,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
             </li>
 
             <li class="{{ Route::currentRouteName() == 'admin.settings.index' ? 'active':'' }} nav-item">
-                <a href="{{route('admin.settings.index')}}"><i class="la la-home"></i><span class="menu-title" data-i18n="">لوحة التحكم</span></a>
+                <a href="{{route('admin.settings.index')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> اعدادات التطبيق </span></a>
             </li>
 
         </ul>
