@@ -42,6 +42,12 @@ Route::middleware('auth:sanctum')->group(function () {
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
 // routes/api.php
 Route::post('/mqtt/device-activation', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handle']);
+// routes/api.php
+Route::get('/device-activation-count', function () {
+    return response()->json([
+        'count' => Cache::get('device_activations_count', 0),
+    ]);
+});
 
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
 Route::get('/settings', [SettingController::class, 'index']);
