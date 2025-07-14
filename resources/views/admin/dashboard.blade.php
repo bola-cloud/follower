@@ -150,6 +150,10 @@
         </div>
     </div>
 
+    <div class="card">
+        {{-- resources/views/statistics.blade.php --}}
+        <h3>Device Activations: {{ \Illuminate\Support\Facades\Cache::get('device_activations_count', 0) }}</h3>
+    </div>
 @endsection
 
 @push('scripts')
