@@ -24,7 +24,7 @@ client.on('message', async (topic, message) => {
   console.log('📦 Payload:', payload);
 
   try {
-    const res = await axios.post('http://localhost/api/mqtt/response', {
+    const res = await axios.post('https://egfollow.com/api/mqtt/response', {
       order_id,
       user_id,
       status
