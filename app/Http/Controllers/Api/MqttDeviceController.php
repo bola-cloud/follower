@@ -15,11 +15,25 @@ class MqttDeviceController extends Controller
             'status' => 'required|in:active,inactive',
         ]);
 
-        $key = 'device_activations_count';
+        $deviceId = $validated['device_id'];
+        $cacheSetKey = 'device_activations_set';
+        $cacheCountKey = 'device_activations_count';
 
-        // You can track as a counter (Redis or Cache)
-        Cache::increment($key);
+        // Use taggable cache if needed in Redis or use array
+        $existingDevices = Cache::get($cacheSetKey, []);
 
-        return response()->json(['message' => 'Stored', 'count' => Cache::get($key)]);
+        // If not already stored, add it
+        if (!in_array($deviceId, $existingDevices)) {
+            $existingDevices[] = $deviceId;
+
+            // Store updated list with short expiry (e.g., 30 minutes)
+            Cache::put($cacheSetKey, $existingDevices, now()->addMinutes(8));
+            Cache::put($cacheCountKey, count($existingDevices), now()->addMinutes(8));
+        }
+
+        return response()->json([
+            'message' => 'Stored',
+            'count' => Cache::get($cacheCountKey, 0),
+        ]);
     }
 }
