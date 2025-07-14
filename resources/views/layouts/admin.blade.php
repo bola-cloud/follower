@@ -70,7 +70,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
             <a class="navbar-brand d-flex align-items-center" href="{{ route('admin.dashboard') }}">
                 {{-- <img class="brand-logo mr-1" src="{{ asset('app-assets/images/instagram.jpeg') }}" alt="Logo" style="height: 30px;"> --}}
                 <h3 class="brand-text mb-0 d-flex align-items-center">
-                    <i class="fab fa-instagram mr-2 ml-2"></i><span class="">EG Followers</span>
+                    <i class="fab fa-instagram mr-1 ml-1"></i><span class="">EG Followers</span>
                 </h3>
             </a>
 
