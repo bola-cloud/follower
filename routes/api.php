@@ -37,6 +37,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('/active-users-count', [SoketiTestController::class, 'getActiveUsersCount']);
     Route::put('/user/profile-link', [AuthController::class, 'updateProfileLink']);
+    Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
 
 });
 
