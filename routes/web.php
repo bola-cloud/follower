@@ -49,8 +49,8 @@ Route::group([
         Route::post('/', 'OrderController@store')->name('orders.store');
         Route::post('/{order}/complete', 'OrderController@complete')->name('orders.complete');
     });
-    Route::post('/admin/settings/update', [SettingController::class, 'update'])->name('admin.settings.update');
-    Route::get('/admin/settings', [SettingController::class, 'index'])->name('admin.settings.index');
+    Route::post('/admin/settings/update', 'OrderController@update')->name('admin.settings.update');
+    Route::get('/admin/settings', 'OrderController@index')->name('admin.settings.index');
 });
 
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
