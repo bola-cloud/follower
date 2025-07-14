@@ -34,6 +34,6 @@ class SettingController extends Controller
             \App\Models\Setting::updateOrCreate(['key' => $key], ['value' => $value]);
         }
 
-        return redirect()->route('admin.settings.index')->with('success', __('Settings updated successfully.'));
+        return redirect()->route('admin.settings.index')->with('success', 'تم تحديث الإعدادات بنجاح');
     }
 }
