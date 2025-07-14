@@ -114,7 +114,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
     <div class="main-menu-content">
         <ul class="navigation navigation-main" id="main-menu-navigation" data-menu="menu-navigation">
 
-            <li class="{{ Route::currentRouteName() == 'dashboard' ? 'active':'' }} nav-item">
+            <li class="{{ Route::currentRouteName() == 'admin.dashboard' ? 'active':'' }} nav-item">
                 <a href="{{route('admin.dashboard')}}"><i class="la la-home"></i><span class="menu-title" data-i18n="">لوحة التحكم</span></a>
             </li>
 
@@ -141,6 +141,10 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
                         <a class="menu-item" href="{{route('admin.orders.create')}}" data-i18n="nav.dash.crypto"> اضافة طلب </a>
                     </li>
                 </ul>
+            </li>
+
+            <li class="{{ Route::currentRouteName() == 'admin.settings.index' ? 'active':'' }} nav-item">
+                <a href="{{route('admin.settings.index')}}"><i class="la la-home"></i><span class="menu-title" data-i18n="">لوحة التحكم</span></a>
             </li>
 
         </ul>
