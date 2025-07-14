@@ -166,10 +166,7 @@
             });
         }
 
-        // Fetch initially
         fetchActivationCount();
-
-        // Then every 5 seconds
         setInterval(fetchActivationCount, 5000);
     </script>
 @endpush
