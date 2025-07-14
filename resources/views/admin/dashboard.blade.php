@@ -151,12 +151,25 @@
     </div>
 
     <div class="card">
-        {{-- resources/views/statistics.blade.php --}}
-        <h3>Device Activations: {{ \Illuminate\Support\Facades\Cache::get('device_activations_count', 0) }}</h3>
+        <h3>Device Activations: <span id="activation-count">0</span></h3>
     </div>
 @endsection
 
 @push('scripts')
     <script src="{{asset('assets/js/flatpickr.js')}}"></script>
     <script src="{{asset('assets/js/jquery.js')}}"></script>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script>
+        function fetchActivationCount() {
+            $.get('/api/device-activation-count', function (data) {
+                $('#activation-count').text(data.count);
+            });
+        }
+
+        // Fetch initially
+        fetchActivationCount();
+
+        // Then every 5 seconds
+        setInterval(fetchActivationCount, 5000);
+    </script>
 @endpush
