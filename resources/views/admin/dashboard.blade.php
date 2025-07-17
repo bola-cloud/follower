@@ -144,10 +144,14 @@
 
 <div class="row">
     <div class="col-md-6 mt-4">
-        <canvas id="actionsChart" height="100"></canvas>
+        <div style="height: 300px;">
+            <canvas id="actionsChart" height="100"></canvas>
+        </div>
     </div>
     <div class="col-md-6 mt-4">
-        <canvas id="usersChart" height="100"></canvas>
+        <div style="height: 300px;">
+            <canvas id="usersChart" height="100"></canvas>
+        </div>
     </div>
 </div>
 
