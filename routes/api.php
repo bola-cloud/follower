@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\OrderController;
 use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\SoketiTestController;
 use Illuminate\Support\Facades\Broadcast;
+use App\Http\Controllers\Admin\Dashboard;
 
 /*
 |--------------------------------------------------------------------------
@@ -51,3 +52,5 @@ Route::get('/device-activation-count', function () {
 
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
 Route::get('/settings', [SettingController::class, 'index']);
+Route::get('/chart/users', [Dashboard::class, 'users']);
+Route::get('/chart/actions', [Dashboard::class, 'actions']);

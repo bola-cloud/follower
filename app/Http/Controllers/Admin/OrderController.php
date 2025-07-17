@@ -28,64 +28,63 @@ class OrderController extends Controller
         return view('admin.orders.index', compact('orders'));
     }
 
+    public function show($id)
+    {
+        $order = Order::with('user')->findOrFail($id);
+
+        $actionUsers = \DB::table('actions')
+            ->join('users', 'users.id', '=', 'actions.user_id')
+            ->where('actions.order_id', $id)
+            ->where('actions.status', 'done')
+            ->select('users.name', 'users.email', 'actions.performed_at')
+            ->get();
+
+        return view('admin.orders.show', compact('order', 'actionUsers'));
+    }
+
     public function store(Request $request)
     {
-        // Validate the input directly using the built-in validate() method
-        $validated = $request->validate([
+        $validator = Validator::make($request->all(), [
             'type' => 'required|in:follow,like',
             'total_count' => 'required|integer|min:1',
-            'target_url' => 'required|url',
+            'target_url' => 'required',
+            'cost' => 'nullable|integer|min:0',
         ]);
 
-        // Get the authenticated user
+        if ($validator->fails()) {
+            return redirect()->back()->withErrors($validator)->withInput();
+        }
+
+        $data = $validator->validated();
         $user = $request->user();
-        // If the user is not authenticated, redirect back with an error message
+
         if (!$user) {
             return redirect()->back()->with('error', 'User not authenticated.');
         }
 
-        // Extract validated data
-        $fullUrl = $data['target_url'];
-        $targetId = self::extractInstagramId($fullUrl);
-
-        if (!$targetId) {
-            return response()->json(['error' => 'Invalid Instagram URL format.'], 422);
-        }
-
-        $targetUrl = $targetId;  // We overwrite it to store only the ID
+        $targetId = $data['target_url'];
+        $targetUrl = $targetId;
         $targetUrlHash = sha1($targetUrl);
 
-        // Get the cost for the action
-        $pointsPerAction = function_exists('setting') ? setting("points_per_{$validated['type']}", 1) : 1;
-        $cost = $validated['cost'] ?? ($validated['total_count'] * $pointsPerAction);
+        $pointsPerAction = function_exists('setting') ? setting("points_per_{$data['type']}", 1) : 1;
+        $cost = $data['cost'] ?? ($data['total_count'] * $pointsPerAction);
 
-        // Prevent duplicate active orders from the same user for the same link
-        // $alreadyExists = Order::where('user_id', $user->id)
-        //     ->where('target_url_hash', $targetUrlHash)
-        //     ->where('status', '!=', 'completed')
-        //     ->exists();
-
-        // if ($alreadyExists) {
-        //     return redirect()->back()->with('error', 'You already have an active order for this link.');
-        // }
         try {
             DB::beginTransaction();
 
-            if($user->type == 'admin') {
-                $cost = 0; // Admins can create orders without cost
+            if ($user->type === 'admin') {
+                $cost = 0;
             }
-            // Check if the user has enough points
+
             if ($user->points < $cost) {
                 return redirect()->back()->with('error', 'Insufficient points.');
             }
 
-            // Deduct points from the user
             $user->decrement('points', $cost);
 
-            // Create the order
             $order = Order::create([
-                'type' => $validated['type'],
-                'total_count' => $validated['total_count'],
+                'type' => $data['type'],
+                'total_count' => $data['total_count'],
                 'done_count' => 0,
                 'cost' => $cost,
                 'status' => 'active',
@@ -94,19 +93,17 @@ class OrderController extends Controller
                 'user_id' => $user->id,
             ]);
 
-            // Check if the order was created successfully
             if (!$order) {
                 return redirect()->back()->with('error', 'Failed to create order.');
             }
-            // If the user points are zero, schedule a job to add points
+
             if ($user->points === 0) {
                 \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
             }
 
             DB::commit();
 
-            // Trigger the OrderCreated event
-            event(new OrderCreated($order));
+            app()->make(OrderService::class)->handleOrderCreated($order);
 
             return redirect()->route('admin.orders.index')->with('success', 'Order created and event broadcasted.');
         } catch (Throwable $e) {
@@ -118,54 +115,21 @@ class OrderController extends Controller
     public function complete(Request $request, $orderId)
     {
         $user = $request->user();
+        $order = Order::with('user')->find($orderId);
 
-        if (!$user) {
-            return redirect()->back()->with('error', 'User not authenticated.');
-        }
-
-        $order = Order::where('id', $orderId)
-            ->where('user_id', $user->id)
-            ->first();
-
-        if (!$order) {
-            return redirect()->back()->with('error', 'Order not found or you are not authorized.');
-        }
-
-        if ($order->status === 'completed') {
-            return redirect()->back()->with('error', 'Order is already completed.');
-        }
-
-        if ($order->done_count >= $order->total_count) {
-            return redirect()->back()->with('error', 'Order is already fulfilled.');
+        if (!$user || !$order || $order->user_id !== $user->id) {
+            return redirect()->back()->with('error', 'Unauthorized or invalid order.');
         }
 
         try {
             DB::beginTransaction();
-
-            DB::table('actions')
-                ->where('order_id', $order->id)
-                ->where('status', 'pending')
-                ->update([
-                    'status' => 'external',
-                    'performed_at' => now(),
-                ]);
-
-            $uncompletedCount = $order->total_count - $order->done_count;
-            $pointsPerAction = function_exists('setting') ? setting("points_per_{$order->type}", 1) : 1;
-            $refundPoints = $uncompletedCount * $pointsPerAction;
-            $user->increment('points', $refundPoints);
-
-            $order->update(['status' => 'completed']);
-
-            event(new \App\Events\OrderCompleted($order));
-
+            $result = app()->make(\App\Services\ResumeOrderService::class)->resume($order);
             DB::commit();
 
-            return redirect()->route('admin.orders.index')->with('success', 'Order completed successfully.');
-        } catch (Throwable $e) {
+            return redirect()->route('admin.orders.index')->with('success', $result['message']);
+        } catch (\Throwable $e) {
             DB::rollBack();
-            \Log::error('Failed to complete order:', ['error' => $e->getMessage()]);
-            return redirect()->back()->with('error', 'Failed to complete order: ' . $e->getMessage());
+            return redirect()->back()->with('error', $e->getMessage());
         }
     }
 

@@ -51,6 +51,8 @@ Route::group([
     });
     Route::post('/admin/settings/update', 'SettingController@update')->name('settings.update');
     Route::get('/admin/settings', 'SettingController@index')->name('settings.index');
+    Route::post('/admin/normal-users/{user}/add-points', 'UserController@addPoints')->name('normal_users.add_points');
+    Route::get('/admin/orders/{id}', 'OrderController@show')->name('orders.show');
 });
 
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);

@@ -11,7 +11,15 @@ class OrderService
     public function handleOrderCreated(Order $order)
     {
         try {
-            $eligibleUsers = $this->getEligibleUsers($order);
+            $remaining = $order->total_count - $order->done_count;
+
+            if ($remaining <= 0) {
+                \Log::info('✅ Order already fulfilled, no actions needed.', ['order_id' => $order->id]);
+                return;
+            }
+
+            $eligibleUsers = $this->getEligibleUsers($order, $remaining);
+
             $this->createPendingActions($order, $eligibleUsers);
             $this->sendMqttToEligibleUsers($order, $eligibleUsers);
         } catch (\Throwable $e) {
@@ -20,11 +28,11 @@ class OrderService
         }
     }
 
-    private function getEligibleUsers(Order $order)
+    private function getEligibleUsers(Order $order, $limit = 0)
     {
         $order->loadMissing('user');
 
-        return User::where('type', 'user')
+        $query = User::where('type', 'user')
             ->whereNotIn('id', function ($q) use ($order) {
                 $q->select('user_id')
                     ->from('actions')
@@ -42,8 +50,13 @@ class OrderService
                             ->whereColumn('o2.target_url', 'users.profile_link');
                     });
             })
-            ->where('profile_link', '!=', $order->target_url)
-            ->get();
+            ->where('profile_link', '!=', $order->target_url);
+
+        if ($limit > 0) {
+            $query->limit($limit);
+        }
+
+        return $query->get();
     }
 
     private function createPendingActions(Order $order, $eligibleUsers)

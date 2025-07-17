@@ -36,6 +36,10 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
+        if(!$user->profile_link || $user->profile_link === null) {
+            return response()->json(['error' => 'User profile does not be completed.'], 422);
+        }
+
         $targetId = $data['target_url'];
 
 
@@ -140,64 +144,21 @@ class OrderController extends Controller
     public function complete(Request $request, $orderId)
     {
         $user = $request->user();
-        if (!$user) {
-            return response()->json(['error' => 'User not authenticated.'], 401);
-        }
+        $order = Order::with('user')->find($orderId);
 
-        $order = Order::where('id', $orderId)
-            ->where('user_id', $user->id)
-            ->first();
-
-        if (!$order) {
-            return response()->json(['error' => 'Order not found or you are not authorized.'], 404);
-        }
-
-        if ($order->status === 'completed') {
-            return response()->json(['error' => 'Order is already completed.'], 409);
-        }
-
-        if ($order->done_count >= $order->total_count) {
-            return response()->json(['error' => 'Order is already fulfilled.'], 409);
+        if (!$user || !$order || $order->user_id !== $user->id) {
+            return response()->json(['error' => 'Unauthorized or invalid order.'], 401);
         }
 
         try {
             DB::beginTransaction();
-
-            // Mark remaining pending actions as external
-            DB::table('actions')
-                ->where('order_id', $order->id)
-                ->where('status', 'pending')
-                ->update([
-                    'status' => 'external',
-                    'performed_at' => now(),
-                ]);
-
-            // Refund points for uncompleted actions
-            $uncompletedCount = $order->total_count - $order->done_count;
-            $pointsPerAction = function_exists('setting') ? setting("points_per_{$order->type}", 1) : 1;
-            $refundPoints = $uncompletedCount * $pointsPerAction;
-            $user->increment('points', $refundPoints);
-
-            // Mark order as completed
-            $order->update(['status' => 'completed']);
-
-            // Trigger OrderCompleted event
-            event(new \App\Events\OrderCompleted($order));
-
+            $result = app()->make(\App\Services\ResumeOrderService::class)->resume($order);
             DB::commit();
 
-            return response()->json([
-                'message' => 'Order completed successfully.',
-                'order' => $order,
-                'refunded_points' => $refundPoints,
-            ], 200);
-        } catch (Throwable $e) {
+            return response()->json($result, 200);
+        } catch (\Throwable $e) {
             DB::rollBack();
-            \Log::error('Failed to complete order:', ['error' => $e->getMessage()]);
-            return response()->json([
-                'error' => 'Failed to complete order.',
-                'details' => $e->getMessage(),
-            ], 500);
+            return response()->json(['error' => $e->getMessage()], 500);
         }
     }
 }

@@ -32,13 +32,15 @@
                 <tr>
                     <td>{{ $order->id }}</td>
                     <td>{{ $order->user->name }} ({{ $order->user->email }})</td>
-                    <td><a href="{{ $order->target_url }}" target="_blank">{{ $order->target_url }}</a></td>
+                    <td><a href="{{ $order->target_url }}" target="_blank">اذهب الي الرابط </a></td>
                     <td>{{ $order->type }}</td>
                     <td>{{ $order->status }}</td>
                     <td>{{ $order->created_at->format('Y-m-d H:i') }}</td>
                     <td>
+                        <a href="{{ route('admin.orders.show', $order->id) }}" class="btn btn-sm btn-info">عرض</a>
+
                         @if($order->status !== 'completed')
-                        <form action="{{ route('admin.orders.complete', $order->id) }}" method="POST" onsubmit="return confirm('هل تريد إكمال الطلب؟')">
+                        <form action="{{ route('admin.orders.complete', $order->id) }}" method="POST" onsubmit="return confirm('هل تريد إكمال الطلب؟')" class="d-inline-block">
                             @csrf
                             <button class="btn btn-sm btn-warning">إكمال</button>
                         </form>
