@@ -130,9 +130,8 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        // Validate input
         $validator = Validator::make($request->all(), [
-            'profile_link' => ['required', 'string', 'unique:users,profile_link'], // Instagram username style
+            'profile_link' => ['required', 'string'],
         ]);
 
         if ($validator->fails()) {
@@ -152,7 +151,16 @@ class AuthController extends Controller
             return response()->json([
                 'message' => 'Profile link already set and matches.',
                 'profile_link' => $user->profile_link,
-            ],200);
+            ], 200);
+        }
+
+        // If user doesn't have a profile link, ensure the new one isn't already used
+        $exists = \App\Models\User::where('profile_link', $newProfile)->exists();
+
+        if ($exists) {
+            return response()->json([
+                'error' => 'This profile link is already taken by another user.'
+            ], 409);
         }
 
         // Save new profile_link
@@ -162,6 +170,7 @@ class AuthController extends Controller
         return response()->json([
             'message' => 'Profile link successfully updated.',
             'profile_link' => $user->profile_link,
-        ],200);
+        ], 200);
     }
+
 }
