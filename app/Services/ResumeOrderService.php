@@ -74,10 +74,8 @@ class ResumeOrderService
             $this->sendMqtt($order, $user);
         }
 
-        $order->update([
-            'updated_at' => now(),
-        ]);
-
+        $order->touch();
+        
         return [
             'message' => 'Order resumed successfully.',
             'pending_resend_count' => count($pendingUsers),
