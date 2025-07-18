@@ -87,7 +87,7 @@
 
     <!-- Pagination -->
     <div class="d-flex justify-content-center">
-        {{ $users->appends(['search' => $search])->links() }}
+        {{ $users->appends(['search' => $search])->links('pagination::bootstrap-4') }}
     </div>
 </div>
 @endsection
