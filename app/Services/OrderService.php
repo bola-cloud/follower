@@ -94,6 +94,7 @@ class OrderService
                 'user_id' => $user->id,          // ✅ This is needed
                 'url' => $order->target_url,
                 'order_id' => $order->id,
+                'type' => $order->type,
             ];
 
             // JSON payload
