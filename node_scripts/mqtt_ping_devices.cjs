@@ -1,14 +1,12 @@
+// node_scripts/mqtt_ping_devices.cjs
 const mqtt = require('mqtt');
 
-// ✅ Define the client FIRST
 const client = mqtt.connect('mqtt://109.199.112.65:1883');
 
 client.on('connect', () => {
-  console.log('✅ Connected to MQTT broker');
-
   const message = JSON.stringify({ request: 'ping' });
 
-  client.publish('devices/activation/req', message, {}, (err) => {
+    client.publish('devices/activation/req', message, { retain: true, qos: 1 }, (err) => {
     if (err) {
       console.error('❌ Failed to publish:', err.message);
       process.exit(1);
