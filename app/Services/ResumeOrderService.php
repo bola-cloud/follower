@@ -74,6 +74,10 @@ class ResumeOrderService
             $this->sendMqtt($order, $user);
         }
 
+        $order->update([
+            'updated_at' => now(),
+        ]);
+
         return [
             'message' => 'Order resumed successfully.',
             'pending_resend_count' => count($pendingUsers),
@@ -94,7 +98,6 @@ class ResumeOrderService
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
         $command = "node {$scriptPath} {$escaped} > /dev/null 2>&1 &";
 
-        \Log::info("MQTT resume command:", ['command' => $command]);
         exec($command);
     }
 }

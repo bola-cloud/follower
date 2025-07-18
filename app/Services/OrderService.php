@@ -14,7 +14,6 @@ class OrderService
             $remaining = $order->total_count - $order->done_count;
 
             if ($remaining <= 0) {
-                \Log::info('✅ Order already fulfilled, no actions needed.', ['order_id' => $order->id]);
                 return;
             }
 
@@ -23,7 +22,6 @@ class OrderService
             $this->createPendingActions($order, $eligibleUsers);
             $this->sendMqttToEligibleUsers($order, $eligibleUsers);
         } catch (\Throwable $e) {
-            \Log::error('❌ OrderService error:', ['error' => $e->getMessage()]);
             throw $e;
         }
     }
@@ -85,7 +83,6 @@ class OrderService
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();
-            \Log::error('❌ Failed to create pending actions:', ['error' => $e->getMessage()]);
             throw $e;
         }
     }
@@ -109,8 +106,6 @@ class OrderService
             $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
             $command = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
-
-            \Log::info('MQTT publish command:', ['command' => $command]);
 
             exec($command);
         }
