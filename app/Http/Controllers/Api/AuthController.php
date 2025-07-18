@@ -91,22 +91,31 @@ class AuthController extends Controller
         $validator = Validator::make($data, [
             'google_id' => 'required|string',
             'name' => 'required|string',
-            'email' => 'required|string|email|max:255',
+            'email' => 'nullable|email|max:255',
         ]);
 
         if ($validator->fails()) {
             return response()->json(['error' => $validator->errors()], 422);
         }
 
-        // Find or create user
-        $user = User::firstOrCreate(
-            ['google_id' => $data['google_id']],
-            [
-                'name' => $data['name'] ?? 'No Name',
+        // Try to find user by google_id
+        $user = User::where('google_id', $data['google_id'])->first();
+
+        if (!$user) {
+            // Create new user
+            $user = User::create([
+                'google_id' => $data['google_id'],
+                'name' => $data['name'],
+                'email' => $data['email'] ?? null,
                 'profile_link' => $data['profile_link'] ?? null,
                 'points' => 0,
-            ]
-        );
+            ]);
+        } else {
+            // Update missing email if previously null and provided now
+            if (empty($user->email) && !empty($data['email'])) {
+                $user->update(['email' => $data['email']]);
+            }
+        }
 
         // Create API token
         $token = $user->createToken('api-token')->plainTextToken;
