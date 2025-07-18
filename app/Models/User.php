@@ -30,7 +30,6 @@ class User extends Authenticatable
         'google_id',
         'profile_link',
         'points',
-        'email',
         'type',
     ];
 

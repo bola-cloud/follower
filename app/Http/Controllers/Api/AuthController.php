@@ -86,12 +86,12 @@ class AuthController extends Controller
 
     public function googleLogin(Request $request)
     {
-        $data = $request->only(['google_id', 'name', 'profile_link']);
+        $data = $request->only(['google_id', 'name', 'email']);
 
         $validator = Validator::make($data, [
             'google_id' => 'required|string|unique:users,google_id',
             'name' => 'required|string',
-            'profile_link' => 'nullable|unique:users,profile_link',
+            'email' => 'required|string|email|max:255|unique:users',
         ]);
 
         if ($validator->fails()) {
