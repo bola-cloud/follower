@@ -89,7 +89,7 @@ class AuthController extends Controller
         $data = $request->only(['google_id', 'name', 'email']);
 
         $validator = Validator::make($data, [
-            'google_id' => 'required|string|unique:users,google_id',
+            'google_id' => 'required|string',
             'name' => 'required|string',
             'email' => 'required|string|email|max:255|unique:users',
         ]);
