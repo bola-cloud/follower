@@ -90,7 +90,7 @@ class AuthController extends Controller
 
         $validator = Validator::make($data, [
             'google_id' => 'required|string',
-            'name' => 'nullable|string',
+            'name' => 'required|string',
             'profile_link' => 'nullable|url|unique:users,profile_link',
         ]);
 
