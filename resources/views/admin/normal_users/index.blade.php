@@ -35,7 +35,7 @@
                     <td>{{ $user->name }}</td>
                     <td>
                         @if($user->profile_link)
-                            <a href="{{ $user->profile_link }}" target="_blank">عرض</a>
+                            <a href="{{"https://www.instagram.com/" . $user->profile_link }}" target="_blank">عرض</a>
                         @else
                             -
                         @endif
