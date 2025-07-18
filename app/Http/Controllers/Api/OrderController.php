@@ -145,6 +145,10 @@ class OrderController extends Controller
         $user = $request->user();
         $order = Order::with('user')->find($orderId);
 
+        $order->update([
+            'updated_at' => now(),
+        ]);
+        
         if (!$user || !$order || $order->user_id !== $user->id) {
             return response()->json(['error' => 'Unauthorized or invalid order.'], 401);
         }
