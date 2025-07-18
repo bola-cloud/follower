@@ -21,15 +21,10 @@ class Dashboard extends Controller
         Cache::put('device_activations_count', 0, now()->addMinutes(2));
 
         // ✅ 2. Run the Node.js script to trigger MQTT
-        $process = new Process(['node', base_path('node_scripts/mqtt_ping_devices.cjs')]);
-
-        try {
-            $process->mustRun();
-            logger('✅ MQTT ping script executed successfully');
-        } catch (ProcessFailedException $e) {
-            logger()->error('❌ MQTT ping failed: ' . $e->getMessage());
-        }
-
+        $scriptPath = base_path('node_scripts/mqtt_ping_devices.cjs');
+        $logFile = storage_path('logs/mqtt_ping.log');
+        $command = "node {$scriptPath} >> {$logFile} 2>&1 &";
+        exec($command);
 
         // Statistics
         $usersCount = User::where('type','user')->count();
