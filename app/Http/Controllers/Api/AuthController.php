@@ -123,7 +123,7 @@ class AuthController extends Controller
 
         // Validate input
         $validator = Validator::make($request->all(), [
-            'profile_link' => ['required', 'string', 'regex:/^[_a-zA-Z0-9.]+$/'], // Instagram username style
+            'profile_link' => ['required', 'string'], // Instagram username style
         ]);
 
         if ($validator->fails()) {
