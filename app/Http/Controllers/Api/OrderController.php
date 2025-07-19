@@ -109,7 +109,7 @@ class OrderController extends Controller
                 'message' => 'Order created and event broadcasted.',
                 'order' => $order,
                 'timeer' => $timer,
-                'time' => $time,
+                'time' => now()->toIso8601String(),
             ], 200);
         } catch (Throwable $e) {
             DB::rollBack();
