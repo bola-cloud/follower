@@ -109,7 +109,11 @@ class AuthController extends Controller
                 'email' => $data['email'] ?? null,
                 'profile_link' => $data['profile_link'] ?? null,
                 'points' => 0,
+                'timer' => now()->addMinutes(30), // set timer column
             ]);
+
+            // Dispatch job to add points after 30 minutes
+            \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
         } else {
             // Update missing email if previously null and provided now
             if (empty($user->email) && !empty($data['email'])) {

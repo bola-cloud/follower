@@ -93,11 +93,14 @@ class OrderController extends Controller
             if (!$order) {
                 return response()->json(['error' => 'Failed to create order.'], 500);
             }
+
             if ($user->points === 0) {
-                \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
-                $user->update(['timer' => now()->addMinutes(30)]);
+                if (!$user->timer || now()->greaterThan($user->timer)) {
+                    \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
+                    $user->update(['timer' => now()->addMinutes(30)]);
+                }
             } else {
-                $user->update(['timer' => null]); // reset if not zero
+                $user->update(['timer' => null]); // Reset timer
             }
 
             // Commit the transaction
