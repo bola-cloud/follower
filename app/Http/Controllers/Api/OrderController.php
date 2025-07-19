@@ -11,6 +11,7 @@ use App\Events\OrderCreated;
 use App\Events\OrderCompleted;
 use Throwable;
 use App\Services\OrderService;
+use Illuminate\Support\Carbon;
 
 class OrderController extends Controller
 {
@@ -109,7 +110,7 @@ class OrderController extends Controller
                 'message' => 'Order created and event broadcasted.',
                 'order' => $order,
                 'timeer' => $timer,
-                'time' => now()->toIso8601String(),
+                'time' => now()->format('Y-m-d H:i:s'),
             ], 200);
         } catch (Throwable $e) {
             DB::rollBack();
