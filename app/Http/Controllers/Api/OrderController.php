@@ -92,8 +92,10 @@ class OrderController extends Controller
             if (!$order) {
                 return response()->json(['error' => 'Failed to create order.'], 500);
             }
+            $timer =false; $time = 0;
             if ($user->points === 0) {
                 \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
+                $timer = true; $time = now();
             }
 
             // Commit the transaction
@@ -106,6 +108,8 @@ class OrderController extends Controller
             return response()->json([
                 'message' => 'Order created and event broadcasted.',
                 'order' => $order,
+                'timeer' => $timer,
+                'time' => $time,
             ], 200);
         } catch (Throwable $e) {
             DB::rollBack();
