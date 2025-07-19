@@ -173,4 +173,18 @@ class AuthController extends Controller
         ], 200);
     }
 
+    public function points(Request $request)
+    {
+        $user = $request->user();
+
+        if (!$user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
+
+        return response()->json([
+            'points' => $user->points,
+            'timer' => $user->timer, // Assuming you have a timer field
+        ]);
+    }
+
 }

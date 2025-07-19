@@ -143,6 +143,18 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
                 </ul>
             </li>
 
+            <li class=" nav-item"><a href="#"><i class="la la-envelope"></i><span class="menu-title" data-i18n="nav.dash.main"> ادارة الاكواد </a>
+                <ul class="menu-content">
+                    <li class="{{ Route::currentRouteName() == 'admin.promocodes.index' ? 'active':'' }} ">
+                        <a class="menu-item" href="{{route('admin.promocodes.index')}}" data-i18n="nav.dash.ecommerce"> عرض الاكواد </a>
+                    </li>
+                    <li class="{{ Route::currentRouteName() == 'admin.promocodes.create' ? 'active':'' }} ">
+                        <a class="menu-item" href="{{route('admin.promocodes.create')}}" data-i18n="nav.dash.crypto"> اضافة كود </a>
+                    </li>
+                </ul>
+            </li>
+
+
             <li class="{{ Route::currentRouteName() == 'admin.settings.index' ? 'active':'' }} nav-item">
                 <a href="{{route('admin.settings.index')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> اعدادات التطبيق </span></a>
             </li>

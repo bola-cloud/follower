@@ -8,6 +8,7 @@ use App\Http\Controllers\Api\SettingController;
 use App\Http\Controllers\SoketiTestController;
 use Illuminate\Support\Facades\Broadcast;
 use App\Http\Controllers\Admin\Dashboard;
+use App\Http\Controllers\Api\PromocodeController;
 
 /*
 |--------------------------------------------------------------------------
@@ -38,6 +39,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('logout', [AuthController::class, 'logout']);
     Route::get('/active-users-count', [SoketiTestController::class, 'getActiveUsersCount']);
     Route::post('/user/profile-link', [AuthController::class, 'updateProfileLink']);
+    Route::post('/promocode/redeem', [PromocodeController::class, 'redeem']);
+    Route::get('/user/points', [AuthController::class, 'points']);
 
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);

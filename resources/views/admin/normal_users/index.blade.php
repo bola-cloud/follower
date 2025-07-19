@@ -24,6 +24,7 @@
                 <th>#</th>
                 <th>الاسم</th>
                 <th>الرابط الشخصي</th>
+                <th> الايميل </th>
                 <th>النقاط</th>
                 <th>الإجراءات</th>
             </tr>
@@ -40,6 +41,7 @@
                             -
                         @endif
                     </td>
+                    <td>{{ $user->email ? $user->email : "--"  }}</td>
                     <td>{{ $user->points }}</td>
                     <td>
                         <a href="{{ route('admin.normal_users.orders', $user->id) }}" class="btn btn-sm btn-info">

@@ -53,6 +53,9 @@ Route::group([
     Route::get('/admin/settings', 'SettingController@index')->name('settings.index');
     Route::post('/admin/normal-users/{user}/add-points', 'UserController@addPoints')->name('normal_users.add_points');
     Route::get('/admin/orders/{id}', 'OrderController@show')->name('orders.show');
+    Route::resource('promocodes', 'PromocodeAdminController')->names('promocodes');
+    Route::delete('/admin/promocodes/bulk-delete', 'PromocodeAdminController@bulkDelete')->name('promocodes.bulkDelete');
+
 });
 
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
