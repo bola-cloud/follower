@@ -156,9 +156,16 @@ class OrderController extends Controller
             return response()->json(['error' => 'Unauthorized or invalid order.'], 401);
         }
 
+        // ✅ Check if order is paused
+        if ($order->status === 'paused') {
+            return response()->json(['error' => 'This order has been canceled and cannot be resumed.'], 403);
+        }
+
         try {
             DB::beginTransaction();
+
             $result = app()->make(\App\Services\ResumeOrderService::class)->resume($order);
+
             DB::commit();
 
             return response()->json($result, 200);

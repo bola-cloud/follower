@@ -39,15 +39,23 @@
                     <td>
                         <a href="{{ route('admin.orders.show', $order->id) }}" class="btn btn-sm btn-info">عرض</a>
 
-                        @if($order->status !== 'completed')
-                        <form action="{{ route('admin.orders.complete', $order->id) }}" method="POST" onsubmit="return confirm('هل تريد إكمال الطلب؟')" class="d-inline-block">
-                            @csrf
-                            <button class="btn btn-sm btn-warning">إكمال</button>
-                        </form>
+                        @if($order->status !== 'completed' && $order->status !== 'paused')
+                            <form action="{{ route('admin.orders.complete', $order->id) }}" method="POST" onsubmit="return confirm('هل تريد إكمال الطلب؟')" class="d-inline-block">
+                                @csrf
+                                <button class="btn btn-sm btn-warning">إكمال</button>
+                            </form>
+
+                            <form action="{{ route('admin.orders.cancel', $order->id) }}" method="POST" onsubmit="return confirm('هل تريد إلغاء الطلب؟')" class="d-inline-block">
+                                @csrf
+                                <button class="btn btn-sm btn-danger">إلغاء</button>
+                            </form>
+                        @elseif($order->status === 'paused')
+                            <span class="badge bg-secondary">موقوف</span>
                         @else
-                            مكتمل
+                            <span class="badge bg-success">مكتمل</span>
                         @endif
                     </td>
+
                 </tr>
             @empty
                 <tr>

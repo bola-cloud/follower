@@ -137,4 +137,16 @@ class OrderController extends Controller
     {
         return view('admin.orders.create');
     }
+
+    public function cancel(Request $request, Order $order)
+    {
+        if ($order->status === 'completed') {
+            return redirect()->back()->with('error', 'لا يمكن إلغاء طلب مكتمل.');
+        }
+
+        $order->update(['status' => 'paused']);
+
+        return redirect()->back()->with('success', 'تم إلغاء الطلب بنجاح.');
+    }
+
 }

@@ -55,6 +55,7 @@ Route::group([
     Route::get('/admin/orders/{id}', 'OrderController@show')->name('orders.show');
     Route::resource('promocodes', 'PromocodeAdminController')->names('promocodes');
     Route::delete('/admin/promocodes/bulk-delete', 'PromocodeAdminController@bulkDelete')->name('promocodes.bulkDelete');
+    Route::post('/admin/orders/{order}/cancel', [\App\Http\Controllers\Admin\OrderController::class, 'cancel'])->name('orders.cancel');
 
 });
 
