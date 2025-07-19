@@ -97,9 +97,9 @@ class OrderController extends Controller
                 return redirect()->back()->with('error', 'Failed to create order.');
             }
 
-            if ($user->points === 0) {
-                \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
-            }
+            // if ($user->points === 0) {
+            //     \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
+            // }
 
             DB::commit();
 
