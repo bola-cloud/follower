@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
+use Carbon\Carbon;
 
 class AuthController extends Controller
 {
@@ -187,7 +188,9 @@ class AuthController extends Controller
 
         return response()->json([
             'points' => $user->points,
-            'timer' => $user->timer, // Assuming you have a timer field
+            'timer' => $user->timer
+                ? Carbon::parse($user->timer)->timezone('Africa/Cairo')->format('Y-m-d H:i:s')
+                : null,
         ]);
     }
 
