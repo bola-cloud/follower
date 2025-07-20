@@ -30,8 +30,8 @@
                     <td>{{ $admin->name }}</td>
                     <td>{{ $admin->email }}</td>
                     <td>
-                        <a href="{{ route('admin.users.edit', $admin->id) }}" class="btn btn-sm btn-warning">تعديل</a>
                         @unless($admin->email === 'bola.ishak41@gmail.com')
+                            <a href="{{ route('admin.users.edit', $admin->id) }}" class="btn btn-sm btn-warning">تعديل</a>
                             <form action="{{ route('admin.users.destroy', $admin->id) }}" method="POST" class="d-inline" onsubmit="return confirm('هل أنت متأكد من الحذف؟')">
                                 @csrf
                                 @method('DELETE')
