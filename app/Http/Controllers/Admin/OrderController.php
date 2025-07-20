@@ -122,7 +122,7 @@ class OrderController extends Controller
         $user = $request->user();
         $order = Order::with('user')->find($orderId);
 
-        if (!$user || !$order || $order->user_id !== $user->id) {
+        if (!$user || !$order || ($user->type !== 'admin' && $order->user_id !== $user->id)) {
             Log::warning("[OrderComplete] Unauthorized access attempt or invalid order ID: {$orderId}");
             return redirect()->back()->with('error', 'Unauthorized or invalid order.');
         }
