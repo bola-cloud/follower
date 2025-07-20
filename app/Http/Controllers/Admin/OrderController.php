@@ -11,6 +11,8 @@ use App\Events\OrderCreated;
 use App\Events\OrderCompleted;
 use Throwable;
 use Illuminate\Support\Facades\Log;
+use App\Services\OrderService;
+use App\Services\ResumeOrderService;
 
 class OrderController extends Controller
 {
