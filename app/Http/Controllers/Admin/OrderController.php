@@ -123,18 +123,34 @@ class OrderController extends Controller
         $order = Order::with('user')->find($orderId);
 
         if (!$user || !$order || $order->user_id !== $user->id) {
+            Log::warning("[OrderComplete] Unauthorized access attempt or invalid order ID: {$orderId}");
             return redirect()->back()->with('error', 'Unauthorized or invalid order.');
+        }
+
+        if ($order->status === 'paused') {
+            Log::info("[OrderComplete] Attempt to complete a paused order (ID: {$order->id})");
+            return redirect()->back()->with('error', 'Cannot complete a canceled order.');
         }
 
         try {
             DB::beginTransaction();
-            $result = app()->make(\App\Services\ResumeOrderService::class)->resume($order);
+
+            Log::info("[OrderComplete] Starting resume process for Order #{$order->id}");
+
+            /** @var ResumeOrderService $resumeService */
+            $resumeService = app()->make(ResumeOrderService::class);
+
+            $result = $resumeService->resume($order);
+
+            Log::info("[OrderComplete] Resume result: ", $result);
+
             DB::commit();
 
             return redirect()->route('admin.orders.index')->with('success', $result['message']);
         } catch (\Throwable $e) {
             DB::rollBack();
-            return redirect()->back()->with('error', $e->getMessage());
+            Log::error("[OrderComplete] Exception occurred: {$e->getMessage()}");
+            return redirect()->back()->with('error', 'An error occurred: ' . $e->getMessage());
         }
     }
 
