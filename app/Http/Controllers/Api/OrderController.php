@@ -12,6 +12,7 @@ use App\Events\OrderCompleted;
 use Throwable;
 use App\Services\OrderService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 
 class OrderController extends Controller
 {
