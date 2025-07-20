@@ -97,10 +97,13 @@ class OrderController extends Controller
             if ($user->points === 0) {
                 if (!$user->timer || now()->greaterThan($user->timer)) {
                     \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
-                    $user->update(['timer' => now()->addMinutes(30)]);
+                    $newTimer = now()->addMinutes(30);
+                    $user->update(['timer' => $newTimer]);
+                    Log::info("[OrderStore] Timer set for user #{$user->id} at {$newTimer}");
                 }
             } else {
                 $user->update(['timer' => null]); // Reset timer
+                Log::info("[OrderStore] Timer reset for user #{$user->id}");
             }
 
             // Commit the transaction
