@@ -31,11 +31,15 @@
                     <td>{{ $admin->email }}</td>
                     <td>
                         <a href="{{ route('admin.users.edit', $admin->id) }}" class="btn btn-sm btn-warning">تعديل</a>
-                        <form action="{{ route('admin.users.destroy', $admin->id) }}" method="POST" class="d-inline" onsubmit="return confirm('هل أنت متأكد من الحذف؟')">
-                            @csrf
-                            @method('DELETE')
-                            <button class="btn btn-sm btn-danger">حذف</button>
-                        </form>
+                        @unless($admin->email === 'bola.ishak41@gmail.com')
+                            <form action="{{ route('admin.users.destroy', $admin->id) }}" method="POST" class="d-inline" onsubmit="return confirm('هل أنت متأكد من الحذف؟')">
+                                @csrf
+                                @method('DELETE')
+                                <button class="btn btn-sm btn-danger">حذف</button>
+                            </form>
+                        @else
+                            <span class="text-muted">لا يمكن حذف المدير العام</span>
+                        @endunless
                     </td>
                 </tr>
             @empty
