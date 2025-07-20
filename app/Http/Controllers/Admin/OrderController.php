@@ -62,7 +62,6 @@ class OrderController extends Controller
         $user = $request->user();
 
         if (!$user) {
-            Log::error('[OrderStore] Authenticated user not found.');
             return redirect()->back()->with('error', 'User not authenticated.');
         }
 
@@ -81,12 +80,10 @@ class OrderController extends Controller
             }
 
             if ($user->points < $cost) {
-                Log::warning("[OrderStore] User #{$user->id} has insufficient points.");
                 return redirect()->back()->with('error', 'Insufficient points.');
             }
 
             $user->decrement('points', $cost);
-            Log::info("[OrderStore] Deducted {$cost} points from user #{$user->id}");
 
             $order = Order::create([
                 'type' => $data['type'],
@@ -100,18 +97,14 @@ class OrderController extends Controller
             ]);
 
             if (!$order) {
-                Log::error("[OrderStore] Order creation failed for user #{$user->id}");
                 return redirect()->back()->with('error', 'Failed to create order.');
             }
 
             DB::commit();
 
-            Log::info("[OrderStore] Order #{$order->id} created successfully. Triggering OrderService...");
-
             // ✅ Execute MQTT dispatch
             try {
                 app()->make(OrderService::class)->handleOrderCreated($order);
-                Log::info("[OrderStore] OrderService handleOrderCreated called successfully for Order #{$order->id}");
             } catch (\Throwable $e) {
                 Log::error("[OrderStore] Error dispatching MQTT from OrderService: " . $e->getMessage());
             }
