@@ -75,4 +75,16 @@ class User extends Authenticatable
     protected $appends = [
         'profile_photo_url',
     ];
+
+    public function toArray()
+    {
+        $data = parent::toArray();
+
+        if ($this->timer) {
+            $data['timer'] = $this->timer->timezone(config('app.timezone'))->format('Y-m-d H:i:s');
+        }
+
+        return $data;
+    }
+
 }

@@ -115,7 +115,7 @@ class OrderController extends Controller
             app()->make(OrderService::class)->handleOrderCreated($order);
 
             return response()->json([
-                'message' => 'Order created and event broadcasted.',
+                'message' => 'Order created and Mqtt sent.',
                 'order' => $order,
             ], 200);
         } catch (Throwable $e) {
