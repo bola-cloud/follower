@@ -89,6 +89,7 @@ class ResumeOrderService
             'user_id' => $user->id,
             'url' => $order->target_url,
             'order_id' => $order->id,
+            'type' => $order->type,
         ];
 
         $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
