@@ -100,10 +100,10 @@ class OrderController extends Controller
             // if ($user->points === 0) {
             //     \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
             // }
+            app()->make(OrderService::class)->handleOrderCreated($order);
 
             DB::commit();
 
-            app()->make(OrderService::class)->handleOrderCreated($order);
 
             return redirect()->route('admin.orders.index')->with('success', 'Order created and event broadcasted.');
         } catch (Throwable $e) {
