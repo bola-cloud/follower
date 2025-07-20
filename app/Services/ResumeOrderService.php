@@ -24,13 +24,8 @@ class ResumeOrderService
 
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
 
-        $alreadySentUserIds = [];
-
         foreach ($pendingUsers as $user) {
-            if (!in_array($user->id, $alreadySentUserIds)) {
-                $this->sendMqtt($order, $user);
-                $alreadySentUserIds[] = $user->id;
-            }
+            $this->sendMqtt($order, $user);
         }
 
         // Limit the number of new users based on remaining actions
@@ -76,10 +71,7 @@ class ResumeOrderService
         DB::table('actions')->insert($actions->toArray());
 
         foreach ($eligibleUsers as $user) {
-            if (!in_array($user->id, $alreadySentUserIds)) {
-                $this->sendMqtt($order, $user);
-                $alreadySentUserIds[] = $user->id;
-            }
+            $this->sendMqtt($order, $user);
         }
 
         $order->touch();

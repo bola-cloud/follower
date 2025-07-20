@@ -55,7 +55,7 @@ class OrderService
         if ($limit > 0) {
             $query->limit($limit);
         }
-        Log::info($query->get());
+
         return $query->get();
     }
 
@@ -91,26 +91,27 @@ class OrderService
 
     private function sendMqttToEligibleUsers(Order $order, $eligibleUsers)
     {
-        $alreadySentUserIds = [];
-
         foreach ($eligibleUsers as $user) {
-            if (!in_array($user->id, $alreadySentUserIds)) {
-                $payloadArray = [
-                    'user_id' => $user->id,
-                    'url' => $order->target_url,
-                    'order_id' => $order->id,
-                    'type' => $order->type,
-                ];
-                $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-                $escapedJson = escapeshellarg($json);
-                $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
-                $command = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
-                exec($command);
+            $payloadArray = [
+                'user_id' => $user->id,          // ✅ This is needed
+                'url' => $order->target_url,
+                'order_id' => $order->id,
+                'type' => $order->type,
+            ];
 
-                $alreadySentUserIds[] = $user->id;
-            }
+            // JSON payload
+            $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+            // ✅ استخدام escapeshellarg لمنع كسر الأمر بسبب علامات الاقتباس
+            $escapedJson = escapeshellarg($json);
+
+            // ✅ استخدام المسار الكامل لتفادي مشاكل exec
+            $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
+
+            $command = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
+
+            exec($command);
         }
-
     }
 
 }
