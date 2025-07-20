@@ -7,11 +7,6 @@ const rawInput = process.argv[2]; // JSON: { user_id, order_id, type }
 try {
   const data = JSON.parse(rawInput);
 
-  // Validate the order type
-  if (!['follow', 'like'].includes(data.type)) {
-    throw new Error(`Invalid order type: ${data.type}`);
-  }
-
   client.on('connect', () => {
     console.log('✅ Connected to MQTT broker');
     const topic = `orders/${data.user_id}`;
