@@ -53,7 +53,7 @@ class OrderService
         if ($limit > 0) {
             $query->limit($limit);
         }
-
+        Log::info($query->get());
         return $query->get();
     }
 
