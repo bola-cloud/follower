@@ -31,6 +31,7 @@ class User extends Authenticatable
         'profile_link',
         'points',
         'type',
+        'timer',
     ];
 
     public function orders()
