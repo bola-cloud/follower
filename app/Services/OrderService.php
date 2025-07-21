@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use App\Jobs\SendMqttToUserJob;
 
 class OrderService
 {
@@ -92,22 +93,12 @@ class OrderService
     private function sendMqttToEligibleUsers(Order $order, $eligibleUsers)
     {
         foreach ($eligibleUsers as $user) {
-            $payloadArray = [
-                'user_id' => $user->id,
-                'url' => $order->target_url,
-                'order_id' => $order->id,
-                'type' => $order->type,
-            ];
-
-            $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            $escapedJson = escapeshellarg($json);
-            $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
-
-            // Log before executing
-            Log::info("[MQTT] Executing for user {$user->id}: {$json}");
-
-            $command = "node {$scriptPath} {$escapedJson} >> " . storage_path('logs/mqtt_output.log') . " 2>&1";
-            exec($command);
+            dispatch(new SendMqttToUserJob(
+                $user->id,
+                $order->id,
+                $order->type,
+                $order->target_url
+            ));
         }
     }
 
