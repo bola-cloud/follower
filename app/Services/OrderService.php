@@ -93,23 +93,20 @@ class OrderService
     {
         foreach ($eligibleUsers as $user) {
             $payloadArray = [
-                'user_id' => $user->id,          // ✅ This is needed
+                'user_id' => $user->id,
                 'url' => $order->target_url,
                 'order_id' => $order->id,
                 'type' => $order->type,
             ];
 
-            // JSON payload
             $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-
-            // ✅ استخدام escapeshellarg لمنع كسر الأمر بسبب علامات الاقتباس
             $escapedJson = escapeshellarg($json);
-
-            // ✅ استخدام المسار الكامل لتفادي مشاكل exec
             $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
-            $command = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
+            // Log before executing
+            Log::info("[MQTT] Executing for user {$user->id}: {$json}");
 
+            $command = "node {$scriptPath} {$escapedJson} >> " . storage_path('logs/mqtt_output.log') . " 2>&1";
             exec($command);
         }
     }
