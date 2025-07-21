@@ -16,9 +16,14 @@ class MqttResponseController extends Controller
             'status' => 'required|in:done,external',
         ]);
 
+        $orderId = $validated['order_id'];
+        $userId = $validated['user_id'];
+        $status = $validated['status'];
+
+        // Check if the action exists
         $action = DB::table('actions')
-            ->where('order_id', $validated['order_id'])
-            ->where('user_id', $validated['user_id'])
+            ->where('order_id', $orderId)
+            ->where('user_id', $userId)
             ->first();
 
         if (!$action) {
@@ -29,10 +34,27 @@ class MqttResponseController extends Controller
             ], 404);
         }
 
+        // Prevent re-incrementing if already done
+        if ($action->status === 'done' && $status === 'done') {
+            return response()->json([
+                'success' => true,
+                'message' => 'Action already marked as done.',
+                'updated_rows' => 0
+            ]);
+        }
+
+        // Update action status
         $updated = DB::table('actions')
-            ->where('order_id', $validated['order_id'])
-            ->where('user_id', $validated['user_id'])
-            ->update(['status' => $validated['status']]);
+            ->where('order_id', $orderId)
+            ->where('user_id', $userId)
+            ->update(['status' => $status]);
+
+        // If status is "done", increment the done_count on the order
+        if ($status === 'done') {
+            DB::table('orders')
+                ->where('id', $orderId)
+                ->increment('done_count');
+        }
 
         return response()->json([
             'success' => true,
