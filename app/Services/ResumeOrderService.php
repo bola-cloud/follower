@@ -5,17 +5,19 @@ namespace App\Services;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use App\Jobs\SendMqttToUserJob;
 use Carbon\Carbon;
 
 class ResumeOrderService
 {
     public function resume(Order $order): array
     {
-        // Prevent resume if less than 12 hours passed since last update
         if ($order->updated_at->diffInHours(now()) < 12) {
             throw new \Exception('Cannot resume order. Please wait 12 hours before trying again.');
         }
 
+        // Re-send to pending users
         $pendingUserIds = DB::table('actions')
             ->where('order_id', $order->id)
             ->where('status', 'pending')
@@ -25,12 +27,10 @@ class ResumeOrderService
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
 
         foreach ($pendingUsers as $user) {
-            $this->sendMqtt($order, $user);
+            $this->dispatchMqttJob($order, $user);
         }
 
-        // Limit the number of new users based on remaining actions
         $remaining = $order->total_count - $order->done_count - count($pendingUserIds);
-
         if ($remaining <= 0) {
             return [
                 'message' => 'No remaining actions needed.',
@@ -39,6 +39,7 @@ class ResumeOrderService
             ];
         }
 
+        // Select new eligible users
         $eligibleUsers = User::where('type', 'user')
             ->whereNotIn('id', function ($q) use ($order) {
                 $q->select('user_id')->from('actions')->where('order_id', $order->id);
@@ -56,6 +57,7 @@ class ResumeOrderService
             ->limit($remaining)
             ->get();
 
+        // Insert actions
         $now = now();
         $actions = $eligibleUsers->map(function ($user) use ($order, $now) {
             return [
@@ -71,7 +73,7 @@ class ResumeOrderService
         DB::table('actions')->insert($actions->toArray());
 
         foreach ($eligibleUsers as $user) {
-            $this->sendMqtt($order, $user);
+            $this->dispatchMqttJob($order, $user);
         }
 
         $order->touch();
@@ -83,20 +85,13 @@ class ResumeOrderService
         ];
     }
 
-    private function sendMqtt(Order $order, User $user): void
+    private function dispatchMqttJob(Order $order, User $user): void
     {
-        $payload = [
-            'user_id' => $user->id,
-            'url' => $order->target_url,
-            'order_id' => $order->id,
-            'type' => $order->type,
-        ];
-
-        $json = json_encode($payload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        $escaped = escapeshellarg($json);
-        $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
-        $command = "node {$scriptPath} {$escaped} > /dev/null 2>&1 &";
-
-        exec($command);
+        dispatch(new SendMqttToUserJob(
+            $user->id,
+            $order->id,
+            $order->type,
+            $order->target_url
+        ));
     }
 }
