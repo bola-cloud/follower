@@ -13,8 +13,18 @@ class ResumeOrderService
 {
     public function resume(Order $order): array
     {
-        if ($order->updated_at->diffInHours(now()) < 12) {
-            throw new \Exception('Cannot resume order. Please wait 12 hours before trying again.');
+        $user = auth()->user();
+
+        if (!$user) {
+            return ['error' => 'User not authenticated.'];
+        }
+
+        // ❌ Apply 12-hour cooldown ONLY for non-admins
+        if ($user->type !== 'admin' && $order->updated_at->diffInHours(now()) < 12) {
+            return [
+                'error' => 'Cannot resume order. Please wait 12 hours before trying again.',
+                'hours_remaining' => 12 - $order->updated_at->diffInHours(now()),
+            ];
         }
 
         // Re-send to pending users
