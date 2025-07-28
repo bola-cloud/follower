@@ -15,6 +15,10 @@ use App\Events\TestBroadcast;
 | be assigned to the "web" middleware group. Make something great!
 |
 */
+Route::get('/', function () {
+    return view('landing');
+});
+
 
 
 Route::group([
@@ -28,7 +32,7 @@ Route::group([
         'admin',
     ]
 ], function () {
-    Route::get('/', 'Dashboard@index')->name('dashboard');
+    Route::get('/dashboard', 'Dashboard@index')->name('dashboard');
 
     Route::prefix('admin/users')->group(function () {
         Route::get('/', 'AdminUserController@index')->name('users.index');
