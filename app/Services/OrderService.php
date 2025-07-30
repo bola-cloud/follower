@@ -34,6 +34,7 @@ class OrderService
         $order->loadMissing('user');
 
         $query = User::where('type', 'user')
+            ->orderBy('id', 'desc')
             ->whereNotIn('id', function ($q) use ($order) {
                 $q->select('user_id')
                     ->from('actions')
