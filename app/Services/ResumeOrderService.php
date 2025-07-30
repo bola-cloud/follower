@@ -51,6 +51,7 @@ class ResumeOrderService
 
         // Select new eligible users
         $eligibleUsers = User::where('type', 'user')
+            ->orderBy('id', 'desc')
             ->whereNotIn('id', function ($q) use ($order) {
                 $q->select('user_id')->from('actions')->where('order_id', $order->id);
             })
