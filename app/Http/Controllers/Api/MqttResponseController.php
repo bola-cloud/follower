@@ -46,12 +46,15 @@ class MqttResponseController extends Controller
             ->where('user_id', $userId)
             ->update(['status' => $status]);
 
-        // Increment done_count if needed
-        if ($incrementDone) {
-            DB::table('orders')
-                ->where('id', $orderId)
-                ->increment('done_count');
-        }
+
+        // Recalculate the number of done actions and update done_count to avoid duplicates
+        $doneCount = DB::table('actions')
+            ->where('order_id', $orderId)
+            ->where('status', 'done')
+            ->count();
+        DB::table('orders')
+            ->where('id', $orderId)
+            ->update(['done_count' => $doneCount]);
 
         return response()->json([
             'success' => true,
