@@ -34,13 +34,10 @@ class MqttResponseController extends Controller
             ], 404);
         }
 
-        // Prevent re-incrementing if already done
-        if ($action->status === 'done' && $status === 'done') {
-            return response()->json([
-                'success' => true,
-                'message' => 'Action already marked as done.',
-                'updated_rows' => 0
-            ]);
+        // Only increment done_count if status is changing to 'done' from something else
+        $incrementDone = false;
+        if ($action->status !== $status && $status === 'done' && $action->status !== 'done') {
+            $incrementDone = true;
         }
 
         // Update action status
@@ -49,8 +46,8 @@ class MqttResponseController extends Controller
             ->where('user_id', $userId)
             ->update(['status' => $status]);
 
-        // If status is "done", increment the done_count on the order
-        if ($status === 'done') {
+        // Increment done_count if needed
+        if ($incrementDone) {
             DB::table('orders')
                 ->where('id', $orderId)
                 ->increment('done_count');
