@@ -93,14 +93,24 @@ class OrderService
 
     private function sendMqttToEligibleUsers(Order $order, $eligibleUsers)
     {
-        foreach ($eligibleUsers as $user) {
-            dispatch(new SendMqttToUserJob(
-                $user->id,
-                $order->id,
-                $order->type,
-                $order->target_url
-            ));
-        }
+        // Instead of direct dispatch, send to Node.js for ping validation
+        $orderData = [
+            'order_id' => $order->id,
+            'total_count' => $order->total_count - $order->done_count,
+            'eligible_users' => $eligibleUsers->map(function($user) {
+                return ['id' => $user->id, 'profile_link' => $user->profile_link];
+            })->toArray()
+        ];
+
+        $json = json_encode($orderData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $escapedJson = escapeshellarg($json);
+        $scriptPath = base_path('node_scripts/mqtt_order_processor.cjs');
+
+        // Send order data to Node.js processor
+        $command = "echo {$escapedJson} | node {$scriptPath} >> " . storage_path('logs/order_processor.log') . " 2>&1 &";
+        exec($command);
+
+        Log::info("[OrderService] Sent order {$order->id} to Node.js processor with " . count($eligibleUsers) . " eligible users");
     }
 
 }

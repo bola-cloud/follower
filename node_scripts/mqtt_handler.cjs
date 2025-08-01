@@ -12,7 +12,8 @@ client.on('connect', () => {
   // Subscribe to both topics
   client.subscribe([
     'devices/activation/res',
-    'order/res/+/+'
+    'order/res/+/+',
+    'user/ping/+' // Add ping subscription
   ], (err) => {
     if (err) {
       console.error('❌ Subscription error:', err.message);
@@ -51,6 +52,25 @@ client.on('message', async (topic, message) => {
       console.error('❌ Failed to store activation:', err.response?.data || err.message);
     }
 
+    return;
+  }
+
+  // ✅ Handle user pings
+  const pingMatch = topic.match(/^user\/ping\/(\d+)$/);
+  if (pingMatch) {
+    const userId = parseInt(pingMatch[1], 10);
+    const { order_id, request } = payload;
+
+    if (request === 'ping') {
+      // Respond to ping (simulate user device response)
+      const response = {
+        order_id: order_id,
+        status: 'online'
+      };
+
+      client.publish(`user/ping/response/${userId}`, JSON.stringify(response), { qos: 1 });
+      console.log(`🏓 Ping response sent for user ${userId}`);
+    }
     return;
   }
 

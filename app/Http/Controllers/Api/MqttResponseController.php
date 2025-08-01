@@ -109,4 +109,53 @@ class MqttResponseController extends Controller
             'updated_orders' => $updatedCount
         ]);
     }
+
+    public function triggerOrder(Request $request)
+    {
+        $validated = $request->validate([
+            'order_id' => 'required|integer',
+            'user_id' => 'required|integer',
+        ]);
+
+        $orderId = $validated['order_id'];
+        $userId = $validated['user_id'];
+
+        // Verify the action exists and is pending
+        $action = DB::table('actions')
+            ->where('order_id', $orderId)
+            ->where('user_id', $userId)
+            ->where('status', 'pending')
+            ->first();
+
+        if (!$action) {
+            return response()->json([
+                'success' => false,
+                'message' => 'No pending action found for this user/order.'
+            ], 404);
+        }
+
+        // Get order details
+        $order = DB::table('orders')->where('id', $orderId)->first();
+        if (!$order) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Order not found.'
+            ], 404);
+        }
+
+        // Dispatch the MQTT job
+        dispatch(new \App\Jobs\SendMqttToUserJob(
+            $userId,
+            $orderId,
+            $order->type,
+            $order->target_url
+        ));
+
+        return response()->json([
+            'success' => true,
+            'message' => 'MQTT job dispatched successfully.',
+            'user_id' => $userId,
+            'order_id' => $orderId
+        ]);
+    }
 }
