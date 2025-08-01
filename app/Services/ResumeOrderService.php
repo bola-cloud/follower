@@ -83,9 +83,8 @@ class ResumeOrderService
 
         DB::table('actions')->insert($actions->toArray());
 
-        foreach ($eligibleUsers as $user) {
-            $this->dispatchMqttJob($order, $user);
-        }
+        // Use ping validation system instead of direct dispatch
+        $this->sendMqttToEligibleUsersWithPing($order, $eligibleUsers, $remaining);
 
         $order->touch();
 
@@ -104,5 +103,27 @@ class ResumeOrderService
             $order->type,
             $order->target_url
         ));
+    }
+
+    private function sendMqttToEligibleUsersWithPing(Order $order, $eligibleUsers, $remaining): void
+    {
+        // Send to Node.js for ping validation
+        $orderData = [
+            'order_id' => $order->id,
+            'total_count' => $remaining,
+            'eligible_users' => $eligibleUsers->map(function($user) {
+                return ['id' => $user->id, 'profile_link' => $user->profile_link];
+            })->toArray()
+        ];
+
+        $json = json_encode($orderData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $escapedJson = escapeshellarg($json);
+        $scriptPath = base_path('node_scripts/mqtt_order_processor.cjs');
+
+        // Send order data to Node.js processor
+        $command = "echo {$escapedJson} | node {$scriptPath} >> " . storage_path('logs/order_processor.log') . " 2>&1 &";
+        exec($command);
+
+        Log::info("[ResumeOrderService] Sent resumed order {$order->id} to Node.js processor with " . count($eligibleUsers) . " eligible users");
     }
 }
