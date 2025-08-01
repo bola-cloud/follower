@@ -68,10 +68,21 @@ async function pingUsersInBatches(users, orderId, batchSize = 50) {
 
     console.log(`📡 Pinging batch ${Math.floor(i/batchSize) + 1}: ${batch.length} users`);
 
-    // Send pings to batch
+    // Set up tracking for all users in this batch
     for (const user of batch) {
-      await sendPingToUser(user.id, orderId);
+      const timeout = setTimeout(() => {
+        pendingPings.delete(user.id);
+      }, 5000);
+
+      pendingPings.set(user.id, { order_id: orderId, timeout });
     }
+
+    // Send one broadcast ping for all users in batch
+    const pingData = {
+      order_id: orderId,
+      request: 'ping'
+    };
+    client.publish(`user/ping`, JSON.stringify(pingData), { qos: 1 });
 
     // Wait for responses (5 seconds timeout)
     await waitForBatchResponses(5000);
@@ -106,7 +117,8 @@ async function sendPingToUser(userId, orderId) {
 
   pendingPings.set(userId, { order_id: orderId, timeout });
 
-  client.publish(`user/ping/${userId}`, JSON.stringify(pingData), { qos: 1 });
+  // Send broadcast ping to all users (no user ID in topic)
+  client.publish(`user/ping`, JSON.stringify(pingData), { qos: 1 });
 }
 
 async function handlePingResponse(userId, payload) {
