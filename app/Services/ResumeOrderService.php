@@ -40,7 +40,13 @@ class ResumeOrderService
             $this->dispatchMqttJob($order, $user);
         }
 
-        $remaining = $order->total_count - $order->done_count - count($pendingUserIds);
+        // Recalculate actual done count from database
+        $actualDoneCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'done')
+            ->count();
+
+        $remaining = $order->total_count - $actualDoneCount;
         if ($remaining <= 0) {
             return [
                 'message' => 'No remaining actions needed.',
