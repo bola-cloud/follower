@@ -8,19 +8,20 @@ const responsiveUsers = []; // Users who responded to ping
 let currentOrder = null;
 let targetCount = 0;
 let processedCount = 0;
+let currentEligibleUsers = []; // Store current batch of eligible users for checking
 
 client.on('connect', () => {
   console.log('✅ Connected to MQTT broker for order processing');
 
-  // Subscribe to ping responses and order processing requests
+  // Subscribe to device activation responses and order processing requests
   client.subscribe([
-    'user/ping/response/+',
+    'devices/activation/res',
     'order/process/request'
   ], (err) => {
     if (err) {
       console.error('❌ Subscription error:', err.message);
     } else {
-      console.log('✅ Subscribed to ping responses and order processing');
+      console.log('✅ Subscribed to device activation and order processing');
     }
   });
 });
@@ -29,10 +30,13 @@ client.on('message', async (topic, message) => {
   try {
     const payload = JSON.parse(message.toString());
 
-    // Handle ping responses
-    if (topic.startsWith('user/ping/response/')) {
-      const userId = parseInt(topic.split('/').pop());
-      await handlePingResponse(userId, payload);
+    // Handle device activation responses (users responding to ping)
+    if (topic === 'devices/activation/res') {
+      const { device_id, status, order_id } = payload;
+
+      if (status === 'online' && order_id) {
+        await handlePingResponse(parseInt(device_id), { status, order_id });
+      }
       return;
     }
 
@@ -65,6 +69,7 @@ async function processOrderWithPing(orderData) {
 async function pingUsersInBatches(users, orderId, batchSize = 50) {
   for (let i = 0; i < users.length && processedCount < targetCount; i += batchSize) {
     const batch = users.slice(i, i + batchSize);
+    currentEligibleUsers = batch; // Store current batch for eligibility checking
 
     console.log(`📡 Pinging batch ${Math.floor(i/batchSize) + 1}: ${batch.length} users`);
 
@@ -77,12 +82,12 @@ async function pingUsersInBatches(users, orderId, batchSize = 50) {
       pendingPings.set(user.id, { order_id: orderId, timeout });
     }
 
-    // Send one broadcast ping for all users in batch
+    // Send one broadcast ping using device activation topic
     const pingData = {
       order_id: orderId,
-      request: 'ping'
+      request: 'activation_check'
     };
-    client.publish(`user/ping`, JSON.stringify(pingData), { qos: 1 });
+    client.publish(`devices/activation/req`, JSON.stringify(pingData), { qos: 1 });
 
     // Wait for responses (5 seconds timeout)
     await waitForBatchResponses(5000);
@@ -107,7 +112,7 @@ async function pingUsersInBatches(users, orderId, batchSize = 50) {
 async function sendPingToUser(userId, orderId) {
   const pingData = {
     order_id: orderId,
-    request: 'ping'
+    request: 'activation_check'
   };
 
   // Set timeout for this ping
@@ -117,8 +122,8 @@ async function sendPingToUser(userId, orderId) {
 
   pendingPings.set(userId, { order_id: orderId, timeout });
 
-  // Send broadcast ping to all users (no user ID in topic)
-  client.publish(`user/ping`, JSON.stringify(pingData), { qos: 1 });
+  // Send broadcast activation check using device activation topic
+  client.publish(`devices/activation/req`, JSON.stringify(pingData), { qos: 1 });
 }
 
 async function handlePingResponse(userId, payload) {
@@ -128,13 +133,21 @@ async function handlePingResponse(userId, payload) {
     return; // Timeout or not expected
   }
 
+  // Check if user is eligible (in current batch)
+  const isEligible = currentEligibleUsers.some(user => user.id === userId);
+
+  if (!isEligible) {
+    console.log(`⚠️ User ${userId} responded but not eligible for this batch`);
+    return;
+  }
+
   // Clear timeout and remove from pending
   clearTimeout(pingData.timeout);
   pendingPings.delete(userId);
 
   if (payload.status === 'online' && payload.order_id === pingData.order_id) {
     responsiveUsers.push(userId);
-    console.log(`✅ User ${userId} responded - now ${responsiveUsers.length} responsive users`);
+    console.log(`✅ User ${userId} responded and is eligible - now ${responsiveUsers.length} responsive users`);
   }
 }
 
@@ -145,7 +158,16 @@ async function waitForBatchResponses(timeout) {
 }
 
 async function processResponsiveUsers(orderId) {
-  const usersToProcess = responsiveUsers.splice(0, targetCount - processedCount);
+  // Only process users who are both responsive and eligible
+  const eligibleResponsiveUsers = responsiveUsers.filter(userId =>
+    currentEligibleUsers.some(user => user.id === userId)
+  );
+
+  // Respect total count limit - only take what we need
+  const remainingNeeded = targetCount - processedCount;
+  const usersToProcess = eligibleResponsiveUsers.splice(0, remainingNeeded);
+
+  console.log(`📊 Responsive: ${responsiveUsers.length}, Eligible+Responsive: ${eligibleResponsiveUsers.length + usersToProcess.length}, Processing: ${usersToProcess.length}`);
 
   for (const userId of usersToProcess) {
     if (processedCount >= targetCount) break;
@@ -164,6 +186,9 @@ async function processResponsiveUsers(orderId) {
       console.error(`❌ Failed to dispatch job for user ${userId}:`, err.response?.data || err.message);
     }
   }
+
+  // Remove processed users from responsive list
+  responsiveUsers.splice(0, responsiveUsers.length);
 }
 
 client.on('error', (err) => {

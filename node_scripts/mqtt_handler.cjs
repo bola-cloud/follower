@@ -9,8 +9,9 @@ const client = mqtt.connect(broker);
 client.on('connect', () => {
   console.log('✅ Connected to MQTT broker');
 
-  // Subscribe to both topics
+  // Subscribe to all required topics
   client.subscribe([
+    'devices/activation/req',  // Listen to activation requests
     'devices/activation/res',
     'order/res/+/+',
     'user/ping/+' // Add ping subscription
@@ -33,14 +34,33 @@ client.on('message', async (topic, message) => {
     return;
   }
 
+  // ✅ Handle device activation requests (for logging/monitoring)
+  if (topic === 'devices/activation/req') {
+    const { request, order_id } = payload;
+
+    if (order_id) {
+      console.log(`📡 Order ping broadcast sent for order ${order_id}`);
+    } else {
+      console.log(`📡 Regular activation check broadcast sent`);
+    }
+    return;
+  }
+
   // ✅ Handle device activation
   if (topic === 'devices/activation/res') {
-    const { device_id, status } = payload;
+    const { device_id, status, order_id } = payload;
 
     if (!device_id || !status) {
       return console.warn('⚠️ Missing device_id or status:', payload);
     }
 
+    // If order_id exists, this is an order ping response - don't cache it
+    if (order_id) {
+      console.log(`🔄 Order ping response from device ${device_id} for order ${order_id} - not caching`);
+      return;
+    }
+
+    // Regular activation without order_id - cache it for dashboard
     try {
       const res = await axios.post('https://egfollow.com/api/mqtt/device-activation', {
         device_id,
