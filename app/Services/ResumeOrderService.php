@@ -113,7 +113,7 @@ class ResumeOrderService
 
     private function sendMqttToEligibleUsersWithPing(Order $order, $eligibleUsers, $remaining): void
     {
-        // Send to Node.js for ping validation
+        // Send to Node.js via MQTT for ping validation
         $orderData = [
             'order_id' => $order->id,
             'total_count' => $remaining,
@@ -122,14 +122,20 @@ class ResumeOrderService
             })->toArray()
         ];
 
-        $json = json_encode($orderData, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        // Use MQTT to send order data to Node.js processor
+        $this->publishToMqtt('order/process/request', $orderData);
+
+        Log::info("[ResumeOrderService] Sent resumed order {$order->id} to Node.js processor via MQTT with " . count($eligibleUsers) . " eligible users");
+    }
+
+    private function publishToMqtt($topic, $data)
+    {
+        $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $escapedJson = escapeshellarg($json);
-        $scriptPath = base_path('node_scripts/mqtt_order_processor.cjs');
+        $escapedTopic = escapeshellarg($topic);
 
-        // Send order data to Node.js processor
-        $command = "echo {$escapedJson} | node {$scriptPath} >> " . storage_path('logs/order_processor.log') . " 2>&1 &";
-        exec($command);
-
-        Log::info("[ResumeOrderService] Sent resumed order {$order->id} to Node.js processor with " . count($eligibleUsers) . " eligible users");
+        // Use mosquitto_pub to send MQTT message
+        $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$escapedTopic} -m {$escapedJson} -q 1";
+        exec($command . " > /dev/null 2>&1 &");
     }
 }
