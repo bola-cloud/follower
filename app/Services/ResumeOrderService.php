@@ -27,7 +27,7 @@ class ResumeOrderService
             ];
         }
 
-        // Re-send to pending users
+        // Re-send to pending users using ping validation
         $pendingUserIds = DB::table('actions')
             ->where('order_id', $order->id)
             ->where('status', 'pending')
@@ -36,8 +36,9 @@ class ResumeOrderService
 
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
 
-        foreach ($pendingUsers as $user) {
-            $this->dispatchMqttJob($order, $user);
+        // Use ping validation for pending users too
+        if ($pendingUsers->count() > 0) {
+            $this->sendMqttToEligibleUsersWithPing($order, $pendingUsers, $pendingUsers->count());
         }
 
         // Recalculate actual done count from database
