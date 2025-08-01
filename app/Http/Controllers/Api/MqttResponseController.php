@@ -52,14 +52,61 @@ class MqttResponseController extends Controller
             ->where('order_id', $orderId)
             ->where('status', 'done')
             ->count();
-        DB::table('orders')
-            ->where('id', $orderId)
-            ->update(['done_count' => $doneCount]);
+
+        // Get the order to check total_count
+        $order = DB::table('orders')->where('id', $orderId)->first();
+
+        if ($order) {
+            $updateData = ['done_count' => $doneCount];
+
+            // If done_count equals total_count, mark order as completed
+            if ($doneCount >= $order->total_count) {
+                $updateData['status'] = 'completed';
+            }
+
+            DB::table('orders')
+                ->where('id', $orderId)
+                ->update($updateData);
+        }
 
         return response()->json([
             'success' => true,
             'message' => 'Action status updated successfully.',
             'updated_rows' => $updated
+        ]);
+    }
+
+    public function recalculateAllOrders(Request $request)
+    {
+        $orders = DB::table('orders')->get();
+        $updatedCount = 0;
+
+        foreach ($orders as $order) {
+            $doneCount = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->where('status', 'done')
+                ->count();
+
+            $updateData = ['done_count' => $doneCount];
+
+            // If done_count equals or exceeds total_count, mark as completed
+            if ($doneCount >= $order->total_count && $order->status !== 'completed') {
+                $updateData['status'] = 'completed';
+            }
+
+            // Only update if there's a change
+            if ($doneCount != $order->done_count || ($doneCount >= $order->total_count && $order->status !== 'completed')) {
+                DB::table('orders')
+                    ->where('id', $order->id)
+                    ->update($updateData);
+                $updatedCount++;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Orders recalculated successfully.',
+            'updated_orders' => $updatedCount
         ]);
     }
 }

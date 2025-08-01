@@ -44,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
 
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
+Route::post('/mqtt/recalculate-orders', [\App\Http\Controllers\Api\MqttResponseController::class, 'recalculateAllOrders']);
 // routes/api.php
 Route::post('/mqtt/device-activation', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handle']);
 // routes/api.php
