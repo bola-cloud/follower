@@ -127,6 +127,18 @@ class ResumeOrderService
         Log::info("[ResumeOrderService] Sent resumed order {$order->id} directly to `order/ping/req` via MQTT with " . count($eligibleUsers) . " eligible users");
     }
 
+    private function sendMqttPing(Order $order): void
+    {
+        $pingData = [
+            'order_id' => $order->id,
+            'total_count' => $order->total_count - $order->done_count
+        ];
+
+        $this->publishToMqtt('order/ping/req', $pingData);
+
+        Log::info("[ResumeOrderService] Sent ping for resumed order {$order->id} to `order/ping/req` via MQTT");
+    }
+
     private function publishToMqtt($topic, $data)
     {
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);

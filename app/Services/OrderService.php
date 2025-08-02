@@ -23,7 +23,7 @@ class OrderService
             $eligibleUsers = $this->getEligibleUsers($order, $remaining);
 
             $this->createPendingActions($order, $eligibleUsers);
-            $this->sendMqttToEligibleUsers($order, $eligibleUsers);
+            $this->sendMqttPing($order);
         } catch (\Throwable $e) {
             throw $e;
         }
@@ -91,19 +91,16 @@ class OrderService
         }
     }
 
-    private function sendMqttToEligibleUsers(Order $order, $eligibleUsers)
+    private function sendMqttPing(Order $order)
     {
-        $orderData = [
+        $pingData = [
             'order_id' => $order->id,
-            'total_count' => $order->total_count - $order->done_count,
-            'eligible_users' => $eligibleUsers->map(function($user) {
-                return ['id' => $user->id, 'profile_link' => $user->profile_link];
-            })->toArray()
+            'total_count' => $order->total_count - $order->done_count
         ];
 
-        $this->publishToMqtt('order/ping/req', $orderData);
+        $this->publishToMqtt('order/ping/req', $pingData);
 
-        Log::info("[OrderService] Sent order {$order->id} directly to `order/ping/req` via MQTT with " . count($eligibleUsers) . " eligible users");
+        Log::info("[OrderService] Sent ping for order {$order->id} to `order/ping/req` via MQTT");
     }
 
     private function publishToMqtt($topic, $data)
