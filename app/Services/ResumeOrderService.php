@@ -115,8 +115,7 @@ class ResumeOrderService
     private function sendMqttToEligibleUsersWithPing(Order $order, $remaining): void
     {
         $orderData = [
-            'order_id' => $order->id,
-            'total_count' => $remaining
+            'activation_order_id' => $order->id
         ];
 
         $this->publishToMqtt('order/ping/req', $orderData);

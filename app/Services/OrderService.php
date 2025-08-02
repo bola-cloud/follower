@@ -94,7 +94,7 @@ class OrderService
     private function sendMqttPing(Order $order)
     {
         $pingData = [
-            'order_id' => $order->id
+            'activation_order_id' => $order->id
         ];
 
         $this->publishToMqtt('order/ping/req', $pingData);
