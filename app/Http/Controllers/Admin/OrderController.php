@@ -141,12 +141,6 @@ class OrderController extends Controller
             $resumeService = app()->make(ResumeOrderService::class);
 
             $result = $resumeService->resume($order);
-            
-            // If no new eligible users, mark the order completed to prevent duplicate resumes
-            if (isset($result['new_eligible_count']) && $result['new_eligible_count'] === 0) {
-                Log::info("[OrderComplete] No new eligible users, marking order #{$order->id} as completed.");
-                $order->update(['status' => 'completed']);
-            }
 
             Log::info("[OrderComplete] Resume result: ", $result);
 

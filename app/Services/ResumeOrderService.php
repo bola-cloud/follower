@@ -36,11 +36,6 @@ class ResumeOrderService
 
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
 
-        // Use ping validation for pending users too
-        if ($pendingUsers->count() > 0) {
-            $this->sendMqttToEligibleUsersWithPing($order, $pendingUsers, $pendingUsers->count());
-        }
-
         // Recalculate actual done count from database
         $actualDoneCount = DB::table('actions')
             ->where('order_id', $order->id)
@@ -49,6 +44,10 @@ class ResumeOrderService
 
         $remaining = $order->total_count - $actualDoneCount;
         if ($remaining <= 0) {
+            // Only send ping for pending users if there are any and no remaining work
+            if ($pendingUsers->count() > 0) {
+                $this->sendMqttToEligibleUsersWithPing($order, $pendingUsers->count());
+            }
             return [
                 'message' => 'No remaining actions needed.',
                 'pending_resend_count' => count($pendingUsers),
@@ -90,8 +89,8 @@ class ResumeOrderService
 
         DB::table('actions')->insert($actions->toArray());
 
-        // Use ping validation system instead of direct dispatch
-        $this->sendMqttToEligibleUsersWithPing($order, $eligibleUsers, $remaining);
+        // Send ONE ping for the order (covers both pending and new users)
+        $this->sendMqttToEligibleUsersWithPing($order, $remaining);
 
         $order->touch();
 
