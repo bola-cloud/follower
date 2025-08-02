@@ -110,13 +110,10 @@ class OrderService
 
     private function publishToMqtt($topic, $data)
     {
-        $json = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $escapedJson = escapeshellarg($json);
-        $escapedTopic = escapeshellarg($topic);
-
-        // Use mosquitto_pub to send MQTT message
-        $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$escapedTopic} -m {$escapedJson} -q 1";
-        exec($command . " > /dev/null 2>&1 &");
+        $scriptPath = base_path('node_scripts/mqtt_order_processor.cjs');
+        $logFile = storage_path('logs/mqtt_order_processor.log');
+        $command = "node {$scriptPath} >> {$logFile} 2>&1 &";
+        exec($command);
     }
 
 }
