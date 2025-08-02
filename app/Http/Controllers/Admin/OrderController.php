@@ -127,9 +127,9 @@ class OrderController extends Controller
             return redirect()->back()->with('error', 'Unauthorized or invalid order.');
         }
 
-        if ($order->status === 'paused') {
-            Log::info("[OrderComplete] Attempt to complete a paused order (ID: {$order->id})");
-            return redirect()->back()->with('error', 'Cannot complete a canceled order.');
+        if ($order->status === 'completed') {
+            Log::info("[OrderComplete] Attempt to complete an already completed order (ID: {$order->id})");
+            return redirect()->back()->with('error', 'Cannot complete an already completed order.');
         }
 
         try {
