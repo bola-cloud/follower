@@ -57,8 +57,41 @@ client.on('message', async (topic, message) => {
 
   // ✅ Handle order ping responses (separate from device activation)
   if (topic === 'order/ping/res') {
-    const { device_id, status, order_id } = payload;
+    const { device_id, status, order_id, user_id } = payload;
     console.log(`🔄 Order ping response from device ${device_id} for order ${order_id}`);
+
+    if (!order_id || !user_id) {
+      console.error('❌ Invalid response payload:', payload);
+      return;
+    }
+
+    // Perform checks: ensure total count is not exceeded and user eligibility
+    const order = await getOrderById(order_id); // Replace with actual DB call
+    const user = await getUserById(user_id);   // Replace with actual DB call
+
+    if (!order || !user) {
+      console.error('❌ Order or user not found:', { order_id, user_id });
+      return;
+    }
+
+    if (order.done_count >= order.total_count) {
+      console.log(`⚠️ Order ${order_id} has reached its total count. No more jobs will be dispatched.`);
+      return;
+    }
+
+    if (!isUserEligible(user, order)) { // Replace with actual eligibility logic
+      console.log(`⚠️ User ${user_id} is not eligible for order ${order_id}.`);
+      return;
+    }
+
+    // Dispatch job
+    try {
+      await dispatchJob(order_id, user_id); // Replace with actual job dispatch logic
+      console.log(`✅ Dispatched job for user ${user_id} on order ${order_id}`);
+    } catch (err) {
+      console.error(`❌ Failed to dispatch job for user ${user_id} on order ${order_id}:`, err.message);
+    }
+
     return;
   }
 

@@ -112,26 +112,22 @@ class ResumeOrderService
         ));
     }
 
-    private function sendMqttToEligibleUsersWithPing(Order $order, $eligibleUsers, $remaining): void
+    private function sendMqttToEligibleUsersWithPing(Order $order, $remaining): void
     {
         $orderData = [
             'order_id' => $order->id,
-            'total_count' => $remaining,
-            'eligible_users' => $eligibleUsers->map(function($user) {
-                return ['id' => $user->id, 'profile_link' => $user->profile_link];
-            })->toArray()
+            'total_count' => $remaining
         ];
 
         $this->publishToMqtt('order/ping/req', $orderData);
 
-        Log::info("[ResumeOrderService] Sent resumed order {$order->id} directly to `order/ping/req` via MQTT with " . count($eligibleUsers) . " eligible users");
+        Log::info("[ResumeOrderService] Sent resumed order {$order->id} directly to `order/ping/req` via MQTT");
     }
 
     private function sendMqttPing(Order $order): void
     {
         $pingData = [
-            'order_id' => $order->id,
-            'total_count' => $order->total_count - $order->done_count
+            'order_id' => $order->id
         ];
 
         $this->publishToMqtt('order/ping/req', $pingData);
