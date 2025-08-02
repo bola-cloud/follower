@@ -16,9 +16,9 @@ class Dashboard extends Controller
 {
     public function index(Request $request)
     {
-        // ✅ 1. Clear previous cache (set expires in controller, optional)
-        Cache::put('device_activations_set', [], now()->addMinutes(2));
-        Cache::put('device_activations_count', 0, now()->addMinutes(2));
+        // ✅ 1. Clear previous cache every time dashboard is opened
+        Cache::forget('device_activations_set');
+        Cache::forget('device_activations_count');
 
         // ✅ 2. Run the Node.js script to trigger MQTT
         $scriptPath = base_path('node_scripts/mqtt_ping_devices.cjs');

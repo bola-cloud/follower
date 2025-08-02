@@ -13,15 +13,15 @@ let currentEligibleUsers = []; // Store current batch of eligible users for chec
 client.on('connect', () => {
   console.log('✅ Connected to MQTT broker for order processing');
 
-  // Subscribe to device activation responses and order processing requests
+  // Subscribe to order ping responses and order processing requests
   client.subscribe([
-    'devices/activation/res',
+    'order/ping/res',
     'order/process/request'
   ], (err) => {
     if (err) {
       console.error('❌ Subscription error:', err.message);
     } else {
-      console.log('✅ Subscribed to device activation and order processing');
+      console.log('✅ Subscribed to order ping responses and order processing');
     }
   });
 });
@@ -30,8 +30,8 @@ client.on('message', async (topic, message) => {
   try {
     const payload = JSON.parse(message.toString());
 
-    // Handle device activation responses (users responding to ping)
-    if (topic === 'devices/activation/res') {
+    // Handle order ping responses (users responding to order ping)
+    if (topic === 'order/ping/res') {
       const { device_id, status, order_id } = payload;
 
       if (status === 'online' && order_id) {
@@ -82,12 +82,12 @@ async function pingUsersInBatches(users, orderId, batchSize = 50) {
       pendingPings.set(user.id, { order_id: orderId, timeout });
     }
 
-    // Send one broadcast ping using device activation topic
+    // Send one broadcast ping using order ping topic
     const pingData = {
       order_id: orderId,
-      request: 'activation_check'
+      request: 'ping_check'
     };
-    client.publish(`devices/activation/req`, JSON.stringify(pingData), { qos: 1 });
+    client.publish(`order/ping/req`, JSON.stringify(pingData), { qos: 1 });
 
     // Wait for responses (5 seconds timeout)
     await waitForBatchResponses(5000);
@@ -112,7 +112,7 @@ async function pingUsersInBatches(users, orderId, batchSize = 50) {
 async function sendPingToUser(userId, orderId) {
   const pingData = {
     order_id: orderId,
-    request: 'activation_check'
+    request: 'ping_check'
   };
 
   // Set timeout for this ping
@@ -122,8 +122,8 @@ async function sendPingToUser(userId, orderId) {
 
   pendingPings.set(userId, { order_id: orderId, timeout });
 
-  // Send broadcast activation check using device activation topic
-  client.publish(`devices/activation/req`, JSON.stringify(pingData), { qos: 1 });
+  // Send broadcast ping check using order ping topic
+  client.publish(`order/ping/req`, JSON.stringify(pingData), { qos: 1 });
 }
 
 async function handlePingResponse(userId, payload) {
