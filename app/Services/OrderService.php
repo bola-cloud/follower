@@ -93,6 +93,15 @@ class OrderService
 
     private function sendMqttPing(Order $order)
     {
+        static $sentOrders = [];
+
+        if (in_array($order->id, $sentOrders)) {
+            Log::info("[OrderService] Ping for order {$order->id} already sent, skipping.");
+            return;
+        }
+
+        $sentOrders[] = $order->id;
+
         $pingData = [
             'activation_order_id' => $order->id
         ];
