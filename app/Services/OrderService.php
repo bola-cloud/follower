@@ -93,7 +93,6 @@ class OrderService
 
     private function sendMqttToEligibleUsers(Order $order, $eligibleUsers)
     {
-        // Send to Node.js via MQTT for ping validation
         $orderData = [
             'order_id' => $order->id,
             'total_count' => $order->total_count - $order->done_count,
@@ -102,18 +101,16 @@ class OrderService
             })->toArray()
         ];
 
-        // Use MQTT to send order data to Node.js processor
-        $this->publishToMqtt('order/process/request', $orderData);
+        $this->publishToMqtt('order/ping/req', $orderData);
 
-        Log::info("[OrderService] Sent order {$order->id} to Node.js processor via MQTT with " . count($eligibleUsers) . " eligible users");
+        Log::info("[OrderService] Sent order {$order->id} directly to `order/ping/req` via MQTT with " . count($eligibleUsers) . " eligible users");
     }
 
     private function publishToMqtt($topic, $data)
     {
-        $scriptPath = base_path('node_scripts/mqtt_order_processor.cjs');
-        $logFile = storage_path('logs/mqtt_order_processor.log');
-        $command = "node {$scriptPath} >> {$logFile} 2>&1 &";
-        exec($command);
+        $json = json_encode($data, JSON_UNESCAPED_UNICODE);
+        $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1";
+        exec($command . " > /dev/null 2>&1 &");
     }
 
 }
