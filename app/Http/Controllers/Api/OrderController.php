@@ -14,6 +14,7 @@ use App\Services\OrderService;
 use App\Services\PingService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
+use App\Models\User;
 
 class OrderController extends Controller
 {
