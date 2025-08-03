@@ -65,31 +65,16 @@ client.on('message', async (topic, message) => {
       return;
     }
 
-    // Perform checks: ensure total count is not exceeded and user eligibility
-    const order = await getOrderById(order_id); // Replace with actual DB call
-    const user = await getUserById(user_id);   // Replace with actual DB call
-
-    if (!order || !user) {
-      console.error('❌ Order or user not found:', { order_id, user_id });
-      return;
-    }
-
-    if (order.done_count >= order.total_count) {
-      console.log(`⚠️ Order ${order_id} has reached its total count. No more jobs will be dispatched.`);
-      return;
-    }
-
-    if (!isUserEligible(user, order)) { // Replace with actual eligibility logic
-      console.log(`⚠️ User ${user_id} is not eligible for order ${order_id}.`);
-      return;
-    }
-
-    // Dispatch job
     try {
-      await dispatchJob(order_id, user_id); // Replace with actual job dispatch logic
-      console.log(`✅ Dispatched job for user ${user_id} on order ${order_id}`);
+      // Call the API to trigger the order
+      const response = await axios.post('https://egfollow.com/api/mqtt/trigger-order', {
+        order_id,
+        user_id
+      });
+
+      console.log(`✅ Triggered order via API for order ${order_id}, user ${user_id} | Response:`, response.data);
     } catch (err) {
-      console.error(`❌ Failed to dispatch job for user ${user_id} on order ${order_id}:`, err.message);
+      console.error(`❌ Failed to trigger order via API for order ${order_id}, user ${user_id}:`, err.response?.data || err.message);
     }
 
     return;
