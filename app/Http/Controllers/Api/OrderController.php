@@ -203,6 +203,10 @@ class OrderController extends Controller
     {
         $order = Order::find($order_id);
 
+        if (!$order) {
+            return response()->json(['error' => 'Order not found.'], 404);
+        }
+
         $order->loadMissing('user');
 
         $query = User::where('type', 'user')
@@ -225,10 +229,12 @@ class OrderController extends Controller
                     });
             });
 
+        $eligibleUsers = $query->get(); // Fetch the results as a collection
+
         return response()->json([
             'order_id' => $order->id,
-            'eligible_users' => $query,
-            'count' => $query->count(),
+            'eligible_users' => $eligibleUsers,
+            'count' => $eligibleUsers->count(),
         ]);
     }
 }
