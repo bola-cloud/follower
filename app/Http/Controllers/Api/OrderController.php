@@ -116,7 +116,7 @@ class OrderController extends Controller
                 $pingService = app()->make(PingService::class);
                 $pingService->sendPing('order/ping/req', [
                     'type' => 'create',
-                    'activation_order_id' => $order->id,
+                    'order_id' => $order->id,
                 ]);
                 Log::info("[OrderStore] Ping sent for order {$order->id} with type 'create'");
             } catch (\Throwable $e) {
@@ -182,7 +182,7 @@ class OrderController extends Controller
                 $pingService = app()->make(PingService::class);
                 $pingService->sendPing('order/ping/req', [
                     'type' => 'resume',
-                    'activation_order_id' => $order->id,
+                    'order_id' => $order->id,
                 ]);
                 Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
             } catch (\Throwable $e) {
