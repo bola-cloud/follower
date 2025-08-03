@@ -198,8 +198,9 @@ class OrderController extends Controller
         }
     }
 
-    public function eligibleUsers(Order $order)
+    public function eligibleUsers($id)
     {
+        $order = Order::find($id);
         $service = app(\App\Services\OrderService::class);
         $eligibleUsers = $service->getEligibleUsers($order);
 
