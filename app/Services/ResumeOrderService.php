@@ -73,15 +73,34 @@ class ResumeOrderService
     {
         $eligibleUsers = $this->getEligibleUsers($order);
 
+        // Debugging: Log eligible users
+        Log::info('[ResumeOrderService] Eligible users for order', [
+            'order_id' => $order->id,
+            'eligible_users' => $eligibleUsers->pluck('id')->toArray(),
+        ]);
+
         // Use a more efficient lookup by creating an array of eligible user IDs
         $eligibleUserIds = $eligibleUsers->pluck('id')->toArray();
 
+        // Debugging: Log user eligibility check
+        $isEligible = in_array($user->id, $eligibleUserIds);
+        Log::info('[ResumeOrderService] User eligibility check', [
+            'user_id' => $user->id,
+            'is_eligible' => $isEligible,
+        ]);
+
         // Check if the user ID exists in the eligible user IDs
-        return in_array($user->id, $eligibleUserIds);
+        return $isEligible;
     }
 
     private function getEligibleUsers(Order $order)
     {
+        // Debugging: Log order details
+        Log::info('[ResumeOrderService] Fetching eligible users for order', [
+            'order_id' => $order->id,
+            'target_url' => $order->target_url,
+        ]);
+
         // Get pending users and new eligible users similar to resume method
         $pendingUserIds = DB::table('actions')
             ->where('order_id', $order->id)
@@ -97,6 +116,11 @@ class ResumeOrderService
         $remaining = $order->total_count - $actualDoneCount;
 
         if ($remaining <= 0) {
+            // Debugging: Log no remaining actions
+            Log::info('[ResumeOrderService] No remaining actions for order', [
+                'order_id' => $order->id,
+            ]);
+
             // Return pending users if any
             return User::whereIn('id', $pendingUserIds)->get();
         }
@@ -120,9 +144,23 @@ class ResumeOrderService
             ->limit($remaining)
             ->get();
 
+        // Debugging: Log eligible users fetched
+        Log::info('[ResumeOrderService] New eligible users fetched', [
+            'order_id' => $order->id,
+            'eligible_users' => $eligibleUsers->pluck('id')->toArray(),
+        ]);
+
         // Combine pending and new eligible users
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
-        return $pendingUsers->merge($eligibleUsers);
+        $combinedUsers = $pendingUsers->merge($eligibleUsers);
+
+        // Debugging: Log combined users
+        Log::info('[ResumeOrderService] Combined eligible users', [
+            'order_id' => $order->id,
+            'combined_users' => $combinedUsers->pluck('id')->toArray(),
+        ]);
+
+        return $combinedUsers;
     }
 
     private function createPendingActionForUser(Order $order, User $user): void
