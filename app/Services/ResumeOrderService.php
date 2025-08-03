@@ -41,6 +41,7 @@ class ResumeOrderService
             $existingAction = DB::table('actions')
                 ->where('order_id', $lockedOrder->id)
                 ->where('user_id', $user->id)
+                ->where('status', 'done')
                 ->first();
 
             if ($existingAction) {
