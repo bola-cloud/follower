@@ -13,12 +13,12 @@ class MqttResponseController extends Controller
     public function handle(Request $request)
     {
         $validated = $request->validate([
-            'order_id' => 'required|integer',
+            'activation_order_id' => 'required|integer',
             'user_id' => 'required|integer',
             'status' => 'required|in:done,external',
         ]);
 
-        $orderId = $validated['order_id'];
+        $orderId = $validated['activation_order_id'];
         $userId = $validated['user_id'];
         $status = $validated['status'];
 
