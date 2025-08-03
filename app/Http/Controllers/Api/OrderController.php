@@ -197,4 +197,16 @@ class OrderController extends Controller
             return response()->json(['error' => $e->getMessage()], 500);
         }
     }
+
+    public function eligibleUsers(Order $order)
+    {
+        $service = app(\App\Services\OrderService::class);
+        $eligibleUsers = $service->getEligibleUsers($order);
+
+        return response()->json([
+            'order_id' => $order->id,
+            'eligible_users' => $eligibleUsers,
+            'count' => $eligibleUsers->count(),
+        ]);
+    }
 }
