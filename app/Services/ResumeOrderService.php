@@ -13,17 +13,55 @@ class ResumeOrderService
 {
     public function handle(Order $order, User $user): array
     {
-        if (!$this->checkUserEligibility($order, $user)) {
-            return ['error' => 'User is not eligible for this order.'];
-        }
+        return DB::transaction(function () use ($order, $user) {
+            // Lock the order row for update to prevent race conditions
+            $lockedOrder = Order::where('id', $order->id)->lockForUpdate()->first();
 
-        // Create action for the user using existing logic
-        $this->createPendingActionForUser($order, $user);
+            if (!$lockedOrder) {
+                return ['error' => 'Order not found.'];
+            }
 
-        // Dispatch job
-        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+            // Recalculate remaining slots with fresh data
+            $actualDoneCount = DB::table('actions')
+                ->where('order_id', $lockedOrder->id)
+                ->where('status', 'done')
+                ->count();
 
-        return ['message' => 'User processed successfully for resume.'];
+            $remaining = $lockedOrder->total_count - $actualDoneCount;
+
+            if ($remaining <= 0) {
+                return ['error' => 'No remaining actions available.'];
+            }
+
+            if (!$this->checkUserEligibility($lockedOrder, $user)) {
+                return ['error' => 'User is not eligible for this order.'];
+            }
+
+            // Check if action already exists for this user
+            $existingAction = DB::table('actions')
+                ->where('order_id', $lockedOrder->id)
+                ->where('user_id', $user->id)
+                ->first();
+
+            if ($existingAction) {
+                return ['error' => 'Action already exists for this user.'];
+            }
+
+            // Create the action
+            DB::table('actions')->insert([
+                'order_id' => $lockedOrder->id,
+                'user_id' => $user->id,
+                'type' => $lockedOrder->type,
+                'status' => 'pending',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
+
+            // Dispatch job
+            dispatch(new SendMqttToUserJob($user->id, $lockedOrder->id, $lockedOrder->type, $lockedOrder->target_url));
+
+            return ['message' => 'User processed successfully for resume.'];
+        });
     }
 
     private function checkUserEligibility(Order $order, User $user): bool
