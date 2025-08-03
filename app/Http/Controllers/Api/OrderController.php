@@ -201,12 +201,32 @@ class OrderController extends Controller
     public function eligibleUsers($order_id)
     {
         $order = Order::find($order_id);
-        $service = app(\App\Services\OrderService::class);
-        $eligibleUsers = $service->getEligibleUsers($order);
+
+        $order->loadMissing('user');
+
+        $query = User::where('type', 'user')
+            ->orderBy('id', 'desc')
+            ->whereNotIn('id', function ($q) use ($order) {
+                $q->select('user_id')
+                    ->from('actions')
+                    ->whereIn('order_id', function ($s) use ($order) {
+                        $s->select('id')->from('orders')->where('target_url', $order->target_url);
+                    })
+                    ->whereIn('status', ['done', 'external'])
+                    ->whereNotExists(function ($reciprocal) use ($order) {
+                        $reciprocal->select(DB::raw(1))
+                            ->from('actions as a2')
+                            ->join('orders as o2', 'a2.order_id', '=', 'o2.id')
+                            ->whereColumn('a2.user_id', 'actions.user_id')
+                            ->where('a2.status', 'done')
+                            ->where('o2.user_id', $order->user_id)
+                            ->whereColumn('o2.target_url', 'users.profile_link');
+                    });
+            });
 
         return response()->json([
             'order_id' => $order->id,
-            'eligible_users' => $eligibleUsers,
+            'eligible_users' => $query,
             'count' => $eligibleUsers->count(),
         ]);
     }
