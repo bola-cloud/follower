@@ -57,7 +57,9 @@ client.on('message', async (topic, message) => {
 
   // ✅ Handle order ping responses (separate from device activation)
   if (topic === 'order/ping/res') {
+    console.log('🔎 [DEBUG] Received message on order/ping/res:', message.toString());
     const { type, order_id, user_id } = payload;
+    console.log('🔎 [DEBUG] Parsed payload:', payload);
 
     if (!type || !order_id || !user_id) {
       console.error('❌ Invalid response payload:', payload);

@@ -114,11 +114,14 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
+        \Log::info('[triggerOrder] Incoming request', $request->all());
         $validated = $request->validate([
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
             'type' => 'required|string|in:create,resume',
         ]);
+
+        \Log::info('[triggerOrder] Validated data', $validated);
 
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
@@ -128,7 +131,11 @@ class MqttResponseController extends Controller
         $order = \App\Models\Order::find($orderId);
         $user = \App\Models\User::find($userId);
 
+        \Log::info('[triggerOrder] Order found', ['order' => $order]);
+        \Log::info('[triggerOrder] User found', ['user' => $user]);
+
         if (!$order || !$user) {
+            \Log::error('[triggerOrder] Order or user not found', ['order_id' => $orderId, 'user_id' => $userId]);
             return response()->json([
                 'success' => false,
                 'message' => 'Order or user not found.'
@@ -137,9 +144,12 @@ class MqttResponseController extends Controller
 
         if ($type === 'create') {
             $service = app()->make(\App\Services\OrderService::class);
+            \Log::info('[triggerOrder] Using OrderService');
         } elseif ($type === 'resume') {
             $service = app()->make(\App\Services\ResumeOrderService::class);
+            \Log::info('[triggerOrder] Using ResumeOrderService');
         } else {
+            \Log::error('[triggerOrder] Invalid type provided', ['type' => $type]);
             return response()->json([
                 'success' => false,
                 'message' => 'Invalid type provided.'
@@ -147,6 +157,7 @@ class MqttResponseController extends Controller
         }
 
         $result = $service->handle($order, $user);
+        \Log::info('[triggerOrder] Service result', ['result' => $result]);
 
         return response()->json([
             'success' => true,
