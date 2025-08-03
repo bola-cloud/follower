@@ -155,14 +155,18 @@ class OrderService
                 return ['error' => 'User is not eligible for this order.'];
             }
 
-            // Check if action already exists for this user
+            // Check if action already exists for this user (any status)
             $existingAction = DB::table('actions')
                 ->where('order_id', $lockedOrder->id)
                 ->where('user_id', $user->id)
-                ->where('status', 'done')
                 ->first();
 
             if ($existingAction) {
+                if ($existingAction->status === 'pending') {
+                    // Re-dispatch job for pending action
+                    dispatch(new SendMqttToUserJob($user->id, $lockedOrder->id, $lockedOrder->type, $lockedOrder->target_url));
+                    return ['message' => 'Pending action re-dispatched for this user.'];
+                }
                 return ['error' => 'Action already exists for this user.'];
             }
 
