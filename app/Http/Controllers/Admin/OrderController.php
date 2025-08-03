@@ -13,6 +13,7 @@ use Throwable;
 use Illuminate\Support\Facades\Log;
 use App\Services\OrderService;
 use App\Services\ResumeOrderService;
+use App\Services\PingService;
 
 class OrderController extends Controller
 {
@@ -102,11 +103,16 @@ class OrderController extends Controller
 
             DB::commit();
 
-            // ✅ Execute MQTT dispatch
+            // ✅ Send ping to activate order with type 'create'
             try {
-                app()->make(OrderService::class)->handleOrderCreated($order);
+                $pingService = app()->make(PingService::class);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'create',
+                    'order_id' => $order->id,
+                ]);
+                Log::info("[OrderStore] Ping sent for order {$order->id} with type 'create'");
             } catch (\Throwable $e) {
-                Log::error("[OrderStore] Error dispatching MQTT from OrderService: " . $e->getMessage());
+                Log::error("[OrderStore] Error sending ping: " . $e->getMessage());
             }
 
             return redirect()->route('admin.orders.index')->with('success', 'Order created and event broadcasted.');
@@ -137,16 +143,21 @@ class OrderController extends Controller
 
             Log::info("[OrderComplete] Starting resume process for Order #{$order->id}");
 
-            /** @var ResumeOrderService $resumeService */
-            $resumeService = app()->make(ResumeOrderService::class);
-
-            $result = $resumeService->resume($order);
-
-            Log::info("[OrderComplete] Resume result: ", $result);
+            // ✅ Send ping to activate order with type 'resume'
+            try {
+                $pingService = app()->make(PingService::class);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'resume',
+                    'order_id' => $order->id,
+                ]);
+                Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
+            } catch (\Throwable $e) {
+                Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());
+            }
 
             DB::commit();
 
-            return redirect()->route('admin.orders.index')->with('success', $result['message']);
+            return redirect()->route('admin.orders.index')->with('success', 'Resume ping sent successfully.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error("[OrderComplete] Exception occurred: {$e->getMessage()}");

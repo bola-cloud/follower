@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Models\Order;
+use App\Models\User;
 
 class MqttResponseController extends Controller
 {
@@ -115,47 +117,41 @@ class MqttResponseController extends Controller
         $validated = $request->validate([
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
+            'type' => 'required|string|in:create,resume',
         ]);
 
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
+        $type = $validated['type'];
 
-        // Verify the action exists and is pending
-        $action = DB::table('actions')
-            ->where('order_id', $orderId)
-            ->where('user_id', $userId)
-            ->where('status', 'pending')
-            ->first();
+        // Get the order and user
+        $order = \App\Models\Order::find($orderId);
+        $user = \App\Models\User::find($userId);
 
-        if (!$action) {
+        if (!$order || !$user) {
             return response()->json([
                 'success' => false,
-                'message' => 'No pending action found for this user/order.'
+                'message' => 'Order or user not found.'
             ], 404);
         }
 
-        // Get order details
-        $order = DB::table('orders')->where('id', $orderId)->first();
-        if (!$order) {
+        if ($type === 'create') {
+            $service = app()->make(\App\Services\OrderService::class);
+        } elseif ($type === 'resume') {
+            $service = app()->make(\App\Services\ResumeOrderService::class);
+        } else {
             return response()->json([
                 'success' => false,
-                'message' => 'Order not found.'
-            ], 404);
+                'message' => 'Invalid type provided.'
+            ], 400);
         }
 
-        // Dispatch the MQTT job
-        dispatch(new \App\Jobs\SendMqttToUserJob(
-            $userId,
-            $orderId,
-            $order->type,
-            $order->target_url
-        ));
+        $result = $service->handle($order, $user);
 
         return response()->json([
             'success' => true,
-            'message' => 'MQTT job dispatched successfully.',
-            'user_id' => $userId,
-            'order_id' => $orderId
+            'message' => 'Service executed successfully.',
+            'result' => $result
         ]);
     }
 }

@@ -50,31 +50,30 @@ client.on('message', async (topic, message) => {
 
   // ✅ Handle order ping requests (for logging/monitoring)
   if (topic === 'order/ping/req') {
-    const { request, order_id } = payload;
-    console.log(`📡 Order ping broadcast sent for order ${order_id}`);
+    const { type, order_id } = payload;
+    console.log(`📡 Order ping broadcast sent for order ${order_id} with type ${type}`);
     return;
   }
 
   // ✅ Handle order ping responses (separate from device activation)
   if (topic === 'order/ping/res') {
-    const { device_id, status, order_id, user_id } = payload;
-    console.log(`🔄 Order ping response from device ${device_id} for order ${order_id}`);
+    const { type, order_id, user_id } = payload;
 
-    if (!order_id || !user_id) {
+    if (!type || !order_id || !user_id) {
       console.error('❌ Invalid response payload:', payload);
       return;
     }
 
     try {
-      // Call the API to trigger the order
       const response = await axios.post('https://egfollow.com/api/mqtt/trigger-order', {
         order_id,
-        user_id
+        user_id,
+        type
       });
 
-      console.log(`✅ Triggered order via API for order ${order_id}, user ${user_id} | Response:`, response.data);
+      console.log(`✅ Triggered API for type ${type}, order ${order_id}, user ${user_id} | Response:`, response.data);
     } catch (err) {
-      console.error(`❌ Failed to trigger order via API for order ${order_id}, user ${user_id}:`, err.response?.data || err.message);
+      console.error(`❌ Failed to trigger API for type ${type}, order ${order_id}, user ${user_id}:`, err.response?.data || err.message);
     }
 
     return;

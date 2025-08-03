@@ -118,4 +118,29 @@ class OrderService
         exec($command . " > /dev/null 2>&1 &");
     }
 
+    private function checkUserEligibility(Order $order, User $user): bool
+    {
+        $eligibleUsers = $this->getEligibleUsers($order);
+
+        // Use a more efficient lookup by creating an array of eligible user IDs
+        $eligibleUserIds = $eligibleUsers->pluck('id')->toArray();
+
+        // Check if the user ID exists in the eligible user IDs
+        return in_array($user->id, $eligibleUserIds);
+    }
+
+    public function handle(Order $order, User $user): array
+    {
+        if (!$this->checkUserEligibility($order, $user)) {
+            return ['error' => 'User is not eligible for this order.'];
+        }
+
+        // Reuse the createPendingActions method to create the action
+        $this->createPendingActions($order, collect([$user]));
+
+        // Dispatch job
+        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+
+        return ['message' => 'User processed successfully.'];
+    }
 }

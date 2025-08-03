@@ -11,6 +11,7 @@ use App\Events\OrderCreated;
 use App\Events\OrderCompleted;
 use Throwable;
 use App\Services\OrderService;
+use App\Services\PingService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 
@@ -110,9 +111,17 @@ class OrderController extends Controller
             // Commit the transaction
             DB::commit();
 
-
-            // Trigger the OrderCreated event to broadcast to eligible users
-            app()->make(OrderService::class)->handleOrderCreated($order);
+            // ✅ Send ping to activate order with type 'create'
+            try {
+                $pingService = app()->make(PingService::class);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'create',
+                    'order_id' => $order->id,
+                ]);
+                Log::info("[OrderStore] Ping sent for order {$order->id} with type 'create'");
+            } catch (\Throwable $e) {
+                Log::error("[OrderStore] Error sending ping: " . $e->getMessage());
+            }
 
             return response()->json([
                 'message' => 'Order created and Mqtt sent.',
@@ -168,11 +177,21 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
-            $result = app()->make(\App\Services\ResumeOrderService::class)->resume($order);
+            // ✅ Send ping to activate order with type 'resume'
+            try {
+                $pingService = app()->make(PingService::class);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'resume',
+                    'order_id' => $order->id,
+                ]);
+                Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
+            } catch (\Throwable $e) {
+                Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());
+            }
 
             DB::commit();
 
-            return response()->json($result, 200);
+            return response()->json(['message' => 'Resume ping sent successfully.'], 200);
         } catch (\Throwable $e) {
             DB::rollBack();
             return response()->json(['error' => $e->getMessage()], 500);
