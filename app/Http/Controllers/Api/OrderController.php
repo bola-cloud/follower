@@ -228,7 +228,7 @@ class OrderController extends Controller
         return response()->json([
             'order_id' => $order->id,
             'eligible_users' => $query,
-            'count' => $eligibleUsers->count(),
+            'count' => $query->count(),
         ]);
     }
 }
