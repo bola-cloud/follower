@@ -142,27 +142,32 @@ class MqttResponseController extends Controller
             ], 404);
         }
 
-        if ($type === 'create') {
-            $service = app()->make(\App\Services\OrderService::class);
-            \Log::info('[triggerOrder] Using OrderService');
-        } elseif ($type === 'resume') {
-            $service = app()->make(\App\Services\ResumeOrderService::class);
-            \Log::info('[triggerOrder] Using ResumeOrderService');
-        } else {
-            \Log::error('[triggerOrder] Invalid type provided', ['type' => $type]);
-            return response()->json([
-                'success' => false,
-                'message' => 'Invalid type provided.'
-            ], 400);
+        // Check remaining actions for the order
+        $actualDoneCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'done')
+            ->count();
+
+        $remaining = $order->total_count - $actualDoneCount;
+
+        if ($remaining <= 0) {
+            \Log::info('[triggerOrder] No remaining actions for order', ['order_id' => $order->id]);
+            return response()->json(['error' => 'No remaining actions available for this order.'], 400);
         }
 
-        $result = $service->handle($order, $user);
+        \Log::info('[triggerOrder] Remaining actions for order', ['order_id' => $order->id, 'remaining' => $remaining]);
+
+        // Process the order based on type
+        if ($validated['type'] === 'resume') {
+            $service = app(\App\Services\ResumeOrderService::class);
+            $result = $service->handle($order, $user);
+        } else {
+            $service = app(\App\Services\OrderService::class);
+            $result = $service->handle($order, $user);
+        }
+
         \Log::info('[triggerOrder] Service result', ['result' => $result]);
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Service executed successfully.',
-            'result' => $result
-        ]);
+        return response()->json($result);
     }
 }
