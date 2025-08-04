@@ -69,7 +69,7 @@ class ResumeOrderService
         });
     }
 
-    private function checkUserEligibility(Order $order, User $user): bool
+    public function checkUserEligibility(Order $order, User $user): bool
     {
         $eligibleUsers = $this->getEligibleUsers($order);
 
