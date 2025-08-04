@@ -239,4 +239,40 @@ class OrderController extends Controller
             'count' => $eligibleUsers->count(),
         ]);
     }
+
+    public function processActiveUserOrders(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
+
+        // Find up to 10 active orders where the user is eligible
+        $orders = \App\Models\Order::where('status', 'active')
+            ->orderBy('id', 'desc')
+            ->take(20) // Fetch more to ensure we find 10 eligible
+            ->get();
+
+        $processed = [];
+        $count = 0;
+        foreach ($orders as $order) {
+            // Use ResumeOrderService eligibility logic
+            $service = app(\App\Services\ResumeOrderService::class);
+            if ($service->checkUserEligibility($order, $user)) {
+                $result = $service->handle($order, $user);
+                $processed[] = [
+                    'order_id' => $order->id,
+                    'result' => $result
+                ];
+                $count++;
+                if ($count >= 10) break;
+            }
+        }
+
+        return response()->json([
+            'user_id' => $user->id,
+            'processed_count' => $count,
+            'results' => $processed,
+        ]);
+    }
 }
