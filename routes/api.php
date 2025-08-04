@@ -43,7 +43,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/profile-link', [AuthController::class, 'updateProfileLink']);
     Route::post('/promocode/redeem', [PromocodeController::class, 'redeem']);
     Route::get('/user/points', [AuthController::class, 'points']);
-    Route::post('/users/process-active-orders', [OrderController::class, 'processActiveUserOrders']);
+    Route::get('/users/process-active-orders', [OrderController::class, 'processActiveUserOrders']);
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
 Route::post('/mqtt/recalculate-orders', [\App\Http\Controllers\Api\MqttResponseController::class, 'recalculateAllOrders']);
