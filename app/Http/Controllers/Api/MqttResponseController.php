@@ -116,14 +116,14 @@ class MqttResponseController extends Controller
     {
         \Log::info('[triggerOrder] Incoming request', $request->all());
         $validated = $request->validate([
-            'order_id' => 'required|integer',
+            'activation_order_id' => 'required|integer',
             'user_id' => 'required|integer',
             'type' => 'required|string|in:create,resume',
         ]);
 
         \Log::info('[triggerOrder] Validated data', $validated);
 
-        $orderId = $validated['order_id'];
+        $orderId = $validated['activation_order_id'];
         $userId = $validated['user_id'];
         $type = $validated['type'];
 
@@ -135,7 +135,7 @@ class MqttResponseController extends Controller
         \Log::info('[triggerOrder] User found', ['user' => $user]);
 
         if (!$order || !$user) {
-            \Log::error('[triggerOrder] Order or user not found', ['order_id' => $orderId, 'user_id' => $userId]);
+            \Log::error('[triggerOrder] Order or user not found', ['activation_order_id' => $orderId, 'user_id' => $userId]);
             return response()->json([
                 'success' => false,
                 'message' => 'Order or user not found.'
@@ -151,11 +151,11 @@ class MqttResponseController extends Controller
         $remaining = $order->total_count - $actualDoneCount;
 
         if ($remaining <= 0) {
-            \Log::info('[triggerOrder] No remaining actions for order', ['order_id' => $order->id]);
+            \Log::info('[triggerOrder] No remaining actions for order', ['activation_order_id' => $order->id]);
             return response()->json(['error' => 'No remaining actions available for this order.'], 400);
         }
 
-        \Log::info('[triggerOrder] Remaining actions for order', ['order_id' => $order->id, 'remaining' => $remaining]);
+        \Log::info('[triggerOrder] Remaining actions for order', ['activation_order_id' => $order->id, 'remaining' => $remaining]);
 
         // Process the order based on type
         if ($validated['type'] === 'resume') {
