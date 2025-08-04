@@ -242,6 +242,7 @@ class OrderController extends Controller
 
     public function processActiveUserOrders()
     {
+        dd('This method is deprecated. Use processActiveUserOrders(Request $request) instead.');
         $user = $request->user();
         if (!$user) {
             return response()->json(['error' => 'User not authenticated.'], 401);
