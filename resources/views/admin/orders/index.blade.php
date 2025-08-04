@@ -23,12 +23,15 @@
             <input type="text" name="search" class="form-control" placeholder="ابحث عن مستخدم أو رابط" value="{{ request('search') }}">
         </div>
         <div class="col-md-3">
-            <select name="status" class="form-group">
-                <option value="">كل الحالات</option>
-                <option value="active" {{ request('status') == 'active' ? 'selected' : '' }}>نشط</option>
-                <option value="completed" {{ request('status') == 'completed' ? 'selected' : '' }}>مكتمل</option>
-                <option value="paused" {{ request('status') == 'paused' ? 'selected' : '' }}>موقوف</option>
-            </select>
+            <div class="form-group">
+                <label for="status" class="form-label">الحالة</label>
+                <select name="status" class="form-control">
+                    <option value="">كل الحالات</option>
+                    <option value="active" {{ request('status') == 'active' ? 'selected' : '' }}>نشط</option>
+                    <option value="completed" {{ request('status') == 'completed' ? 'selected' : '' }}>مكتمل</option>
+                    <option value="paused" {{ request('status') == 'paused' ? 'selected' : '' }}>موقوف</option>
+                </select>
+            </div>
         </div>
         <div class="col-md-2">
             <button class="btn btn-primary w-100">بحث</button>
