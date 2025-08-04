@@ -119,6 +119,7 @@ class MqttResponseController extends Controller
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
             'type' => 'required|string|in:create,resume',
+            'activation' => 'sometimes|boolean',
         ]);
 
         \Log::info('[triggerOrder] Validated data', $validated);
@@ -126,6 +127,7 @@ class MqttResponseController extends Controller
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
         $type = $validated['type'];
+        $activation = $validated['activation'] ?? true;
 
         // Get the order and user
         $order = \App\Models\Order::find($orderId);
@@ -158,13 +160,15 @@ class MqttResponseController extends Controller
         \Log::info('[triggerOrder] Remaining actions for order', ['order_id' => $order->id, 'remaining' => $remaining]);
 
         // Process the order based on type
-        if ($validated['type'] === 'resume') {
+        if ($type === 'resume') {
             $service = app(\App\Services\ResumeOrderService::class);
             $result = $service->handle($order, $user);
         } else {
             $service = app(\App\Services\OrderService::class);
             $result = $service->handle($order, $user);
         }
+        // Log activation flag
+        \Log::info('[triggerOrder] Activation flag', ['activation' => $activation]);
 
         \Log::info('[triggerOrder] Service result', ['result' => $result]);
 
