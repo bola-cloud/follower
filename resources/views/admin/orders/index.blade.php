@@ -23,7 +23,7 @@
             <input type="text" name="search" class="form-control" placeholder="ابحث عن مستخدم أو رابط" value="{{ request('search') }}">
         </div>
         <div class="col-md-3">
-            <select name="status" class="form-select border-primary rounded-pill shadow-sm px-3 py-2 w-100" style="min-width: 100%; height: 48px;">
+            <select name="status" class="form-select">
                 <option value="">كل الحالات</option>
                 <option value="active" {{ request('status') == 'active' ? 'selected' : '' }}>نشط</option>
                 <option value="completed" {{ request('status') == 'completed' ? 'selected' : '' }}>مكتمل</option>
