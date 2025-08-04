@@ -21,10 +21,20 @@ class OrderController extends Controller
     {
         $query = Order::query()->with('user');
 
+        // Filter by status if provided
+        if ($request->filled('status')) {
+            $query->where('status', $request->input('status'));
+        }
+
+        // Improved search for target_url and user name
         if ($request->filled('search')) {
             $search = $request->input('search');
-            $query->where('target_url', 'like', "%{$search}%")
-                ->orWhereHas('user', fn ($q) => $q->where('name', 'like', "%{$search}%"));
+            $query->where(function ($q) use ($search) {
+                $q->where('target_url', 'like', "%{$search}%")
+                  ->orWhereHas('user', function ($userQ) use ($search) {
+                      $userQ->where('name', 'like', "%{$search}%");
+                  });
+            });
         }
 
         $orders = $query->latest()->paginate(15);
