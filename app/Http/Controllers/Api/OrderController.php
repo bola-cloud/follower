@@ -240,7 +240,7 @@ class OrderController extends Controller
         ]);
     }
 
-    public function processActiveUserOrders(Request $request)
+    public function processActiveUserOrders()
     {
         $user = $request->user();
         if (!$user) {
