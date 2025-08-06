@@ -47,7 +47,7 @@ class OrderService
                             ->from('actions as a2')
                             ->join('orders as o2', 'a2.order_id', '=', 'o2.id')
                             ->whereColumn('a2.user_id', 'actions.user_id')
-                            ->where('a2.status', 'done')
+                            ->whereIn('a2.status', ['done', 'external'])
                             ->where('o2.user_id', $order->user_id)
                             ->whereColumn('o2.target_url', 'users.profile_link');
                     });
@@ -166,6 +166,10 @@ class OrderService
                     // Re-dispatch job for pending action
                     dispatch(new SendMqttToUserJob($user->id, $lockedOrder->id, $lockedOrder->type, $lockedOrder->target_url));
                     return ['message' => 'Pending action re-dispatched for this user.'];
+                }
+                // Block if status is done or external
+                if (in_array($existingAction->status, ['done', 'external'])) {
+                    return ['error' => 'User already completed or has external action for this order.'];
                 }
                 return ['error' => 'Action already exists for this user.'];
             }

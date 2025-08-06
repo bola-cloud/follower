@@ -129,7 +129,7 @@ class ResumeOrderService
         $eligibleUsers = User::where('type', 'user')
             ->orderBy('id', 'desc')
             ->whereNotIn('id', function ($q) use ($order) {
-                $q->select('user_id')->from('actions')->where('order_id', $order->id);
+                $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
             })
             ->whereNotIn('id', $pendingUserIds)
             ->where('profile_link', '!=', $order->target_url)
@@ -137,7 +137,7 @@ class ResumeOrderService
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                    ->where('a1.status', 'done')
+                    ->whereIn('a1.status', ['done', 'external'])
                     ->whereColumn('o1.target_url', 'users.profile_link')
                     ->where('o1.user_id', $order->user_id);
             })
@@ -198,7 +198,8 @@ class ResumeOrderService
             ];
         }
 
-        // Re-send to pending users using ping validation
+
+        // Re-send to pending users using ping validation (only fresh pending actions)
         $pendingUserIds = DB::table('actions')
             ->where('order_id', $order->id)
             ->where('status', 'pending')

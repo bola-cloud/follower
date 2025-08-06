@@ -144,34 +144,67 @@ class MqttResponseController extends Controller
             ], 404);
         }
 
-        // Check remaining actions for the order
-        $actualDoneCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'done')
-            ->count();
+        // Use database transaction with row locking to prevent race conditions
+        return DB::transaction(function () use ($order, $user, $type, $activation) {
+            // Lock the order row to prevent concurrent modifications
+            $lockedOrder = \App\Models\Order::where('id', $order->id)->lockForUpdate()->first();
 
-        $remaining = $order->total_count - $actualDoneCount;
+            if (!$lockedOrder) {
+                \Log::error('[triggerOrder] Order not found after locking', ['order_id' => $order->id]);
+                return response()->json(['error' => 'Order not found.'], 404);
+            }
 
-        if ($remaining <= 0) {
-            \Log::info('[triggerOrder] No remaining actions for order', ['order_id' => $order->id]);
-            return response()->json(['error' => 'No remaining actions available for this order.'], 400);
-        }
+            // Check remaining actions with fresh data
+            $actualDoneCount = DB::table('actions')
+                ->where('order_id', $lockedOrder->id)
+                ->where('status', 'done')
+                ->count();
 
-        \Log::info('[triggerOrder] Remaining actions for order', ['order_id' => $order->id, 'remaining' => $remaining]);
+            $pendingCount = DB::table('actions')
+                ->where('order_id', $lockedOrder->id)
+                ->where('status', 'pending')
+                ->count();
 
-        // Process the order based on type
-        if ($type === 'resume') {
-            $service = app(\App\Services\ResumeOrderService::class);
-            $result = $service->handle($order, $user);
-        } else {
-            $service = app(\App\Services\OrderService::class);
-            $result = $service->handle($order, $user);
-        }
-        // Log activation flag
-        \Log::info('[triggerOrder] Activation flag', ['activation' => $activation]);
+            $remaining = $lockedOrder->total_count - $actualDoneCount;
+            $availableSlots = $lockedOrder->total_count - $actualDoneCount - $pendingCount;
 
-        \Log::info('[triggerOrder] Service result', ['result' => $result]);
+            \Log::info('[triggerOrder] Order stats', [
+                'order_id' => $lockedOrder->id,
+                'total_count' => $lockedOrder->total_count,
+                'done_count' => $actualDoneCount,
+                'pending_count' => $pendingCount,
+                'remaining' => $remaining,
+                'available_slots' => $availableSlots
+            ]);
 
-        return response()->json($result);
+            if ($remaining <= 0) {
+                \Log::info('[triggerOrder] No remaining actions for order', ['order_id' => $lockedOrder->id]);
+                return response()->json(['error' => 'No remaining actions available for this order.'], 400);
+            }
+
+            // Check if we have available slots (considering all pending actions)
+            if ($availableSlots <= 0) {
+                \Log::info('[triggerOrder] No available slots for order (all slots taken by pending actions)', [
+                    'order_id' => $lockedOrder->id,
+                    'available_slots' => $availableSlots
+                ]);
+                return response()->json(['error' => 'All available slots are already taken by pending actions.'], 400);
+            }
+
+            // Process the order based on type
+            if ($type === 'resume') {
+                $service = app(\App\Services\ResumeOrderService::class);
+                $result = $service->handle($lockedOrder, $user);
+            } else {
+                $service = app(\App\Services\OrderService::class);
+                $result = $service->handle($lockedOrder, $user);
+            }
+
+            // Log activation flag
+            \Log::info('[triggerOrder] Activation flag', ['activation' => $activation]);
+            \Log::info('[triggerOrder] Service result', ['result' => $result]);
+
+            return response()->json($result);
+        });
     }
 }

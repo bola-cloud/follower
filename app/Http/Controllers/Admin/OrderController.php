@@ -126,7 +126,13 @@ class OrderController extends Controller
                 Log::error("[OrderStore] Error sending ping: " . $e->getMessage());
             }
 
-            return redirect()->route('admin.orders.index')->with('success', 'Order created and event broadcasted.');
+            // Redirect back to previous page with query string if possible
+            $redirectUrl = url()->previous() ?? route('admin.orders.index');
+            // If previous URL is the create page, fallback to index
+            if (str_contains($redirectUrl, '/admin/orders/create')) {
+                $redirectUrl = route('admin.orders.index');
+            }
+            return redirect($redirectUrl)->with('success', 'Order created and event broadcasted.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error("[OrderStore] Exception occurred: " . $e->getMessage());
@@ -152,16 +158,26 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
+            // Clean up stale pending actions (older than 24 hours)
+            $deletedCount = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->where('status', 'pending')
+                ->where('created_at', '<', now()->subHours(24))
+                ->delete();
+            if ($deletedCount > 0) {
+                Log::info("[OrderComplete] Cleaned up {$deletedCount} stale pending actions for order {$order->id}");
+            }
+
             Log::info("[OrderComplete] Starting resume process for Order #{$order->id}");
 
             // ✅ Send ping to activate order with type 'resume'
             try {
                 $pingService = app()->make(PingService::class);
-            $pingService->sendPing('order/ping/req', [
-                'type' => 'resume',
-                'order_id' => $order->id,
-                'activation' => true,
-            ]);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'resume',
+                    'order_id' => $order->id,
+                    'activation' => true,
+                ]);
                 Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
             } catch (\Throwable $e) {
                 Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());
@@ -169,7 +185,13 @@ class OrderController extends Controller
 
             DB::commit();
 
-            return redirect()->route('admin.orders.index')->with('success', 'Resume ping sent successfully.');
+            // Redirect back to previous page with query string if possible
+            $redirectUrl = url()->previous() ?? route('admin.orders.index');
+            // If previous URL is the show page, fallback to index
+            if (str_contains($redirectUrl, "/admin/orders/{$orderId}")) {
+                $redirectUrl = route('admin.orders.index');
+            }
+            return redirect($redirectUrl)->with('success', 'Resume ping sent successfully.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error("[OrderComplete] Exception occurred: {$e->getMessage()}");

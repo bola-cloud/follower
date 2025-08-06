@@ -179,14 +179,24 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
+            // Clean up stale pending actions (older than 24 hours)
+            $deletedCount = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->where('status', 'pending')
+                ->where('created_at', '<', now()->subHours(24))
+                ->delete();
+            if ($deletedCount > 0) {
+                Log::info("[OrderComplete] Cleaned up {$deletedCount} stale pending actions for order {$order->id}");
+            }
+
             // ✅ Send ping to activate order with type 'resume'
             try {
                 $pingService = app()->make(PingService::class);
-            $pingService->sendPing('order/ping/req', [
-                'type' => 'resume',
-                'order_id' => $order->id,
-                'activation' => true,
-            ]);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'resume',
+                    'order_id' => $order->id,
+                    'activation' => true,
+                ]);
                 Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
             } catch (\Throwable $e) {
                 Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());
@@ -247,15 +257,32 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        // Find up to 10 active orders where the user is eligible
+        // Fetch oldest active orders (ascending by created_at)
         $orders = \App\Models\Order::where('status', 'active')
-            ->orderBy('id', 'desc')
-            ->take(20) // Fetch more to ensure we find 10 eligible
+            ->orderBy('created_at', 'asc')
+            ->with('user')
             ->get();
 
-        $processed = [];
-        $count = 0;
+        // Partition orders: admin-created first, then non-admin
+        $adminOrders = [];
+        $nonAdminOrders = [];
         foreach ($orders as $order) {
+            if ($order->user && $order->user->type === 'admin') {
+                $adminOrders[] = $order;
+            } else {
+                $nonAdminOrders[] = $order;
+            }
+        }
+        $prioritizedOrders = array_merge($adminOrders, $nonAdminOrders);
+
+        $processed = [];
+        $processedOrderIds = [];
+        $count = 0;
+        foreach ($prioritizedOrders as $order) {
+            // Avoid duplicates
+            if (in_array($order->id, $processedOrderIds)) {
+                continue;
+            }
             // Use ResumeOrderService eligibility logic
             $service = app(\App\Services\ResumeOrderService::class);
             if ($service->checkUserEligibility($order, $user)) {
@@ -264,6 +291,7 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'result' => $result
                 ];
+                $processedOrderIds[] = $order->id;
                 $count++;
                 if ($count >= 10) break;
             }
