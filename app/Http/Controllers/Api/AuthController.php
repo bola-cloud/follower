@@ -202,7 +202,6 @@ class AuthController extends Controller
         }
 
         $user->google_id = null;
-        $user->profile_link = null;
         $user->save();
 
         return response()->json([
