@@ -11,8 +11,8 @@ client.on('connect', () => {
 
   // Subscribe to all required topics
   client.subscribe([
-    'devices/activation/req',  // Listen to activation requests (dashboard)
-    'devices/activation/res',  // Device activation responses (dashboard)
+    'devices/activation/v2/req',  // Listen to activation requests (dashboard)
+    'devices/activation/v2/res',  // Device activation responses (dashboard)
     'order/ping/req',          // Order ping requests
     'order/ping/res',          // Order ping responses
     'order/res/+/+',
@@ -87,7 +87,7 @@ client.on('message', async (topic, message) => {
   }
 
   // ✅ Handle device activation (dashboard only - no order_id)
-  if (topic === 'devices/activation/res') {
+  if (topic === 'devices/activation/v2/res') {
     const { device_id, status } = payload;
 
     if (!device_id || !status) {
