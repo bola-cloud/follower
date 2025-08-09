@@ -23,8 +23,8 @@ class MqttDeviceController extends Controller
 
         if (!in_array($deviceId, $existingDevices)) {
             $existingDevices[] = $deviceId;
-            Cache::put($cacheSetKey, $existingDevices, now()->addMinutes(2));
-            Cache::put($cacheCountKey, count($existingDevices), now()->addMinutes(2));
+            Cache::put($cacheSetKey, $existingDevices); // No expiration time
+            Cache::put($cacheCountKey, count($existingDevices)); // No expiration time
         }
 
         return response()->json([
