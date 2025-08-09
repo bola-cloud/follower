@@ -215,4 +215,12 @@ class OrderController extends Controller
         return redirect()->back()->with('success', 'تم إلغاء الطلب بنجاح.');
     }
 
+    public function cancelAll(Request $request)
+    {
+        // Only pause active orders
+        $affected = Order::where('status', 'active')->update(['status' => 'paused']);
+
+        return redirect()->back()->with('success', "تم إلغاء جميع الطلبات النشطة  بنجاح.");
+    }
+
 }

@@ -194,4 +194,20 @@ class AuthController extends Controller
         ]);
     }
 
+    public function disconnectAccount(Request $request)
+    {
+        $user = $request->user();
+        if (!$user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
+
+        $user->google_id = null;
+        $user->profile_link = null;
+        $user->save();
+
+        return response()->json([
+            'message' => 'Account disconnected successfully. You can no longer log in with this Google or Instagram account.',
+            'status' => true,
+        ], 200);
+    }
 }

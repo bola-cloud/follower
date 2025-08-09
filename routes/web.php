@@ -52,6 +52,7 @@ Route::group([
         Route::get('/create', 'OrderController@create')->name('orders.create');
         Route::post('/', 'OrderController@store')->name('orders.store');
         Route::post('/{order}/complete', 'OrderController@complete')->name('orders.complete');
+        Route::post('/cancel-all', 'OrderController@cancelAll')->name('orders.cancelAll');
     });
     Route::post('/admin/settings/update', 'SettingController@update')->name('settings.update');
     Route::get('/admin/settings', 'SettingController@index')->name('settings.index');

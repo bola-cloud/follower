@@ -44,6 +44,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/promocode/redeem', [PromocodeController::class, 'redeem']);
     Route::get('/user/points', [AuthController::class, 'points']);
     Route::post('/user/process-active-orders', [OrderController::class, 'processActiveUserOrders']);
+    // Disconnect Google/Instagram account
+    Route::post('/user/disconnect-account', [AuthController::class, 'disconnectAccount']);
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
 Route::post('/mqtt/recalculate-orders', [\App\Http\Controllers\Api\MqttResponseController::class, 'recalculateAllOrders']);

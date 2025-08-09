@@ -5,8 +5,8 @@ const broker = 'mqtt://109.199.112.65:1883';
 const client = mqtt.connect(broker);
 
 client.on('connect', () => {
-  console.log('✅ Connected to MQTT broker and subscribing to "devices/activation/res"');
-  client.subscribe('devices/activation/res', (err) => {
+  console.log('✅ Connected to MQTT broker and subscribing to "devices/activation/v2/res"');
+  client.subscribe('devices/activation/v2/res', (err) => {
     if (err) {
       console.error('❌ Subscription error:', err.message);
     }
@@ -14,7 +14,7 @@ client.on('connect', () => {
 });
 
 client.on('message', async (topic, message) => {
-  if (topic !== 'devices/activation/res') return;
+  if (topic !== 'devices/activation/v2/res') return;
 
   try {
     const payload = JSON.parse(message.toString());

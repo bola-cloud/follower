@@ -36,8 +36,9 @@
         <div class="col-md-2">
             <button class="btn btn-primary w-100">بحث</button>
         </div>
-        <div class="col-md-3 text-end">
-            <a href="{{ route('admin.orders.create') }}" class="btn btn-success w-100">إضافة طلب جديد</a>
+        <div class="col-md-3 text-end d-flex gap-2">
+            <a href="{{ route('admin.orders.create') }}" class="btn btn-success w-100 mr-2">إضافة طلب جديد</a>
+            <button type="button" class="btn btn-danger w-100" data-toggle="modal" data-target="#cancelAllModal">إلغاء كل الطلبات</button>
         </div>
     </form>
 
@@ -109,7 +110,31 @@
     </div>
 
     <div class="mt-3">
-        {{ $orders->links('pagination::bootstrap-4') }}
+        {{ $orders->appends(request()->query())->links('pagination::bootstrap-4') }}
+    </div>
+
+    <!-- Cancel All Orders Modal -->
+    <div class="modal fade" id="cancelAllModal" tabindex="-1" role="dialog" aria-labelledby="cancelAllModalLabel" aria-hidden="true">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="cancelAllModalLabel">تأكيد إلغاء كل الطلبات</h5>
+                    <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+                <div class="modal-body">
+                    هل أنت متأكد أنك تريد إلغاء كل الطلبات النشطة؟ سيتم إيقاف جميع الطلبات الحالية.
+                </div>
+                <div class="modal-footer">
+                    <form action="{{ route('admin.orders.cancelAll') }}" method="POST">
+                        @csrf
+                        <button type="button" class="btn btn-secondary" data-dismiss="modal">تراجع</button>
+                        <button type="submit" class="btn btn-danger">تأكيد الإلغاء للجميع</button>
+                    </form>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 @endsection
