@@ -92,7 +92,7 @@ class AuthController extends Controller
         $validator = Validator::make($data, [
             'google_id' => 'required|string',
             'name' => 'required|string',
-            'email' => 'nullable|email|max:255',
+            'email' => 'nullable|email|max:255|unique:users,email',
         ]);
 
         if ($validator->fails()) {
