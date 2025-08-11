@@ -92,7 +92,7 @@ class AuthController extends Controller
         $validator = Validator::make($data, [
             'google_id' => 'required|string',
             'name' => 'required|string',
-            'email' => 'nullable|email|max:255|unique:users,email',
+            'email' => 'nullable|email|max:255',
         ]);
 
         if ($validator->fails()) {
@@ -103,6 +103,16 @@ class AuthController extends Controller
         $user = User::where('google_id', $data['google_id'])->first();
 
         if (!$user) {
+            // Validate email only if user does not exist
+            $validator = Validator::make($data, [
+                'email' => 'nullable|email|max:255|unique:users,email',
+                'google_id' => 'required|string|unique:users,google_id',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json(['error' => $validator->errors()], 422);
+            }
+
             // Create new user
             $user = User::create([
                 'google_id' => $data['google_id'],
