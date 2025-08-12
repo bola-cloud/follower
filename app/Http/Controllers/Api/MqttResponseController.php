@@ -46,7 +46,11 @@ class MqttResponseController extends Controller
         $updated = DB::table('actions')
             ->where('order_id', $orderId)
             ->where('user_id', $userId)
-            ->update(['status' => $status]);
+            ->update([
+                'status' => $status,
+                'performed_at' => now(), // Update performed_at
+                'updated_at' => now(),
+            ]);
 
 
         // Recalculate the number of done actions and update done_count to avoid duplicates
