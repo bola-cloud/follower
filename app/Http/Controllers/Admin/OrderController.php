@@ -50,7 +50,7 @@ class OrderController extends Controller
             ->join('users', 'users.id', '=', 'actions.user_id')
             ->where('actions.order_id', $id)
             ->where('actions.status', 'done')
-            ->select('users.name', 'users.email', 'actions.performed_at')
+            ->select('users.name', 'users.email', 'actions.performed_at', 'actions.created_at') // Include created_at
             ->get();
 
         return view('admin.orders.show', compact('order', 'actionUsers'));
