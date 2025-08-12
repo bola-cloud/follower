@@ -75,6 +75,7 @@ class OrderService
                     'status' => 'pending',
                     'created_at' => $now,
                     'updated_at' => $now,
+                    'performed_at' => $now, // Store specific execution time
                 ];
             })->filter(function ($action) {
                 return !DB::table('actions')

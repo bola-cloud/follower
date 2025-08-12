@@ -31,7 +31,7 @@
                 <tr>
                     <td>{{ $user->name }}</td>
                     <td>{{ $user->email }}</td>
-                    <td>{{ \Carbon\Carbon::parse($user->performed_at)->format('Y-m-d H:i') }}</td>
+                    <td>{{ $user->performed_at ? \Carbon\Carbon::parse($user->performed_at)->format('Y-m-d H:i') : \Carbon\Carbon::parse($user->created_at)->format('Y-m-d H:i') }}</td>
                 </tr>
             @empty
                 <tr>
