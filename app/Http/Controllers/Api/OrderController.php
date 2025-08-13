@@ -102,11 +102,9 @@ class OrderController extends Controller
                     \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
                     $newTimer = now()->addMinutes(30);
                     $user->update(['timer' => $newTimer]);
-                    Log::info("[OrderStore] Timer set for user #{$user->id} at {$newTimer}");
                 }
             } else {
                 $user->update(['timer' => null]); // Reset timer
-                Log::info("[OrderStore] Timer reset for user #{$user->id}");
             }
 
             // Commit the transaction
@@ -120,7 +118,6 @@ class OrderController extends Controller
                 'order_id' => $order->id,
                 'activation' => true,
             ]);
-                Log::info("[OrderStore] Ping sent for order {$order->id} with type 'create'");
             } catch (\Throwable $e) {
                 Log::error("[OrderStore] Error sending ping: " . $e->getMessage());
             }
@@ -197,7 +194,6 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'activation' => true,
                 ]);
-                Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
             } catch (\Throwable $e) {
                 Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());
             }
@@ -257,10 +253,18 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        // Fetch oldest active orders (ascending by created_at)
+        // Optimized query: Fetch orders where user doesn't have 'done' actions
         $orders = \App\Models\Order::where('status', 'active')
+            ->whereNotExists(function ($query) use ($user) {
+                $query->select(DB::raw(1))
+                    ->from('actions')
+                    ->whereColumn('actions.order_id', 'orders.id')
+                    ->where('actions.user_id', $user->id)
+                    ->where('actions.status', 'done');
+            })
             ->orderBy('created_at', 'asc')
             ->with('user')
+            ->limit(50) // Limit initial query for performance
             ->get();
 
         // Partition orders: admin-created first, then non-admin
@@ -278,13 +282,15 @@ class OrderController extends Controller
         $processed = [];
         $processedOrderIds = [];
         $count = 0;
+        $service = app(\App\Services\ResumeOrderService::class);
+
         foreach ($prioritizedOrders as $order) {
             // Avoid duplicates
             if (in_array($order->id, $processedOrderIds)) {
                 continue;
             }
+
             // Use ResumeOrderService eligibility logic
-            $service = app(\App\Services\ResumeOrderService::class);
             if ($service->checkUserEligibility($order, $user)) {
                 $result = $service->handle($order, $user);
                 $processed[] = [
@@ -293,7 +299,7 @@ class OrderController extends Controller
                 ];
                 $processedOrderIds[] = $order->id;
                 $count++;
-                if ($count >= 10) break;
+                if ($count >= 25) break; // Increased to 25
             }
         }
 

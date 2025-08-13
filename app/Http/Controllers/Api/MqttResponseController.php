@@ -118,7 +118,6 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
-        \Log::info('[triggerOrder] Incoming request', $request->all());
         $validated = $request->validate([
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
@@ -126,7 +125,6 @@ class MqttResponseController extends Controller
             'activation' => 'sometimes|boolean',
         ]);
 
-        \Log::info('[triggerOrder] Validated data', $validated);
 
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
@@ -137,11 +135,8 @@ class MqttResponseController extends Controller
         $order = \App\Models\Order::find($orderId);
         $user = \App\Models\User::find($userId);
 
-        \Log::info('[triggerOrder] Order found', ['order' => $order]);
-        \Log::info('[triggerOrder] User found', ['user' => $user]);
 
         if (!$order || !$user) {
-            \Log::error('[triggerOrder] Order or user not found', ['order_id' => $orderId, 'user_id' => $userId]);
             return response()->json([
                 'success' => false,
                 'message' => 'Order or user not found.'
@@ -154,7 +149,6 @@ class MqttResponseController extends Controller
             $lockedOrder = \App\Models\Order::where('id', $order->id)->lockForUpdate()->first();
 
             if (!$lockedOrder) {
-                \Log::error('[triggerOrder] Order not found after locking', ['order_id' => $order->id]);
                 return response()->json(['error' => 'Order not found.'], 404);
             }
 
@@ -172,15 +166,6 @@ class MqttResponseController extends Controller
             $remaining = $lockedOrder->total_count - $actualDoneCount;
             $availableSlots = $lockedOrder->total_count - $actualDoneCount - $pendingCount;
 
-            \Log::info('[triggerOrder] Order stats', [
-                'order_id' => $lockedOrder->id,
-                'total_count' => $lockedOrder->total_count,
-                'done_count' => $actualDoneCount,
-                'pending_count' => $pendingCount,
-                'remaining' => $remaining,
-                'available_slots' => $availableSlots
-            ]);
-
             if ($remaining <= 0) {
                 \Log::info('[triggerOrder] No remaining actions for order', ['order_id' => $lockedOrder->id]);
                 return response()->json(['error' => 'No remaining actions available for this order.'], 400);
@@ -188,10 +173,6 @@ class MqttResponseController extends Controller
 
             // Check if we have available slots (considering all pending actions)
             if ($availableSlots <= 0) {
-                \Log::info('[triggerOrder] No available slots for order (all slots taken by pending actions)', [
-                    'order_id' => $lockedOrder->id,
-                    'available_slots' => $availableSlots
-                ]);
                 return response()->json(['error' => 'All available slots are already taken by pending actions.'], 400);
             }
 
@@ -203,10 +184,6 @@ class MqttResponseController extends Controller
                 $service = app(\App\Services\OrderService::class);
                 $result = $service->handle($lockedOrder, $user);
             }
-
-            // Log activation flag
-            \Log::info('[triggerOrder] Activation flag', ['activation' => $activation]);
-            \Log::info('[triggerOrder] Service result', ['result' => $result]);
 
             return response()->json($result);
         });
