@@ -167,7 +167,6 @@ class MqttResponseController extends Controller
             $availableSlots = $lockedOrder->total_count - $actualDoneCount - $pendingCount;
 
             if ($remaining <= 0) {
-                \Log::info('[triggerOrder] No remaining actions for order', ['order_id' => $lockedOrder->id]);
                 return response()->json(['error' => 'No remaining actions available for this order.'], 400);
             }
 
