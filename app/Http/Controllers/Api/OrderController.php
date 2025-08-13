@@ -253,14 +253,14 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        // Optimized query: Fetch orders where user doesn't have 'done' actions
+        // Optimized query: Fetch orders where user doesn't have 'done' or 'external' actions
         $orders = \App\Models\Order::where('status', 'active')
             ->whereNotExists(function ($query) use ($user) {
                 $query->select(DB::raw(1))
                     ->from('actions')
                     ->whereColumn('actions.order_id', 'orders.id')
                     ->where('actions.user_id', $user->id)
-                    ->where('actions.status', 'done');
+                    ->whereIn('actions.status', ['done', 'external']);
             })
             ->orderBy('created_at', 'asc')
             ->with('user')
