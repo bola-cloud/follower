@@ -10,7 +10,7 @@ class HandleActionResponse
     public function handle($event)
     {
         $payload = $event->payload;
-        Log::info('ActionResponse received:', $payload);
+        // Log::info('ActionResponse received:', $payload);
 
         if (!isset($payload['order_id'], $payload['user_id'], $payload['status']) ||
             !in_array($payload['status'], ['success', 'failed'])) {

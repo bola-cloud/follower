@@ -121,7 +121,7 @@ class OrderController extends Controller
                 'order_id' => $order->id,
                 'activation' => true,
             ]);
-                Log::info("[OrderStore] Ping sent for order {$order->id} with type 'create'");
+                // Log::info("[OrderStore] Ping sent for order {$order->id} with type 'create'");
             } catch (\Throwable $e) {
                 Log::error("[OrderStore] Error sending ping: " . $e->getMessage());
             }
@@ -146,12 +146,12 @@ class OrderController extends Controller
         $order = Order::with('user')->find($orderId);
 
         if (!$user || !$order || ($user->type !== 'admin' && $order->user_id !== $user->id)) {
-            Log::warning("[OrderComplete] Unauthorized access attempt or invalid order ID: {$orderId}");
+            // Log::warning("[OrderComplete] Unauthorized access attempt or invalid order ID: {$orderId}");
             return redirect()->back()->with('error', 'Unauthorized or invalid order.');
         }
 
         if ($order->status === 'completed') {
-            Log::info("[OrderComplete] Attempt to complete an already completed order (ID: {$order->id})");
+            // Log::info("[OrderComplete] Attempt to complete an already completed order (ID: {$order->id})");
             return redirect()->back()->with('error', 'Cannot complete an already completed order.');
         }
 
@@ -168,7 +168,7 @@ class OrderController extends Controller
                 Log::info("[OrderComplete] Cleaned up {$deletedCount} stale pending actions for order {$order->id}");
             }
 
-            Log::info("[OrderComplete] Starting resume process for Order #{$order->id}");
+            // Log::info("[OrderComplete] Starting resume process for Order #{$order->id}");
 
             // ✅ Send ping to activate order with type 'resume'
             try {
@@ -178,7 +178,7 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'activation' => true,
                 ]);
-                Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
+                // Log::info("[OrderComplete] Ping sent for order {$order->id} with type 'resume'");
             } catch (\Throwable $e) {
                 Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());
             }

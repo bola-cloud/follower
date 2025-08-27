@@ -32,7 +32,7 @@ class AddPointsToUser implements ShouldQueue
         $user = User::find($this->userId);
 
         if (!$user) {
-            \Log::warning("AddPointsToUser: User not found: {$this->userId}");
+            // \Log::warning("AddPointsToUser: User not found: {$this->userId}");
             return;
         }
 
@@ -40,6 +40,6 @@ class AddPointsToUser implements ShouldQueue
 
         $user->increment('points', $addedPoints);
 
-        \Log::info("Added {$addedPoints} points to user #{$user->id}");
+        // \Log::info("Added {$addedPoints} points to user #{$user->id}");
     }
 }

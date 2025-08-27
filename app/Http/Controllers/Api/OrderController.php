@@ -183,7 +183,7 @@ class OrderController extends Controller
                 ->where('created_at', '<', now()->subHours(24))
                 ->delete();
             if ($deletedCount > 0) {
-                Log::info("[OrderComplete] Cleaned up {$deletedCount} stale pending actions for order {$order->id}");
+                // Log::info("[OrderComplete] Cleaned up {$deletedCount} stale pending actions for order {$order->id}");
             }
 
             // ✅ Send ping to activate order with type 'resume'
@@ -307,6 +307,74 @@ class OrderController extends Controller
             'user_id' => $user->id,
             'processed_count' => $count,
             'results' => $processed,
+        ]);
+    }
+
+    /**
+     * Test API: Simulate processActiveUserOrders for a specific user_id.
+     * Returns the candidate orders and the order type that would be sent to the user.
+     * This is read-only and does NOT create actions or dispatch jobs.
+     */
+    public function testProcessActiveUserOrders(Request $request, $userId)
+    {
+        $limit = (int) $request->query('limit', 25);
+
+        $user = User::find($userId);
+        if (!$user) {
+            return response()->json(['error' => 'User not found.'], 404);
+        }
+
+        // Fetch active orders where this user has no done/external actions
+        $orders = Order::where('status', 'active')
+            ->whereNotExists(function ($query) use ($user) {
+                $query->select(DB::raw(1))
+                    ->from('actions')
+                    ->whereColumn('actions.order_id', 'orders.id')
+                    ->where('actions.user_id', $user->id)
+                    ->whereIn('actions.status', ['done', 'external']);
+            })
+            ->orderBy('created_at', 'asc')
+            ->with('user')
+            ->limit(200)
+            ->get();
+
+        // Prioritize admin-created orders
+        $adminOrders = [];
+        $nonAdminOrders = [];
+        foreach ($orders as $order) {
+            if ($order->user && $order->user->type === 'admin') {
+                $adminOrders[] = $order;
+            } else {
+                $nonAdminOrders[] = $order;
+            }
+        }
+        $prioritized = array_merge($adminOrders, $nonAdminOrders);
+
+        $service = app(\App\Services\ResumeOrderService::class);
+        $candidates = [];
+        $count = 0;
+
+        foreach ($prioritized as $order) {
+            if ($service->checkUserEligibility($order, $user)) {
+                $candidates[] = [
+                    'order_id' => $order->id,
+                    'type' => $order->type,
+                    'target_url' => $order->target_url,
+                    'order_owner_id' => $order->user_id,
+                    'order_owner_type' => $order->user->type ?? null,
+                    'created_at' => $order->created_at->toDateTimeString(),
+                ];
+
+                $count++;
+                if ($count >= $limit) break;
+            }
+        }
+
+        return response()->json([
+            'user_id' => $user->id,
+            'limit' => $limit,
+            'candidates_count' => $count,
+            'candidates' => $candidates,
         ]);
     }
 }

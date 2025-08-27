@@ -97,7 +97,7 @@ class OrderService
         static $sentOrders = [];
 
         if (in_array($order->id, $sentOrders)) {
-            Log::info("[OrderService] Ping for order {$order->id} already sent, skipping.");
+            // Log::info("[OrderService] Ping for order {$order->id} already sent, skipping.");
             return;
         }
 
@@ -109,7 +109,7 @@ class OrderService
 
         $this->publishToMqtt('order/ping/req', $pingData);
 
-        Log::info("[OrderService] Sent ping for order {$order->id} to `order/ping/req` via MQTT");
+        // Log::info("[OrderService] Sent ping for order {$order->id} to `order/ping/req` via MQTT");
     }
 
     private function publishToMqtt($topic, $data)

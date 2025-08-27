@@ -60,6 +60,8 @@ Route::get('/device-activation-count', function () {
 });
 
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
+// Test endpoint (read-only) to simulate processActiveUserOrders for a given user id
+Route::get('/test/process-active-orders/{userId}', [OrderController::class, 'testProcessActiveUserOrders']);
 Route::get('/settings', [SettingController::class, 'index']);
 Route::get('/chart/users', [Dashboard::class, 'users']);
 Route::get('/chart/actions', [Dashboard::class, 'actions']);

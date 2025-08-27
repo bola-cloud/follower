@@ -42,6 +42,6 @@ class SendMqttToUserJob implements ShouldQueue
         $command = "node {$scriptPath} {$escapedJson} >> " . storage_path('logs/mqtt_output.log') . " 2>&1";
         exec($command);
 
-        Log::info("[MQTT QUEUE] Published to user {$this->userId} for order {$this->orderId}");
+        // Log::info("[MQTT QUEUE] Published to user {$this->userId} for order {$this->orderId}");
     }
 }
