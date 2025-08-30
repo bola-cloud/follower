@@ -143,48 +143,84 @@ class MqttResponseController extends Controller
             ], 404);
         }
 
-        // Use database transaction with row locking to prevent race conditions
-        return DB::transaction(function () use ($order, $user, $type, $activation) {
-            // Lock the order row to prevent concurrent modifications
-            $lockedOrder = \App\Models\Order::where('id', $order->id)->lockForUpdate()->first();
+        // Short transaction: only lock, check counts and decide if we can proceed.
+        $canProceed = false;
+        $lockedOrderSnapshot = null;
 
-            if (!$lockedOrder) {
-                return response()->json(['error' => 'Order not found.'], 404);
+        try {
+            DB::transaction(function () use ($order, &$canProceed, &$lockedOrderSnapshot) {
+                // Lock the order row to prevent concurrent modifications
+                $lockedOrder = \App\Models\Order::where('id', $order->id)->lockForUpdate()->first();
+
+                if (!$lockedOrder) {
+                    // not found under lock
+                    return;
+                }
+
+                // Check remaining actions with fresh data
+                $actualDoneCount = DB::table('actions')
+                    ->where('order_id', $lockedOrder->id)
+                    ->where('status', 'done')
+                    ->count();
+
+                $pendingCount = DB::table('actions')
+                    ->where('order_id', $lockedOrder->id)
+                    ->where('status', 'pending')
+                    ->count();
+
+                $remaining = $lockedOrder->total_count - $actualDoneCount;
+                $availableSlots = $lockedOrder->total_count - $actualDoneCount - $pendingCount;
+
+                if ($remaining <= 0) {
+                    // nothing to do, simply exit transaction
+                    return;
+                }
+
+                if ($availableSlots <= 0) {
+                    // no slots available
+                    return;
+                }
+
+                // take a lightweight snapshot to use outside transaction
+                $lockedOrderSnapshot = $lockedOrder->replicate();
+                $lockedOrderSnapshot->done_count = $actualDoneCount;
+                $lockedOrderSnapshot->pending_count = $pendingCount;
+
+                // mark allowed to proceed; do NOT call heavy services here
+                $canProceed = true;
+            });
+        } catch (\Illuminate\Database\QueryException $ex) {
+            // Handle lock wait timeout specifically
+            // 1205 = lock wait timeout
+            if (strpos($ex->getMessage(), '1205') !== false || strpos($ex->getMessage(), 'Lock wait timeout') !== false) {
+                // Log and return a 409 so caller can retry later
+                \Log::warning('[triggerOrder] Lock wait timeout while trying to lock order ' . $orderId);
+                return response()->json(['error' => 'Database is busy, please retry.'], 409);
             }
 
-            // Check remaining actions with fresh data
-            $actualDoneCount = DB::table('actions')
-                ->where('order_id', $lockedOrder->id)
-                ->where('status', 'done')
-                ->count();
+            // rethrow other DB exceptions
+            throw $ex;
+        }
 
-            $pendingCount = DB::table('actions')
-                ->where('order_id', $lockedOrder->id)
-                ->where('status', 'pending')
-                ->count();
+        if (!$canProceed || !$lockedOrderSnapshot) {
+            return response()->json(['error' => 'No available slots or order not found.'], 400);
+        }
 
-            $remaining = $lockedOrder->total_count - $actualDoneCount;
-            $availableSlots = $lockedOrder->total_count - $actualDoneCount - $pendingCount;
-
-            if ($remaining <= 0) {
-                return response()->json(['error' => 'No remaining actions available for this order.'], 400);
-            }
-
-            // Check if we have available slots (considering all pending actions)
-            if ($availableSlots <= 0) {
-                return response()->json(['error' => 'All available slots are already taken by pending actions.'], 400);
-            }
-
-            // Process the order based on type
+        // Heavy processing outside transaction - will use its own locking/logic
+        try {
             if ($type === 'resume') {
                 $service = app(\App\Services\ResumeOrderService::class);
-                $result = $service->handle($lockedOrder, $user);
+                $result = $service->handle($order, $user);
             } else {
                 $service = app(\App\Services\OrderService::class);
-                $result = $service->handle($lockedOrder, $user);
+                $result = $service->handle($order, $user);
             }
+        } catch (\Throwable $e) {
+            // Log error and return a safe response
+            \Log::error('[triggerOrder] Error while handling order ' . $orderId . ': ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to process order.'], 500);
+        }
 
-            return response()->json($result);
-        });
+        return response()->json($result);
     }
 }
