@@ -42,37 +42,52 @@ class MqttResponseController extends Controller
             $incrementDone = true;
         }
 
-        // Update action status
-        $updated = DB::table('actions')
-            ->where('order_id', $orderId)
-            ->where('user_id', $userId)
-            ->update([
-                'status' => $status,
-                'performed_at' => now(), // Update performed_at
-                'updated_at' => now(),
-            ]);
+        // Only update action and recalculate order if status actually changed
+        if ($action->status !== $status) {
+            // Update action status
+            $updated = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->where('user_id', $userId)
+                ->update([
+                    'status' => $status,
+                    'performed_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
+            // Only recalculate if this change affects done count
+            if ($incrementDone || $action->status === 'done') {
+                // Recalculate the number of done actions and update done_count
+                $doneCount = DB::table('actions')
+                    ->where('order_id', $orderId)
+                    ->where('status', 'done')
+                    ->count();
 
-        // Recalculate the number of done actions and update done_count to avoid duplicates
-        $doneCount = DB::table('actions')
-            ->where('order_id', $orderId)
-            ->where('status', 'done')
-            ->count();
+                // Get the order to check total_count
+                $order = DB::table('orders')->select('id', 'total_count', 'status')->where('id', $orderId)->first();
 
-        // Get the order to check total_count
-        $order = DB::table('orders')->where('id', $orderId)->first();
+                if ($order) {
+                    $updateData = ['done_count' => $doneCount];
 
-        if ($order) {
-            $updateData = ['done_count' => $doneCount];
+                    // If done_count equals total_count, mark order as completed
+                    if ($doneCount >= $order->total_count && $order->status !== 'completed') {
+                        $updateData['status'] = 'completed';
+                    }
 
-            // If done_count equals total_count, mark order as completed
-            if ($doneCount >= $order->total_count) {
-                $updateData['status'] = 'completed';
+                    DB::table('orders')
+                        ->where('id', $orderId)
+                        ->update($updateData);
+                }
             }
-
-            DB::table('orders')
-                ->where('id', $orderId)
-                ->update($updateData);
+        } else {
+            // Status didn't change, just update performed_at if needed
+            $updated = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->where('user_id', $userId)
+                ->where('performed_at', null)
+                ->update([
+                    'performed_at' => now(),
+                    'updated_at' => now(),
+                ]);
         }
 
         return response()->json([
@@ -84,30 +99,32 @@ class MqttResponseController extends Controller
 
     public function recalculateAllOrders(Request $request)
     {
-        $orders = DB::table('orders')->get();
         $updatedCount = 0;
 
-        foreach ($orders as $order) {
-            $doneCount = DB::table('actions')
-                ->where('order_id', $order->id)
-                ->where('status', 'done')
-                ->count();
+        // Process orders in chunks to avoid memory issues
+        DB::table('orders')->orderBy('id')->chunk(50, function ($orders) use (&$updatedCount) {
+            foreach ($orders as $order) {
+                $doneCount = DB::table('actions')
+                    ->where('order_id', $order->id)
+                    ->where('status', 'done')
+                    ->count();
 
-            $updateData = ['done_count' => $doneCount];
+                $updateData = ['done_count' => $doneCount];
 
-            // If done_count equals or exceeds total_count, mark as completed
-            if ($doneCount >= $order->total_count && $order->status !== 'completed') {
-                $updateData['status'] = 'completed';
+                // If done_count equals or exceeds total_count, mark as completed
+                if ($doneCount >= $order->total_count && $order->status !== 'completed') {
+                    $updateData['status'] = 'completed';
+                }
+
+                // Only update if there's a change
+                if ($doneCount != $order->done_count || ($doneCount >= $order->total_count && $order->status !== 'completed')) {
+                    DB::table('orders')
+                        ->where('id', $order->id)
+                        ->update($updateData);
+                    $updatedCount++;
+                }
             }
-
-            // Only update if there's a change
-            if ($doneCount != $order->done_count || ($doneCount >= $order->total_count && $order->status !== 'completed')) {
-                DB::table('orders')
-                    ->where('id', $order->id)
-                    ->update($updateData);
-                $updatedCount++;
-            }
-        }
+        });
 
         return response()->json([
             'success' => true,
@@ -131,9 +148,9 @@ class MqttResponseController extends Controller
         $type = $validated['type'];
         $activation = $validated['activation'] ?? true;
 
-        // Get the order and user
-        $order = \App\Models\Order::find($orderId);
-        $user = \App\Models\User::find($userId);
+        // Get the order and user (select only needed fields)
+        $order = \App\Models\Order::select('id', 'total_count', 'done_count', 'status')->find($orderId);
+        $user = \App\Models\User::select('id', 'type')->find($userId);
 
 
         if (!$order || !$user) {
@@ -149,24 +166,25 @@ class MqttResponseController extends Controller
 
         try {
             DB::transaction(function () use ($order, &$canProceed, &$lockedOrderSnapshot) {
-                // Lock the order row to prevent concurrent modifications
-                $lockedOrder = \App\Models\Order::where('id', $order->id)->lockForUpdate()->first();
+                // Lock the order row to prevent concurrent modifications (select minimal fields)
+                $lockedOrder = \App\Models\Order::select('id', 'total_count', 'done_count')
+                    ->where('id', $order->id)
+                    ->lockForUpdate()
+                    ->first();
 
                 if (!$lockedOrder) {
                     // not found under lock
                     return;
                 }
 
-                // Check remaining actions with fresh data
-                $actualDoneCount = DB::table('actions')
+                // Check remaining actions with fresh data (single aggregated query)
+                $counts = DB::table('actions')
+                    ->selectRaw("SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_count, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count")
                     ->where('order_id', $lockedOrder->id)
-                    ->where('status', 'done')
-                    ->count();
+                    ->first();
 
-                $pendingCount = DB::table('actions')
-                    ->where('order_id', $lockedOrder->id)
-                    ->where('status', 'pending')
-                    ->count();
+                $actualDoneCount = (int)$counts->done_count;
+                $pendingCount = (int)$counts->pending_count;
 
                 $remaining = $lockedOrder->total_count - $actualDoneCount;
                 $availableSlots = $lockedOrder->total_count - $actualDoneCount - $pendingCount;
@@ -182,9 +200,12 @@ class MqttResponseController extends Controller
                 }
 
                 // take a lightweight snapshot to use outside transaction
-                $lockedOrderSnapshot = $lockedOrder->replicate();
-                $lockedOrderSnapshot->done_count = $actualDoneCount;
-                $lockedOrderSnapshot->pending_count = $pendingCount;
+                $lockedOrderSnapshot = [
+                    'id' => $lockedOrder->id,
+                    'total_count' => $lockedOrder->total_count,
+                    'done_count' => $actualDoneCount,
+                    'pending_count' => $pendingCount,
+                ];
 
                 // mark allowed to proceed; do NOT call heavy services here
                 $canProceed = true;

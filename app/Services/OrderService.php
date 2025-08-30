@@ -133,8 +133,11 @@ class OrderService
     public function handle(Order $order, User $user): array
     {
         return DB::transaction(function () use ($order, $user) {
-            // Lock the order row for update to prevent race conditions
-            $lockedOrder = Order::where('id', $order->id)->lockForUpdate()->first();
+            // Lock the order row for update to prevent race conditions (select minimal fields)
+            $lockedOrder = Order::select('id', 'total_count', 'type', 'target_url', 'user_id')
+                ->where('id', $order->id)
+                ->lockForUpdate()
+                ->first();
 
             if (!$lockedOrder) {
                 return ['error' => 'Order not found.'];
@@ -158,6 +161,7 @@ class OrderService
 
             // Check if action already exists for this user (any status)
             $existingAction = DB::table('actions')
+                ->select('status')
                 ->where('order_id', $lockedOrder->id)
                 ->where('user_id', $user->id)
                 ->first();

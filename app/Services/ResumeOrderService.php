@@ -14,8 +14,11 @@ class ResumeOrderService
     public function handle(Order $order, User $user): array
     {
         return DB::transaction(function () use ($order, $user) {
-            // Lock the order row for update to prevent race conditions
-            $lockedOrder = Order::where('id', $order->id)->lockForUpdate()->first();
+            // Lock the order row for update to prevent race conditions (select minimal fields)
+            $lockedOrder = Order::select('id', 'total_count', 'type', 'target_url', 'user_id')
+                ->where('id', $order->id)
+                ->lockForUpdate()
+                ->first();
 
             if (!$lockedOrder) {
                 return ['error' => 'Order not found.'];
@@ -37,8 +40,9 @@ class ResumeOrderService
                 return ['error' => 'User is not eligible for this order.'];
             }
 
-            // Check if action already exists for this user (any status)
+            // Check if action already exists for this user (select only status)
             $existingAction = DB::table('actions')
+                ->select('status')
                 ->where('order_id', $lockedOrder->id)
                 ->where('user_id', $user->id)
                 ->first();
