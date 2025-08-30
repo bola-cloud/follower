@@ -53,6 +53,16 @@ class ResumeOrderService
             return ['error' => 'Order capacity reached.'];
         }
 
+        // Check if action already exists for this user-order combination
+        $existingAction = DB::table('actions')
+            ->where('user_id', $user->id)
+            ->where('order_id', $order->id)
+            ->first();
+
+        if ($existingAction) {
+            return ['message' => 'Action already exists for this user and order.'];
+        }
+
         DB::table('actions')->insert([
             'order_id' => $order->id,
             'user_id' => $user->id,
@@ -245,7 +255,7 @@ class ResumeOrderService
             ->limit($remaining)
             ->get();
 
-        // Insert actions
+        // Insert actions with duplicate protection
         $now = now();
         $actions = $eligibleUsers->map(function ($user) use ($order, $now) {
             return [
@@ -258,7 +268,17 @@ class ResumeOrderService
             ];
         });
 
-        DB::table('actions')->insert($actions->toArray());
+        // Use try-catch to handle any remaining duplicate constraint violations
+        try {
+            DB::table('actions')->insert($actions->toArray());
+        } catch (\Illuminate\Database\QueryException $e) {
+            // If duplicate entry error, log it but continue (1062 is duplicate entry error)
+            if ($e->getCode() === '23000' && strpos($e->getMessage(), '1062') !== false) {
+                \Log::warning('[ResumeOrderService] Duplicate action detected during bulk insert for order ' . $order->id, ['error' => $e->getMessage()]);
+            } else {
+                throw $e; // Re-throw if it's a different error
+            }
+        }
 
         // Send ONE ping for the order (covers both pending and new users)
         $this->sendMqttToEligibleUsersWithPing($order, $remaining);
