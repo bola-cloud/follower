@@ -149,7 +149,7 @@ class MqttResponseController extends Controller
         $activation = $validated['activation'] ?? true;
 
         // Get the order and user (select only needed fields)
-        $order = \App\Models\Order::select('id', 'total_count', 'done_count', 'status')->find($orderId);
+        $order = \App\Models\Order::select('id', 'total_count', 'done_count', 'status', 'type', 'target_url')->find($orderId);
         $user = \App\Models\User::select('id', 'type')->find($userId);
 
 
