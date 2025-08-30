@@ -132,67 +132,62 @@ class OrderService
 
     public function handle(Order $order, User $user): array
     {
-        return DB::transaction(function () use ($order, $user) {
-            // Lock the order row for update to prevent race conditions (select minimal fields)
-            $lockedOrder = Order::select('id', 'total_count', 'type', 'target_url', 'user_id')
-                ->where('id', $order->id)
-                ->lockForUpdate()
-                ->first();
+        // No transaction or lock needed here - triggerOrder already validated slots and eligibility
+        // Just check basic eligibility and create the action
 
-            if (!$lockedOrder) {
-                return ['error' => 'Order not found.'];
+        if (!$this->checkUserEligibility($order, $user)) {
+            return ['error' => 'User is not eligible for this order.'];
+        }
+
+        // Check if action already exists for this user (select only status)
+        $existingAction = DB::table('actions')
+            ->select('status')
+            ->where('order_id', $order->id)
+            ->where('user_id', $user->id)
+            ->first();
+
+        if ($existingAction) {
+            if ($existingAction->status === 'pending') {
+                // Re-dispatch job for pending action
+                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                return ['message' => 'Pending action re-dispatched for this user.'];
             }
-
-            // Recalculate remaining slots with fresh data
-            $actualDoneCount = DB::table('actions')
-                ->where('order_id', $lockedOrder->id)
-                ->where('status', 'done')
-                ->count();
-
-            $remaining = $lockedOrder->total_count - $actualDoneCount;
-
-            if ($remaining <= 0) {
-                return ['error' => 'No remaining actions available.'];
+            // Block if status is done or external
+            if (in_array($existingAction->status, ['done', 'external'])) {
+                return ['error' => 'User already completed or has external action for this order.'];
             }
+            return ['error' => 'Action already exists for this user.'];
+        }
 
-            if (!$this->checkUserEligibility($lockedOrder, $user)) {
-                return ['error' => 'User is not eligible for this order.'];
-            }
+        // Create the action - no lock needed since triggerOrder already validated slots
+        // Add a final safety check to prevent exceeding total_count (count done + recent pending only)
+        $currentActionCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where(function($query) {
+                $query->where('status', 'done')
+                      ->orWhere(function($subQuery) {
+                          $subQuery->where('status', 'pending')
+                                   ->where('created_at', '>=', now()->subMinutes(15));
+                      });
+            })
+            ->count();
 
-            // Check if action already exists for this user (any status)
-            $existingAction = DB::table('actions')
-                ->select('status')
-                ->where('order_id', $lockedOrder->id)
-                ->where('user_id', $user->id)
-                ->first();
+        if ($currentActionCount >= $order->total_count) {
+            return ['error' => 'Order capacity reached.'];
+        }
 
-            if ($existingAction) {
-                if ($existingAction->status === 'pending') {
-                    // Re-dispatch job for pending action
-                    dispatch(new SendMqttToUserJob($user->id, $lockedOrder->id, $lockedOrder->type, $lockedOrder->target_url));
-                    return ['message' => 'Pending action re-dispatched for this user.'];
-                }
-                // Block if status is done or external
-                if (in_array($existingAction->status, ['done', 'external'])) {
-                    return ['error' => 'User already completed or has external action for this order.'];
-                }
-                return ['error' => 'Action already exists for this user.'];
-            }
+        DB::table('actions')->insert([
+            'order_id' => $order->id,
+            'user_id' => $user->id,
+            'type' => $order->type,
+            'status' => 'pending',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
 
-            // Create the action
-            DB::table('actions')->insert([
-                'order_id' => $lockedOrder->id,
-                'user_id' => $user->id,
-                'type' => $lockedOrder->type,
-                'status' => 'pending',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+        // Dispatch job
+        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
 
-            // Dispatch job
-            dispatch(new SendMqttToUserJob($user->id, $lockedOrder->id, $lockedOrder->type, $lockedOrder->target_url));
-
-            return ['message' => 'User processed successfully.'];
-        });
+        return ['message' => 'User processed successfully.'];
     }
 }

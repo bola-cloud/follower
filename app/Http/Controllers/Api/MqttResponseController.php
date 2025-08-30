@@ -177,17 +177,21 @@ class MqttResponseController extends Controller
                     return;
                 }
 
-                // Check remaining actions with fresh data (single aggregated query)
+                // Check remaining actions with fresh data (count done + recent pending only)
                 $counts = DB::table('actions')
-                    ->selectRaw("SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_count, SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count")
+                    ->selectRaw("
+                        SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_count,
+                        SUM(CASE WHEN status = 'pending' AND created_at >= ? THEN 1 ELSE 0 END) as recent_pending_count
+                    ")
                     ->where('order_id', $lockedOrder->id)
+                    ->setBindings([now()->subMinutes(15)])
                     ->first();
 
                 $actualDoneCount = (int)$counts->done_count;
-                $pendingCount = (int)$counts->pending_count;
+                $recentPendingCount = (int)$counts->recent_pending_count;
 
                 $remaining = $lockedOrder->total_count - $actualDoneCount;
-                $availableSlots = $lockedOrder->total_count - $actualDoneCount - $pendingCount;
+                $availableSlots = $lockedOrder->total_count - $actualDoneCount - $recentPendingCount;
 
                 if ($remaining <= 0) {
                     // nothing to do, simply exit transaction
@@ -199,12 +203,19 @@ class MqttResponseController extends Controller
                     return;
                 }
 
+                // Safety check: ensure we don't exceed total_count by adding this validation
+                // This acts as a final safeguard against race conditions
+                if (($actualDoneCount + $recentPendingCount) >= $lockedOrder->total_count) {
+                    // Already at capacity
+                    return;
+                }
+
                 // take a lightweight snapshot to use outside transaction
                 $lockedOrderSnapshot = [
                     'id' => $lockedOrder->id,
                     'total_count' => $lockedOrder->total_count,
                     'done_count' => $actualDoneCount,
-                    'pending_count' => $pendingCount,
+                    'recent_pending_count' => $recentPendingCount,
                 ];
 
                 // mark allowed to proceed; do NOT call heavy services here
@@ -243,5 +254,23 @@ class MqttResponseController extends Controller
         }
 
         return response()->json($result);
+    }
+
+    /**
+     * Clean up stale pending actions older than 15 minutes
+     * This can be called periodically to prevent accumulation of old pending actions
+     */
+    public function cleanupStaleActions(Request $request)
+    {
+        $deletedCount = DB::table('actions')
+            ->where('status', 'pending')
+            ->where('created_at', '<', now()->subMinutes(15))
+            ->delete();
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Stale pending actions cleaned up.',
+            'deleted_count' => $deletedCount
+        ]);
     }
 }
