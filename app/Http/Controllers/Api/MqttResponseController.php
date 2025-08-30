@@ -178,13 +178,13 @@ class MqttResponseController extends Controller
                 }
 
                 // Check remaining actions with fresh data (count done + recent pending only)
+                $fifteenMinutesAgo = now()->subMinutes(15);
                 $counts = DB::table('actions')
                     ->selectRaw("
                         SUM(CASE WHEN status = 'done' THEN 1 ELSE 0 END) as done_count,
                         SUM(CASE WHEN status = 'pending' AND created_at >= ? THEN 1 ELSE 0 END) as recent_pending_count
-                    ")
+                    ", [$fifteenMinutesAgo])
                     ->where('order_id', $lockedOrder->id)
-                    ->setBindings([now()->subMinutes(15)])
                     ->first();
 
                 $actualDoneCount = (int)$counts->done_count;
