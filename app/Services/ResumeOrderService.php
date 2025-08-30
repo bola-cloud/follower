@@ -55,27 +55,70 @@ class ResumeOrderService
 
         // Check if action already exists for this user-order combination
         $existingAction = DB::table('actions')
+            ->select('status')
             ->where('user_id', $user->id)
             ->where('order_id', $order->id)
             ->first();
 
         if ($existingAction) {
+            if ($existingAction->status === 'pending') {
+                // Re-dispatch job for pending action
+                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                return ['message' => 'Pending action re-dispatched for this user.'];
+            }
+            // Block if status is done or external
+            if (in_array($existingAction->status, ['done', 'external'])) {
+                return ['error' => 'User already completed or has external action for this order.'];
+            }
             return ['message' => 'Action already exists for this user and order.'];
         }
 
-        DB::table('actions')->insert([
-            'order_id' => $order->id,
-            'user_id' => $user->id,
-            'type' => $order->type,
-            'status' => 'pending',
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
+        try {
+            DB::table('actions')->insert([
+                'order_id' => $order->id,
+                'user_id' => $user->id,
+                'type' => $order->type,
+                'status' => 'pending',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
-        // Dispatch job
-        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+            // Dispatch job
+            dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
 
-        return ['message' => 'User processed successfully.'];
+            return ['message' => 'User processed successfully.'];
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Duplicate entry error code from MySQL is 1062 (SQLSTATE 23000)
+            if ($e->getCode() === '23000' && strpos($e->getMessage(), '1062') !== false) {
+                // Log the race condition for debugging
+                \Log::warning('[ResumeOrderService] Race condition detected - duplicate action inserted concurrently', [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage()
+                ]);
+
+                // Race: someone else inserted the action concurrently. Fetch it and apply the same decision logic.
+                $existingAction = DB::table('actions')
+                    ->select('status')
+                    ->where('order_id', $order->id)
+                    ->where('user_id', $user->id)
+                    ->first();
+
+                if ($existingAction) {
+                    if ($existingAction->status === 'pending') {
+                        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                        return ['message' => 'Pending action re-dispatched for this user.'];
+                    }
+                    if (in_array($existingAction->status, ['done', 'external'])) {
+                        return ['error' => 'User already completed or has external action for this order.'];
+                    }
+                    return ['message' => 'Action already exists for this user and order.'];
+                }
+            }
+
+            // Not a duplicate or unexpected: rethrow
+            throw $e;
+        }
     }
 
     public function checkUserEligibility(Order $order, User $user): bool
