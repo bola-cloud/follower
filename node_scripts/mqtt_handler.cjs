@@ -6,125 +6,8 @@ const axios = require('axios');
 const broker = 'mqtt://109.199.112.65:1883';
 const client = mqtt.connect(broker);
 
-// Redis client for job queue processing
-let redisClient;
-let isProcessingJobs = false;
-
-// Initialize Redis connection
-async function initializeRedis() {
-  try {
-    redisClient = Redis.createClient({
-      host: process.env.REDIS_HOST || '127.0.0.1',
-      port: process.env.REDIS_PORT || 6379,
-    });
-
-    await redisClient.connect();
-    console.log('✅ Redis connected for job processing');
-
-    // Start processing publish jobs
-    startJobProcessor();
-  } catch (error) {
-    console.error('❌ Redis connection failed:', error);
-    // Continue without Redis - fallback to direct publishing
-  }
-}
-
-// High-performance job processor for thousands of publishing jobs
-async function startJobProcessor() {
-  if (isProcessingJobs) return;
-  isProcessingJobs = true;
-
-  console.log('🚀 Starting high-throughput MQTT job processor...');
-
-  while (isProcessingJobs) {
-    try {
-      // Process multiple jobs in batch for efficiency
-      const jobs = [];
-
-      // Get up to 100 jobs at once for batch processing
-      for (let i = 0; i < 100; i++) {
-        const job = await redisClient.brPop('mqtt_publish_queue', 0.1); // 100ms timeout
-        if (job) {
-          jobs.push(JSON.parse(job.element));
-        } else {
-          break; // No more jobs available
-        }
-      }
-
-      if (jobs.length > 0) {
-        await processBatchJobs(jobs);
-      } else {
-        // No jobs, wait a bit before checking again
-        await sleep(100);
-      }
-
-    } catch (error) {
-      console.error('❌ Job processor error:', error);
-      await sleep(1000); // Wait before retrying
-    }
-  }
-}
-
-// Process jobs in batches for maximum efficiency
-async function processBatchJobs(jobs) {
-  const batchSize = jobs.length;
-  let successCount = 0;
-  let failedJobs = [];
-
-  console.log(`📦 Processing batch of ${batchSize} MQTT publish jobs...`);
-
-  // Process all jobs concurrently for maximum speed
-  const publishPromises = jobs.map(async (jobData) => {
-    try {
-      const { user_id, url, order_id, type, retry_count = 0 } = jobData;
-      const topic = `user/${user_id}`;
-      const payload = JSON.stringify({ url, order_id, type });
-
-      // Publish with QoS 1 for delivery guarantee
-      await new Promise((resolve, reject) => {
-        client.publish(topic, payload, { qos: 1, retain: false }, (error) => {
-          if (error) reject(error);
-          else resolve();
-        });
-      });
-
-      successCount++;
-
-    } catch (error) {
-      console.error(`❌ Failed to publish job for order ${jobData.order_id}:`, error.message);
-
-      // Retry failed jobs up to 3 times
-      if ((jobData.retry_count || 0) < 3) {
-        failedJobs.push({
-          ...jobData,
-          retry_count: (jobData.retry_count || 0) + 1
-        });
-      }
-    }
-  });
-
-  await Promise.allSettled(publishPromises);
-
-  // Requeue failed jobs for retry
-  if (failedJobs.length > 0) {
-    for (const failedJob of failedJobs) {
-      await redisClient.lPush('mqtt_publish_queue', JSON.stringify(failedJob));
-    }
-    console.log(`🔄 Requeued ${failedJobs.length} failed jobs for retry`);
-  }
-
-  console.log(`✅ Batch complete: ${successCount}/${batchSize} jobs published successfully`);
-}
-
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 client.on('connect', () => {
   console.log('✅ Connected to MQTT broker');
-
-  // Initialize Redis for job processing
-  initializeRedis();
 
   // Subscribe to all required topics
   client.subscribe([
@@ -273,26 +156,14 @@ client.on('message', async (topic, message) => {
 });
 
 // Graceful shutdown handling
-process.on('SIGINT', async () => {
+process.on('SIGINT', () => {
   console.log('📡 Received SIGINT, shutting down gracefully...');
-  isProcessingJobs = false;
-
-  if (redisClient) {
-    await redisClient.quit();
-  }
-
   client.end();
   process.exit(0);
 });
 
-process.on('SIGTERM', async () => {
+process.on('SIGTERM', () => {
   console.log('📡 Received SIGTERM, shutting down gracefully...');
-  isProcessingJobs = false;
-
-  if (redisClient) {
-    await redisClient.quit();
-  }
-
   client.end();
   process.exit(0);
 });
