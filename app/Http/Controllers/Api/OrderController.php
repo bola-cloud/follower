@@ -253,6 +253,20 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
+        // 🚀 Rate limiting: Prevent rapid successive API calls from same user
+        $rateLimitKey = "process_orders_user_{$user->id}";
+        $lastProcessed = cache()->get($rateLimitKey);
+
+        if ($lastProcessed && now()->diffInSeconds($lastProcessed) < 10) {
+            return response()->json([
+                'error' => 'Please wait before processing more orders. Try again in ' . (10 - now()->diffInSeconds($lastProcessed)) . ' seconds.',
+                'retry_after' => 10 - now()->diffInSeconds($lastProcessed)
+            ], 429);
+        }
+
+        // Set rate limit cache
+        cache()->put($rateLimitKey, now(), now()->addMinutes(5));
+
         // Optimized query: Fetch orders where user doesn't have 'done' or 'external' actions
         $orders = \App\Models\Order::where('status', 'active')
             ->whereNotExists(function ($query) use ($user) {
@@ -284,6 +298,9 @@ class OrderController extends Controller
         $count = 0;
         $service = app(\App\Services\ResumeOrderService::class);
 
+        // 🚀 Add progressive delays to prevent queue flooding
+        $delaySeconds = 0;
+
         foreach ($prioritizedOrders as $order) {
             // Avoid duplicates
             if (in_array($order->id, $processedOrderIds)) {
@@ -292,14 +309,20 @@ class OrderController extends Controller
 
             // Use ResumeOrderService eligibility logic
             if ($service->checkUserEligibility($order, $user)) {
-                $result = $service->handle($order, $user);
+                // 🚀 Pass delay to service for staggered job dispatch
+                $result = $service->handle($order, $user, $delaySeconds);
                 $processed[] = [
                     'order_id' => $order->id,
-                    'result' => $result
+                    'result' => $result,
+                    'delay_seconds' => $delaySeconds
                 ];
                 $processedOrderIds[] = $order->id;
                 $count++;
-                if ($count >= 25) break; // Increased to 25
+
+                // 🚀 Increment delay: 2-3 seconds between each job
+                $delaySeconds += rand(2, 3);
+
+                if ($count >= 15) break; // 🚀 Reduced to 15 to prevent overwhelming
             }
         }
 
@@ -307,6 +330,8 @@ class OrderController extends Controller
             'user_id' => $user->id,
             'processed_count' => $count,
             'results' => $processed,
+            'total_delay_span' => $delaySeconds . ' seconds',
+            'note' => 'Jobs are distributed over ' . $delaySeconds . ' seconds to prevent queue congestion'
         ]);
     }
 
