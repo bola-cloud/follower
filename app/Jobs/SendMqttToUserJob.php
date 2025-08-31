@@ -39,16 +39,12 @@ class SendMqttToUserJob implements ShouldQueue
         $escapedJson = escapeshellarg($json);
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
-        // Run asynchronously without waiting for completion to improve job throughput
-        $command = "node {$scriptPath} {$escapedJson} >> " . storage_path('logs/mqtt_output.log') . " 2>&1 &";
-
-        // Use popen for better async execution on Windows
+        // Use optimized async execution - no logging to improve performance
         if (PHP_OS_FAMILY === 'Windows') {
-            pclose(popen("start /B " . $command, "r"));
+            pclose(popen("start /B node {$scriptPath} {$escapedJson}", "r"));
         } else {
-            exec($command);
+            // Linux: Use exec with & for true background execution
+            exec("node {$scriptPath} {$escapedJson} >/dev/null 2>&1 &");
         }
-
-        // Log::info("[MQTT QUEUE] Published to user {$this->userId} for order {$this->orderId}");
     }
 }

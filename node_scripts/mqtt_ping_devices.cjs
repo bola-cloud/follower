@@ -6,7 +6,7 @@ const client = mqtt.connect('mqtt://109.199.112.65:1883');
 client.on('connect', () => {
   const message = JSON.stringify({ request: 'ping' });
 
-    client.publish('devices/activation/req', message, { retain: true, qos: 1 }, (err) => {
+    client.publish('devices/activation/req', message, { retain: false, qos: 1 }, (err) => {
     if (err) {
       console.error('❌ Failed to publish:', err.message);
       process.exit(1);
