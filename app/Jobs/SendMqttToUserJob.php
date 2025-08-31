@@ -34,18 +34,18 @@ class SendMqttToUserJob implements ShouldQueue
         // Balanced concurrency: Safe but much faster than emergency mode
         $lockKey = 'mqtt_concurrency_limit';
 
-        // Dynamic limits based on system load (more conservative)
+        // Dynamic limits based on system load (optimized for speed)
         $systemLoad = sys_getloadavg()[0] ?? 1.0;
-        if ($systemLoad > 20) {
-            $maxConcurrency = 2;  // Ultra emergency mode
+        if ($systemLoad > 25) {
+            $maxConcurrency = 3;  // Ultra emergency mode
         } elseif ($systemLoad > 15) {
-            $maxConcurrency = 3;  // Emergency mode
+            $maxConcurrency = 8;  // Emergency mode
         } elseif ($systemLoad > 10) {
-            $maxConcurrency = 5;  // High load mode
+            $maxConcurrency = 15; // High load mode
         } elseif ($systemLoad > 5) {
-            $maxConcurrency = 10; // Moderate load mode
+            $maxConcurrency = 25; // Moderate load mode
         } else {
-            $maxConcurrency = 20; // Normal operation mode
+            $maxConcurrency = 40; // 🚀 Aggressive normal operation mode
         }
 
         // Use Redis for faster locking, with file backup
@@ -53,8 +53,14 @@ class SendMqttToUserJob implements ShouldQueue
 
         if ($currentCount > $maxConcurrency) {
             Cache::decrement($lockKey);
-            // Much shorter delays for better throughput
-            $delay = min(15, $this->attempts() * 2) + rand(1, 3);
+            // 🚀 Faster retry delays based on system load
+            if ($systemLoad < 5) {
+                $delay = min(5, $this->attempts()) + rand(1, 2); // Very fast retry on low load
+            } elseif ($systemLoad < 15) {
+                $delay = min(10, $this->attempts() * 2) + rand(1, 3); // Moderate retry
+            } else {
+                $delay = min(20, $this->attempts() * 3) + rand(2, 5); // Conservative retry on high load
+            }
             $this->release($delay);
             return;
         }
