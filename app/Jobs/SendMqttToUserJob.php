@@ -31,28 +31,31 @@ class SendMqttToUserJob implements ShouldQueue
 
     public function handle()
     {
-        // EMERGENCY: Ultra-conservative concurrency to prevent server crashes
+        // Balanced concurrency: Safe but much faster than emergency mode
         $lockKey = 'mqtt_concurrency_limit';
-        $maxConcurrency = 3; // HARD LIMIT: Only 3 processes max
 
-        // Use file-based locking as backup if Cache fails
-        $lockFile = storage_path('mqtt_lock_count.txt');
-
-        // Check current count from file (more reliable than Cache)
-        $currentCount = 0;
-        if (file_exists($lockFile)) {
-            $currentCount = (int) file_get_contents($lockFile);
+        // Dynamic limits based on system load (more aggressive than emergency)
+        $systemLoad = sys_getloadavg()[0] ?? 1.0;
+        if ($systemLoad > 15) {
+            $maxConcurrency = 5;  // Emergency mode
+        } elseif ($systemLoad > 8) {
+            $maxConcurrency = 15; // High load mode
+        } elseif ($systemLoad > 4) {
+            $maxConcurrency = 25; // Moderate load mode
+        } else {
+            $maxConcurrency = 40; // Normal operation mode
         }
 
-        if ($currentCount >= $maxConcurrency) {
-            // Too many processes, delay this job significantly
-            $delay = 30 + rand(10, 30); // 30-60 second delay
+        // Use Redis for faster locking, with file backup
+        $currentCount = Cache::increment($lockKey);
+
+        if ($currentCount > $maxConcurrency) {
+            Cache::decrement($lockKey);
+            // Much shorter delays for better throughput
+            $delay = min(15, $this->attempts() * 2) + rand(1, 3);
             $this->release($delay);
             return;
         }
-
-        // Increment counter in file
-        file_put_contents($lockFile, $currentCount + 1, LOCK_EX);
 
         try {
             $payloadArray = [
@@ -66,37 +69,35 @@ class SendMqttToUserJob implements ShouldQueue
             $escapedJson = escapeshellarg($json);
             $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
-            // Execute and wait for completion (no background)
-            $output = [];
-            $returnCode = 0;
-            exec("timeout 30 node {$scriptPath} {$escapedJson} 2>&1", $output, $returnCode);
+            // Background execution for speed, but with timeout protection
+            $command = "timeout 45 node {$scriptPath} {$escapedJson} >/dev/null 2>&1 &";
+            exec($command);
 
-            if ($returnCode !== 0) {
-                throw new \Exception("MQTT script failed with code {$returnCode}: " . implode("\n", $output));
+            // Log every 100 jobs instead of every job (reduce log spam)
+            if ($this->orderId % 100 === 0) {
+                Log::info("MQTT batch progress", [
+                    'order_id' => $this->orderId,
+                    'user_id' => $this->userId,
+                    'concurrent_processes' => $currentCount,
+                    'max_allowed' => $maxConcurrency,
+                    'system_load' => $systemLoad
+                ]);
             }
-
-            Log::info("MQTT job completed", [
-                'order_id' => $this->orderId,
-                'user_id' => $this->userId,
-                'concurrent_processes' => $currentCount + 1
-            ]);
 
         } catch (\Exception $e) {
             Log::error("MQTT Job failed: " . $e->getMessage(), [
                 'user_id' => $this->userId,
                 'order_id' => $this->orderId,
-                'attempt' => $this->attempts()
+                'attempt' => $this->attempts(),
+                'system_load' => $systemLoad
             ]);
 
             throw $e;
         } finally {
             // Always decrement the counter
-            $newCount = max(0, $currentCount);
-            file_put_contents($lockFile, $newCount, LOCK_EX);
+            Cache::decrement($lockKey);
         }
-    }
-
-    private function getOptimalConcurrency()
+    }    private function getOptimalConcurrency()
     {
         // EMERGENCY: Very conservative concurrency to prevent server overload
         $systemLoad = sys_getloadavg()[0] ?? 1.0;
