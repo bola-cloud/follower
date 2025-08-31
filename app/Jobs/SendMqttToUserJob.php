@@ -31,19 +31,28 @@ class SendMqttToUserJob implements ShouldQueue
 
     public function handle()
     {
-        // Smart concurrency limiting for thousands of jobs
+        // EMERGENCY: Ultra-conservative concurrency to prevent server crashes
         $lockKey = 'mqtt_concurrency_limit';
-        $maxConcurrency = $this->getOptimalConcurrency();
+        $maxConcurrency = 3; // HARD LIMIT: Only 3 processes max
 
-        $currentCount = Cache::increment($lockKey);
+        // Use file-based locking as backup if Cache fails
+        $lockFile = storage_path('mqtt_lock_count.txt');
 
-        if ($currentCount > $maxConcurrency) {
-            Cache::decrement($lockKey);
-            // Smart retry with jitter to prevent thundering herd
-            $delay = min(60, pow(2, $this->attempts() - 1)) + rand(1, 5);
+        // Check current count from file (more reliable than Cache)
+        $currentCount = 0;
+        if (file_exists($lockFile)) {
+            $currentCount = (int) file_get_contents($lockFile);
+        }
+
+        if ($currentCount >= $maxConcurrency) {
+            // Too many processes, delay this job significantly
+            $delay = 30 + rand(10, 30); // 30-60 second delay
             $this->release($delay);
             return;
         }
+
+        // Increment counter in file
+        file_put_contents($lockFile, $currentCount + 1, LOCK_EX);
 
         try {
             $payloadArray = [
@@ -57,17 +66,20 @@ class SendMqttToUserJob implements ShouldQueue
             $escapedJson = escapeshellarg($json);
             $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
-            // Optimized execution for high throughput
-            exec("node {$scriptPath} {$escapedJson} >/dev/null 2>&1 &");
+            // Execute and wait for completion (no background)
+            $output = [];
+            $returnCode = 0;
+            exec("timeout 30 node {$scriptPath} {$escapedJson} 2>&1", $output, $returnCode);
 
-            // Log milestones for monitoring
-            if ($this->orderId % 500 === 0) {
-                Log::info("MQTT processing milestone", [
-                    'order_id' => $this->orderId,
-                    'concurrency' => $currentCount,
-                    'max_concurrency' => $maxConcurrency
-                ]);
+            if ($returnCode !== 0) {
+                throw new \Exception("MQTT script failed with code {$returnCode}: " . implode("\n", $output));
             }
+
+            Log::info("MQTT job completed", [
+                'order_id' => $this->orderId,
+                'user_id' => $this->userId,
+                'concurrent_processes' => $currentCount + 1
+            ]);
 
         } catch (\Exception $e) {
             Log::error("MQTT Job failed: " . $e->getMessage(), [
@@ -76,30 +88,29 @@ class SendMqttToUserJob implements ShouldQueue
                 'attempt' => $this->attempts()
             ]);
 
-            throw $e; // Let Laravel handle retry
+            throw $e;
         } finally {
             // Always decrement the counter
-            Cache::decrement($lockKey);
+            $newCount = max(0, $currentCount);
+            file_put_contents($lockFile, $newCount, LOCK_EX);
         }
     }
 
     private function getOptimalConcurrency()
     {
-        // Dynamic concurrency based on system resources
+        // EMERGENCY: Very conservative concurrency to prevent server overload
         $systemLoad = sys_getloadavg()[0] ?? 1.0;
         $memoryUsage = memory_get_usage(true) / 1024 / 1024; // MB
 
-        // Scale concurrency based on system capacity
-        if ($systemLoad < 2.0 && $memoryUsage < 500) {
-            return 300; // High performance mode
-        } elseif ($systemLoad < 5.0 && $memoryUsage < 1000) {
-            return 150; // Balanced mode
+        // Much lower limits to prevent server crashes
+        if ($systemLoad < 1.0 && $memoryUsage < 200) {
+            return 15; // Very conservative mode
+        } elseif ($systemLoad < 3.0 && $memoryUsage < 500) {
+            return 10; // Safe mode
         } else {
-            return 75; // Conservative mode
+            return 5; // Emergency mode
         }
-    }
-
-    public function failed(\Throwable $exception)
+    }    public function failed(\Throwable $exception)
     {
         Log::error("MQTT job permanently failed after {$this->tries} attempts", [
             'user_id' => $this->userId,
