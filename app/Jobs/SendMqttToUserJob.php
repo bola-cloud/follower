@@ -34,16 +34,18 @@ class SendMqttToUserJob implements ShouldQueue
         // Balanced concurrency: Safe but much faster than emergency mode
         $lockKey = 'mqtt_concurrency_limit';
 
-        // Dynamic limits based on system load (more aggressive than emergency)
+        // Dynamic limits based on system load (more conservative)
         $systemLoad = sys_getloadavg()[0] ?? 1.0;
-        if ($systemLoad > 15) {
-            $maxConcurrency = 5;  // Emergency mode
-        } elseif ($systemLoad > 8) {
-            $maxConcurrency = 15; // High load mode
-        } elseif ($systemLoad > 4) {
-            $maxConcurrency = 25; // Moderate load mode
+        if ($systemLoad > 20) {
+            $maxConcurrency = 2;  // Ultra emergency mode
+        } elseif ($systemLoad > 15) {
+            $maxConcurrency = 3;  // Emergency mode
+        } elseif ($systemLoad > 10) {
+            $maxConcurrency = 5;  // High load mode
+        } elseif ($systemLoad > 5) {
+            $maxConcurrency = 10; // Moderate load mode
         } else {
-            $maxConcurrency = 40; // Normal operation mode
+            $maxConcurrency = 20; // Normal operation mode
         }
 
         // Use Redis for faster locking, with file backup
