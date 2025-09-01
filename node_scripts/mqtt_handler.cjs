@@ -10,18 +10,30 @@ client.on('connect', () => {
   console.log('✅ Connected to MQTT broker');
 
   // Subscribe to all required topics
-  client.subscribe([
+  const topics = [
     'devices/activation/req',  // Listen to activation requests (dashboard)
     'devices/activation/v2/res',  // Device activation responses (dashboard)
     'order/ping/req',          // Order ping requests
     'order/ping/res',          // Order ping responses
     'order/res/+/+',
     'user/ping/+' // Add ping subscription
-  ], (err) => {
+  ];
+
+  // Subscribe and show granted subscriptions (helps debug wildcard failures)
+  client.subscribe(topics, (err, granted) => {
     if (err) {
       console.error('❌ Subscription error:', err.message);
     } else {
-      console.log('✅ Subscribed to all required topics');
+      console.log('✅ Subscribed to topics. Granted:', granted);
+    }
+  });
+
+  // Fallback: also subscribe to order/res/# (covers any depth if devices use different format)
+  client.subscribe('order/res/#', { qos: 0 }, (err, granted) => {
+    if (err) {
+      console.error('❌ Fallback subscription error for order/res/#:', err.message);
+    } else {
+      console.log('✅ Fallback subscribed to order/res/#. Granted:', granted);
     }
   });
 });
