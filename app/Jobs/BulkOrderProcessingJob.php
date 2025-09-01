@@ -23,8 +23,8 @@ class BulkOrderProcessingJob implements ShouldQueue
         Log::info("🚀 BulkOrderProcessingJob started");
 
         // 🚀 BULK PROCESSING: Process multiple orders in batches for high performance
-        $batchSize = 50; // Reduced batch size for testing
-        $maxIterations = 5; // Reduced iterations for testing
+        $batchSize = 20; // Smaller batches to reduce MQTT flood
+        $maxIterations = 3; // Fewer iterations to reduce load
         $totalProcessed = 0;
 
         for ($i = 0; $i < $maxIterations; $i++) {
@@ -45,7 +45,8 @@ class BulkOrderProcessingJob implements ShouldQueue
             $processed = $this->processBatchOrders($orders);
             $totalProcessed += $processed;
 
-            // No delay for maximum speed
+            // Small delay to let MQTT broker process messages
+            usleep(500000); // 0.5 second delay between batches
         }
 
         Log::info("🎯 BulkOrderProcessingJob completed. Total processed: {$totalProcessed}");
