@@ -12,6 +12,13 @@ class MqttResponseController extends Controller
 {
     public function handle(Request $request)
     {
+        // 🚀 DEBUG: Log all incoming requests
+        \Log::info("MQTT Response received", [
+            'request' => $request->all(),
+            'ip' => $request->ip(),
+            'timestamp' => now()
+        ]);
+
         $validated = $request->validate([
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
@@ -22,12 +29,23 @@ class MqttResponseController extends Controller
         $userId = $validated['user_id'];
         $status = $validated['status'];
 
+        \Log::info("Processing MQTT response", [
+            'order_id' => $orderId,
+            'user_id' => $userId,
+            'status' => $status
+        ]);
+
         // 🚀 IDEMPOTENCY KEY: Prevent duplicate processing using cache
         $idempotencyKey = "mqtt_response_{$orderId}_{$userId}_{$status}";
 
         // Check if this exact request was processed recently (within 30 seconds)
         $recentResult = cache()->get($idempotencyKey);
         if ($recentResult) {
+            \Log::info("Duplicate MQTT request detected", [
+                'idempotency_key' => $idempotencyKey,
+                'cached_result' => $recentResult
+            ]);
+
             return response()->json([
                 'success' => true,
                 'message' => 'Duplicate request - already processed.',
@@ -39,6 +57,12 @@ class MqttResponseController extends Controller
         try {
             // 🚀 PURE ATOMIC OPERATION: Single query that handles all duplicate scenarios
             $result = DB::transaction(function () use ($orderId, $userId, $status, $idempotencyKey) {
+
+                \Log::info("Starting transaction for MQTT response", [
+                    'order_id' => $orderId,
+                    'user_id' => $userId,
+                    'status' => $status
+                ]);
 
                 // 🚀 ATOMIC UPDATE: Only update if status is actually changing
                 // This single query handles all race conditions atomically
@@ -52,6 +76,13 @@ class MqttResponseController extends Controller
                         'updated_at' => now(),
                     ]);
 
+                \Log::info("Action update result", [
+                    'order_id' => $orderId,
+                    'user_id' => $userId,
+                    'status' => $status,
+                    'rows_updated' => $updated
+                ]);
+
                 // If no rows updated, either:
                 // 1. Action doesn't exist, OR
                 // 2. Status was already set (duplicate message)
@@ -63,8 +94,19 @@ class MqttResponseController extends Controller
                         ->first();
 
                     if (!$action) {
+                        \Log::error("Action record not found", [
+                            'order_id' => $orderId,
+                            'user_id' => $userId
+                        ]);
                         throw new \Exception('Action record not found');
                     }
+
+                    \Log::info("Status already set - duplicate message", [
+                        'order_id' => $orderId,
+                        'user_id' => $userId,
+                        'current_status' => $action->status,
+                        'requested_status' => $status
+                    ]);
 
                     // Action exists but status didn't change - this is a duplicate
                     $result = ['updated' => 0, 'duplicate_message' => true, 'current_status' => $action->status];

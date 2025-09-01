@@ -16,19 +16,19 @@ class PingService
         $return_var = 0;
         exec($command . " 2>&1", $output, $return_var);
 
-        if ($return_var !== 0) {
-            Log::error("[PingService] MQTT command failed", [
-                'command' => $command,
-                'return_code' => $return_var,
-                'output' => implode("\n", $output),
-                'topic' => $topic,
-                'data' => $data
-            ]);
-        } else {
-            Log::info("[PingService] ✅ Successfully sent ping to topic {$topic}", [
-                'data' => $data,
-                'output' => implode("\n", $output)
-            ]);
-        }
+        // if ($return_var !== 0) {
+        //     Log::error("[PingService] MQTT command failed", [
+        //         'command' => $command,
+        //         'return_code' => $return_var,
+        //         'output' => implode("\n", $output),
+        //         'topic' => $topic,
+        //         'data' => $data
+        //     ]);
+        // } else {
+        //     Log::info("[PingService] ✅ Successfully sent ping to topic {$topic}", [
+        //         'data' => $data,
+        //         'output' => implode("\n", $output)
+        //     ]);
+        // }
     }
 }
