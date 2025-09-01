@@ -47,6 +47,29 @@ async function throttledPost(url, payload, maxAttempts = 3) {
   }
 }
 
+// Global topic counters (avoid allocating per-message objects)
+const topicCounts = {
+  'order/ping/req': 0,
+  'order/ping/res': 0,
+  'order/res/+/+': 0,
+  'devices/activation/req': 0,
+  'devices/activation/v2/res': 0,
+  'user/ping/+': 0,
+  'other': 0
+};
+
+// Periodic reporter to log and reset counts every 10s (adjustable)
+const REPORT_INTERVAL_MS = parseInt(process.env.MQTT_HANDLER_REPORT_INTERVAL_MS || '10000', 10);
+setInterval(() => {
+  // Only log when there is some activity to avoid noisy logs
+  const total = Object.values(topicCounts).reduce((a, b) => a + b, 0);
+  if (total > 0 || DEBUG) {
+    console.log('📊 [TOPIC_STATS] Last', REPORT_INTERVAL_MS, 'ms activity:', { ...topicCounts });
+  }
+  // reset counts
+  for (const k of Object.keys(topicCounts)) topicCounts[k] = 0;
+}, REPORT_INTERVAL_MS);
+
 client.on('connect', () => {
   console.log('✅ Connected to MQTT broker');
 
@@ -89,32 +112,17 @@ client.on('message', async (topic, message) => {
     return;
   }
 
-  // DEBUG: log every incoming topic and raw payload to help trace missing topics
-  console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${message.toString()}`);
+  // DEBUG: log every incoming topic and raw payload only when DEBUG=1 to avoid heavy logging
+  if (DEBUG) console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${message.toString()}`);
 
-  // 📊 TOPIC COUNTER: Track what topics we're actually receiving
-  const topicStats = {
-    'order/ping/req': 0,
-    'order/ping/res': 0,
-    'order/res/+/+': 0,
-    'devices/activation/req': 0,
-    'devices/activation/v2/res': 0,
-    'user/ping/+': 0,
-    'other': 0
-  };
-
-  if (topic === 'order/ping/req') topicStats['order/ping/req']++;
-  else if (topic === 'order/ping/res') topicStats['order/ping/res']++;
-  else if (topic.match(/^order\/res\/\d+\/\d+$/)) topicStats['order/res/+/+']++;
-  else if (topic === 'devices/activation/req') topicStats['devices/activation/req']++;
-  else if (topic === 'devices/activation/v2/res') topicStats['devices/activation/v2/res']++;
-  else if (topic.match(/^user\/ping\/\d+$/)) topicStats['user/ping/+']++;
-  else topicStats['other']++;
-
-  // Log topic statistics every 100 messages
-  if (Math.random() < 0.01) { // ~1% chance = roughly every 100 messages
-    console.log('📊 [TOPIC_STATS] Recent activity:', topicStats);
-  }
+  // Increment lightweight global topic counters (no allocation per message)
+  if (topic === 'order/ping/req') topicCounts['order/ping/req']++;
+  else if (topic === 'order/ping/res') topicCounts['order/ping/res']++;
+  else if (topic.match(/^order\/res\/\d+\/\d+$/)) topicCounts['order/res/+/+']++;
+  else if (topic === 'devices/activation/req') topicCounts['devices/activation/req']++;
+  else if (topic === 'devices/activation/v2/res') topicCounts['devices/activation/v2/res']++;
+  else if (topic.match(/^user\/ping\/\d+$/)) topicCounts['user/ping/+']++;
+  else topicCounts['other']++;
 
   // ✅ Handle device activation requests (for logging/monitoring)
   if (topic === 'devices/activation/req') {
