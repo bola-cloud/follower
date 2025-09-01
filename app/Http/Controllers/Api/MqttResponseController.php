@@ -140,24 +140,29 @@ class MqttResponseController extends Controller
             'user_id' => 'required|integer',
             'type' => 'required|string|in:create,resume',
             'activation' => 'sometimes|boolean',
+            'bulk_processing' => 'sometimes|boolean', // Support bulk processing flag
         ]);
-
 
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
         $type = $validated['type'];
         $activation = $validated['activation'] ?? true;
+        $isBulk = $validated['bulk_processing'] ?? false;
 
-        // Get the order and user (select only needed fields)
+        // 🚀 OPTIMIZED: Get the order and user with minimal fields
         $order = \App\Models\Order::select('id', 'total_count', 'done_count', 'status', 'type', 'target_url')->find($orderId);
         $user = \App\Models\User::select('id', 'type')->find($userId);
-
 
         if (!$order || !$user) {
             return response()->json([
                 'success' => false,
                 'message' => 'Order or user not found.'
             ], 404);
+        }
+
+        // 🚀 FAST PATH: Skip expensive checks for bulk processing
+        if ($isBulk) {
+            return $this->fastTriggerOrder($order, $user, $type);
         }
 
         // Short transaction: only lock, check counts and decide if we can proceed.
@@ -272,5 +277,33 @@ class MqttResponseController extends Controller
             'message' => 'Stale pending actions cleaned up.',
             'deleted_count' => $deletedCount
         ]);
+    }
+
+    /**
+     * 🚀 FAST PATH: High-performance order triggering for bulk processing
+     */
+    private function fastTriggerOrder($order, $user, $type)
+    {
+        try {
+            // Skip expensive validation for bulk processing - just dispatch
+            if ($type === 'resume') {
+                $service = app(\App\Services\ResumeOrderService::class);
+                $result = $service->handle($order, $user);
+            } else {
+                $service = app(\App\Services\OrderService::class);
+                $result = $service->handle($order, $user);
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Order triggered via fast path',
+                'result' => $result
+            ]);
+        } catch (\Throwable $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Fast trigger failed: ' . $e->getMessage()
+            ], 500);
+        }
     }
 }
