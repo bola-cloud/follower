@@ -58,8 +58,8 @@ const topicCounts = {
   'other': 0
 };
 
-// Periodic reporter to log and reset counts every 10s (adjustable)
-const REPORT_INTERVAL_MS = parseInt(process.env.MQTT_HANDLER_REPORT_INTERVAL_MS || '10000', 10);
+// Periodic reporter to log and reset counts every 30s (less frequent to reduce CPU)
+const REPORT_INTERVAL_MS = parseInt(process.env.MQTT_HANDLER_REPORT_INTERVAL_MS || '30000', 10);
 setInterval(() => {
   // Only log when there is some activity to avoid noisy logs
   const total = Object.values(topicCounts).reduce((a, b) => a + b, 0);
@@ -148,27 +148,37 @@ client.on('message', async (topic, message) => {
 
   // ✅ Handle order ping responses (separate from device activation)
   if (topic === 'order/ping/res') {
-    console.log('🔎 [DEBUG] Received message on order/ping/res:', message.toString());
+    if (DEBUG) console.log('🔎 [DEBUG] Received message on order/ping/res:', message.toString());
     const { type, order_id, user_id } = payload;
     const activation = true;
-    console.log('🔎 [DEBUG] Parsed payload:', { ...payload, activation });
+    if (DEBUG) console.log('🔎 [DEBUG] Parsed payload:', { ...payload, activation });
 
-    if (!type || !order_id || !user_id) {
-      console.error('❌ Invalid response payload:', payload);
+    // Convert user_id from string to integer and validate
+    const userIdInt = parseInt(user_id, 10);
+    const orderIdInt = parseInt(order_id, 10);
+
+    if (!type || !orderIdInt || !userIdInt || isNaN(userIdInt) || isNaN(orderIdInt)) {
+      console.error('❌ Invalid response payload (missing/invalid IDs):', {
+        type,
+        order_id: orderIdInt,
+        user_id: userIdInt,
+        raw_user_id: user_id,
+        raw_order_id: order_id
+      });
       return;
     }
 
     try {
       const response = await throttledPost('https://egfollow.com/api/mqtt/trigger-order', {
-        order_id,
-        user_id,
+        order_id: orderIdInt,
+        user_id: userIdInt,
         type,
         activation
       });
 
-      if (DEBUG) console.log(`✅ Triggered API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation} | Response:`, response.data);
+      if (DEBUG) console.log(`✅ Triggered API for type ${type}, order_id ${orderIdInt}, user ${userIdInt}, activation: ${activation} | Response:`, response.data);
     } catch (err) {
-      console.error(`❌ Failed to trigger API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation}:`, err.response?.data || err.message);
+      console.error(`❌ Failed to trigger API for type ${type}, order_id ${orderIdInt}, user ${userIdInt}, activation: ${activation}:`, err.response?.data || err.message);
     }
 
     return;
@@ -250,8 +260,14 @@ client.on('message', async (topic, message) => {
     } catch (err) {
       console.error(`❌ [API_ERROR] Order ${order_id}, user ${user_id} | Status: ${status} | Error:`, err.response?.data || err.message);
     }
+  } else if (topic.startsWith('order/res/')) {
+    // Log unexpected order/res topics that don't match the pattern
+    console.warn(`⚠️ Unexpected order/res topic format: ${topic} | payload: ${message.toString()}`);
   } else {
-    console.warn('⚠️ Unrecognized topic:', topic);
+    // Only log non-ping topics to avoid spam
+    if (!topic.includes('ping')) {
+      console.warn('⚠️ Unrecognized topic:', topic);
+    }
   }
 });
 
