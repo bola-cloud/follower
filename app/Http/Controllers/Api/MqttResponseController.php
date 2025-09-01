@@ -75,40 +75,50 @@ class MqttResponseController extends Controller
                     return $result;
                 }
 
-                // Status was successfully changed - check if we need to increment done_count
-                $shouldIncrementDone = ($status === 'done');
+                // Status was successfully changed - check if we need to update done_count
+                $shouldUpdateDoneCount = ($status === 'done');
 
-                if ($shouldIncrementDone) {
-                    // 🚀 ATOMIC INCREMENT: Direct increment without race conditions
-                    $orderUpdated = DB::table('orders')
-                        ->where('id', $orderId)
-                        ->increment('done_count');
+                if ($shouldUpdateDoneCount) {
+                    // 🚀 ACCURATE COUNT: Recalculate from actual data instead of incrementing
+                    // This prevents lost increments during high concurrency
+                    $actualDoneCount = DB::table('actions')
+                        ->where('order_id', $orderId)
+                        ->where('status', 'done')
+                        ->count();
 
-                    // Check if order should be completed (separate atomic check)
+                    // 🚀 ATOMIC UPDATE: Set the actual count directly
                     $order = DB::table('orders')
-                        ->select('done_count', 'total_count', 'status')
                         ->where('id', $orderId)
-                        ->first();
+                        ->first(['total_count', 'status', 'done_count']);
 
-                    if ($order && $order->done_count >= $order->total_count && $order->status !== 'completed') {
-                        // 🚀 ATOMIC COMPLETION: Only mark as completed if not already completed
-                        DB::table('orders')
-                            ->where('id', $orderId)
-                            ->where('status', '!=', 'completed')
-                            ->update(['status' => 'completed']);
+                    if ($order) {
+                        $updateData = ['done_count' => $actualDoneCount];
+
+                        // Mark as completed if we've reached the target
+                        if ($actualDoneCount >= $order->total_count && $order->status !== 'completed') {
+                            $updateData['status'] = 'completed';
+                        }
+
+                        // Only update if done_count actually changed (avoid unnecessary writes)
+                        if ($order->done_count != $actualDoneCount || ($actualDoneCount >= $order->total_count && $order->status !== 'completed')) {
+                            DB::table('orders')
+                                ->where('id', $orderId)
+                                ->update($updateData);
+                        }
+
+                        $result = [
+                            'updated' => $updated,
+                            'done_count_updated' => true,
+                            'actual_done' => $actualDoneCount,
+                            'total_count' => $order->total_count,
+                            'previous_done_count' => $order->done_count
+                        ];
+                    } else {
+                        $result = ['updated' => $updated, 'order_not_found' => true];
                     }
-
-                    $result = [
-                        'updated' => $updated,
-                        'done_count_incremented' => true,
-                        'current_done' => $order->done_count ?? 0,
-                        'total_count' => $order->total_count ?? 0
-                    ];
                 } else {
                     $result = ['updated' => $updated, 'status_changed_to' => $status];
-                }
-
-                // 🚀 CACHE SUCCESS RESULT: Prevent duplicate processing
+                }                // 🚀 CACHE SUCCESS RESULT: Prevent duplicate processing
                 cache()->put($idempotencyKey, $result, now()->addSeconds(30));
 
                 return $result;
