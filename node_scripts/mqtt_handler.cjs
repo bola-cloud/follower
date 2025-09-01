@@ -158,14 +158,21 @@ client.on('message', async (topic, message) => {
   // ✅ Handle order responses
   const match = topic.match(/^order\/res\/(\d+)\/(\d+)$/);
   if (match) {
+    // Extract order_id and user_id from the topic path, not payload
     const order_id = parseInt(match[1], 10);
     const user_id = parseInt(match[2], 10);
-    const { status } = payload;
+    const { status } = payload; // Only status comes from payload
 
     console.log(`🎯 [ORDER_RES] Received order/res/${order_id}/${user_id} with status: ${status}`);
 
-    if (!status || !order_id || !user_id) {
-      console.warn('⚠️ Missing fields in order response:', payload);
+    if (!status) {
+      console.warn('⚠️ Missing status in order response payload:', payload);
+      return;
+    }
+
+    // Validate status is one of the expected values
+    if (status !== 'done' && status !== 'external') {
+      console.warn(`⚠️ Invalid status "${status}" in order response. Expected: done|external`);
       return;
     }
 
