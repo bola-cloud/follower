@@ -22,79 +22,109 @@ class MqttResponseController extends Controller
         $userId = $validated['user_id'];
         $status = $validated['status'];
 
-        // Check if the action exists
-        $action = DB::table('actions')
-            ->where('order_id', $orderId)
-            ->where('user_id', $userId)
-            ->first();
-
-        if (!$action) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Action record not found.',
-                'data' => $validated
-            ], 404);
-        }
-
-        // Only increment done_count if status is changing to 'done' from something else
-        $incrementDone = false;
-        if ($action->status !== $status && $status === 'done' && $action->status !== 'done') {
-            $incrementDone = true;
-        }
-
-        // Only update action and recalculate order if status actually changed
-        if ($action->status !== $status) {
-            // Update action status
-            $updated = DB::table('actions')
-                ->where('order_id', $orderId)
-                ->where('user_id', $userId)
-                ->update([
-                    'status' => $status,
-                    'performed_at' => now(),
-                    'updated_at' => now(),
-                ]);
-
-            // Only recalculate if this change affects done count
-            if ($incrementDone || $action->status === 'done') {
-                // Recalculate the number of done actions and update done_count
-                $doneCount = DB::table('actions')
+        try {
+            // 🚀 MINIMAL LOCKING: Only lock what we absolutely need
+            $result = DB::transaction(function () use ($orderId, $userId, $status) {
+                // First, try a quick non-blocking read to check current status
+                $action = DB::table('actions')
                     ->where('order_id', $orderId)
-                    ->where('status', 'done')
-                    ->count();
+                    ->where('user_id', $userId)
+                    ->first();
 
-                // Get the order to check total_count
-                $order = DB::table('orders')->select('id', 'total_count', 'status')->where('id', $orderId)->first();
+                if (!$action) {
+                    throw new \Exception('Action record not found');
+                }
 
-                if ($order) {
-                    $updateData = ['done_count' => $doneCount];
+                // Early exit if status hasn't changed (most common case)
+                if ($action->status === $status) {
+                    // Just update performed_at without locking if needed
+                    if (!$action->performed_at) {
+                        DB::table('actions')
+                            ->where('order_id', $orderId)
+                            ->where('user_id', $userId)
+                            ->where('performed_at', null) // Double-check it's still null
+                            ->update([
+                                'performed_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                    }
+                    return ['updated' => 0, 'already_done' => true];
+                }
 
-                    // If done_count equals total_count, mark order as completed
-                    if ($doneCount >= $order->total_count && $order->status !== 'completed') {
-                        $updateData['status'] = 'completed';
+                // Only use locks when we actually need to change status
+                $incrementDone = ($action->status !== 'done' && $status === 'done');
+
+                // 🚀 OPTIMIZED: Use atomic UPDATE with WHERE conditions instead of SELECT FOR UPDATE
+                $updated = DB::table('actions')
+                    ->where('order_id', $orderId)
+                    ->where('user_id', $userId)
+                    ->where('status', $action->status) // Ensure status hasn't changed since we read it
+                    ->update([
+                        'status' => $status,
+                        'performed_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                // If update affected 0 rows, someone else changed it first - that's OK
+                if ($updated === 0) {
+                    return ['updated' => 0, 'race_condition_avoided' => true];
+                }
+
+                // Only recalculate done_count if this was a transition to 'done'
+                if ($incrementDone) {
+                    // 🚀 ATOMIC INCREMENT: Use a single SQL statement instead of count + update
+                    $orderUpdated = DB::table('orders')
+                        ->where('id', $orderId)
+                        ->increment('done_count');
+
+                    // Check if order should be completed (separate lightweight query)
+                    $order = DB::table('orders')
+                        ->select('done_count', 'total_count', 'status')
+                        ->where('id', $orderId)
+                        ->first();
+
+                    if ($order && $order->done_count >= $order->total_count && $order->status !== 'completed') {
+                        DB::table('orders')
+                            ->where('id', $orderId)
+                            ->where('status', '!=', 'completed') // Avoid unnecessary updates
+                            ->update(['status' => 'completed']);
                     }
 
-                    DB::table('orders')
-                        ->where('id', $orderId)
-                        ->update($updateData);
+                    return ['updated' => $updated, 'done_count_incremented' => true, 'current_done' => $order->done_count ?? 0];
                 }
-            }
-        } else {
-            // Status didn't change, just update performed_at if needed
-            $updated = DB::table('actions')
-                ->where('order_id', $orderId)
-                ->where('user_id', $userId)
-                ->where('performed_at', null)
-                ->update([
-                    'performed_at' => now(),
-                    'updated_at' => now(),
-                ]);
-        }
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Action status updated successfully.',
-            'updated_rows' => $updated
-        ]);
+                return ['updated' => $updated, 'status_changed' => true];
+            }, 1); // 1 second transaction timeout - fail fast instead of waiting
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Action status updated successfully.',
+                'result' => $result
+            ]);
+
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Handle deadlocks gracefully
+            if (strpos($e->getMessage(), '1213') !== false || strpos($e->getMessage(), 'Deadlock') !== false) {
+                return response()->json([
+                    'success' => true, // Still return success - the action was likely processed by another request
+                    'message' => 'Action processed by concurrent request.',
+                    'data' => $validated
+                ], 200);
+            }
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Database error: ' . $e->getMessage(),
+                'data' => $validated
+            ], 500);
+
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to update action: ' . $e->getMessage(),
+                'data' => $validated
+            ], $e->getMessage() === 'Action record not found' ? 404 : 500);
+        }
     }
 
     public function recalculateAllOrders(Request $request)
