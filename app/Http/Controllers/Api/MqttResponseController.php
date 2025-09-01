@@ -12,13 +12,6 @@ class MqttResponseController extends Controller
 {
     public function handle(Request $request)
     {
-        // 🚀 DEBUG: Log all incoming requests
-        \Log::info("MQTT Response received", [
-            'request' => $request->all(),
-            'ip' => $request->ip(),
-            'timestamp' => now()
-        ]);
-
         $validated = $request->validate([
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
@@ -29,176 +22,68 @@ class MqttResponseController extends Controller
         $userId = $validated['user_id'];
         $status = $validated['status'];
 
-        \Log::info("Processing MQTT response", [
-            'order_id' => $orderId,
-            'user_id' => $userId,
-            'status' => $status
-        ]);
-
-        // 🚀 IDEMPOTENCY KEY: Prevent duplicate processing using cache
-        $idempotencyKey = "mqtt_response_{$orderId}_{$userId}_{$status}";
-
-        // Check if this exact request was processed recently (within 30 seconds)
-        $recentResult = cache()->get($idempotencyKey);
-        if ($recentResult) {
-            \Log::info("Duplicate MQTT request detected", [
-                'idempotency_key' => $idempotencyKey,
-                'cached_result' => $recentResult
-            ]);
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Duplicate request - already processed.',
-                'result' => $recentResult,
-                'idempotent' => true
-            ]);
-        }
-
         try {
-            // 🚀 PURE ATOMIC OPERATION: Single query that handles all duplicate scenarios
-            $result = DB::transaction(function () use ($orderId, $userId, $status, $idempotencyKey) {
-
-                \Log::info("Starting transaction for MQTT response", [
-                    'order_id' => $orderId,
-                    'user_id' => $userId,
-                    'status' => $status
+            // Update the action status
+            $updated = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->where('user_id', $userId)
+                ->where('status', 'pending') // Only update if currently pending
+                ->update([
+                    'status' => $status,
+                    'performed_at' => now(),
+                    'updated_at' => now(),
                 ]);
 
-                // 🚀 ATOMIC UPDATE: Only update if status is actually changing
-                // This single query handles all race conditions atomically
-                $updated = DB::table('actions')
+            if ($updated === 0) {
+                // Check if action exists
+                $action = DB::table('actions')
                     ->where('order_id', $orderId)
                     ->where('user_id', $userId)
-                    ->where('status', '!=', $status) // Only update if status is different
-                    ->update([
-                        'status' => $status,
-                        'performed_at' => DB::raw('COALESCE(performed_at, NOW())'), // Set only if null
-                        'updated_at' => now(),
-                    ]);
+                    ->first();
 
-                \Log::info("Action update result", [
-                    'order_id' => $orderId,
-                    'user_id' => $userId,
-                    'status' => $status,
-                    'rows_updated' => $updated
-                ]);
-
-                // If no rows updated, either:
-                // 1. Action doesn't exist, OR
-                // 2. Status was already set (duplicate message)
-                if ($updated === 0) {
-                    // Check if action exists to determine the reason
-                    $action = DB::table('actions')
-                        ->where('order_id', $orderId)
-                        ->where('user_id', $userId)
-                        ->first();
-
-                    if (!$action) {
-                        \Log::error("Action record not found", [
-                            'order_id' => $orderId,
-                            'user_id' => $userId
-                        ]);
-                        throw new \Exception('Action record not found');
-                    }
-
-                    \Log::info("Status already set - duplicate message", [
-                        'order_id' => $orderId,
-                        'user_id' => $userId,
-                        'current_status' => $action->status,
-                        'requested_status' => $status
-                    ]);
-
-                    // Action exists but status didn't change - this is a duplicate
-                    $result = ['updated' => 0, 'duplicate_message' => true, 'current_status' => $action->status];
-
-                    // 🚀 CACHE RESULT: Store for future duplicate requests
-                    cache()->put($idempotencyKey, $result, now()->addSeconds(30));
-
-                    return $result;
+                if (!$action) {
+                    return response()->json([
+                        'success' => false,
+                        'message' => 'Action record not found'
+                    ], 404);
                 }
 
-                // Status was successfully changed - check if we need to update done_count
-                $shouldUpdateDoneCount = ($status === 'done');
-
-                if ($shouldUpdateDoneCount) {
-                    // 🚀 ACCURATE COUNT: Recalculate from actual data instead of incrementing
-                    // This prevents lost increments during high concurrency
-                    $actualDoneCount = DB::table('actions')
-                        ->where('order_id', $orderId)
-                        ->where('status', 'done')
-                        ->count();
-
-                    // 🚀 ATOMIC UPDATE: Set the actual count directly
-                    $order = DB::table('orders')
-                        ->where('id', $orderId)
-                        ->first(['total_count', 'status', 'done_count']);
-
-                    if ($order) {
-                        $updateData = ['done_count' => $actualDoneCount];
-
-                        // Mark as completed if we've reached the target
-                        if ($actualDoneCount >= $order->total_count && $order->status !== 'completed') {
-                            $updateData['status'] = 'completed';
-                        }
-
-                        // Only update if done_count actually changed (avoid unnecessary writes)
-                        if ($order->done_count != $actualDoneCount || ($actualDoneCount >= $order->total_count && $order->status !== 'completed')) {
-                            DB::table('orders')
-                                ->where('id', $orderId)
-                                ->update($updateData);
-                        }
-
-                        $result = [
-                            'updated' => $updated,
-                            'done_count_updated' => true,
-                            'actual_done' => $actualDoneCount,
-                            'total_count' => $order->total_count,
-                            'previous_done_count' => $order->done_count
-                        ];
-                    } else {
-                        $result = ['updated' => $updated, 'order_not_found' => true];
-                    }
-                } else {
-                    $result = ['updated' => $updated, 'status_changed_to' => $status];
-                }                // 🚀 CACHE SUCCESS RESULT: Prevent duplicate processing
-                cache()->put($idempotencyKey, $result, now()->addSeconds(30));
-
-                return $result;
-            }, 1); // 1 second timeout
-
-            return response()->json([
-                'success' => true,
-                'message' => 'Action status updated successfully.',
-                'result' => $result
-            ]);
-
-        } catch (\Illuminate\Database\QueryException $e) {
-            // Handle specific database errors gracefully
-            if (strpos($e->getMessage(), '1213') !== false || strpos($e->getMessage(), 'Deadlock') !== false) {
-                $result = ['duplicate_processing' => true];
-
-                // Cache the result to prevent retries
-                cache()->put($idempotencyKey, $result, now()->addSeconds(30));
-
+                // Action exists but wasn't updated (likely already done)
                 return response()->json([
-                    'success' => true, // Treat as success - likely processed by another request
-                    'message' => 'Action processed concurrently.',
-                    'result' => $result
-                ], 200);
+                    'success' => true,
+                    'message' => 'Action already processed',
+                    'current_status' => $action->status
+                ]);
+            }
+
+            // If status is 'done', increment the order's done_count
+            if ($status === 'done') {
+                DB::table('orders')
+                    ->where('id', $orderId)
+                    ->increment('done_count');
+
+                // Check if order should be marked as completed
+                $order = DB::table('orders')
+                    ->where('id', $orderId)
+                    ->first(['done_count', 'total_count', 'status']);
+
+                if ($order && $order->done_count >= $order->total_count && $order->status !== 'completed') {
+                    DB::table('orders')
+                        ->where('id', $orderId)
+                        ->update(['status' => 'completed']);
+                }
             }
 
             return response()->json([
-                'success' => false,
-                'message' => 'Database error: ' . $e->getMessage(),
-                'data' => $validated
-            ], 500);
+                'success' => true,
+                'message' => 'Action status updated successfully'
+            ]);
 
         } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Failed to update action: ' . $e->getMessage(),
-                'data' => $validated
-            ], $e->getMessage() === 'Action record not found' ? 404 : 500);
+                'message' => 'Failed to update action: ' . $e->getMessage()
+            ], 500);
         }
     }    public function recalculateAllOrders(Request $request)
     {

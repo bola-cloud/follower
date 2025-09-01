@@ -36,6 +36,9 @@ client.on('message', async (topic, message) => {
     return;
   }
 
+  // DEBUG: log every incoming topic and raw payload to help trace missing topics
+  console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${message.toString()}`);
+
   // ✅ Handle device activation requests (for logging/monitoring)
   if (topic === 'devices/activation/req') {
     const { request, order_id } = payload;
