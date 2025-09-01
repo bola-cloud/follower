@@ -2,9 +2,50 @@
 
 const mqtt = require('mqtt');
 const axios = require('axios');
+const https = require('https');
 
 const broker = 'mqtt://109.199.112.65:1883';
 const client = mqtt.connect(broker);
+
+// Debug gate: set MQTT_HANDLER_DEBUG=1 in the environment to enable per-message logging
+const DEBUG = process.env.MQTT_HANDLER_DEBUG === '1';
+
+// Axios instance with keep-alive to reduce TLS handshake churn
+const axiosInstance = axios.create({
+  httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 50 }),
+  timeout: 15000,
+});
+
+// Simple concurrency limiter + retry wrapper for API POSTs to avoid socket exhaustion
+let inflight = 0;
+const MAX_INFLIGHT = parseInt(process.env.MQTT_HANDLER_MAX_INFLIGHT || '20', 10);
+async function throttledPost(url, payload, maxAttempts = 3) {
+  let attempt = 0;
+  while (attempt < maxAttempts) {
+    // throttle
+    while (inflight >= MAX_INFLIGHT) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+
+    inflight++;
+    try {
+      const res = await axiosInstance.post(url, payload);
+      return res;
+    } catch (err) {
+      attempt++;
+      const code = err.code || err.response?.status;
+      // on network errors like EPIPE or ECONNRESET, retry with backoff
+      if (attempt >= maxAttempts) {
+        throw err;
+      }
+      const backoff = 200 * Math.pow(2, attempt);
+      console.warn(`⚠️ [HTTP_RETRY] attempt ${attempt} failed for ${url} (${code || err.message}), retrying in ${backoff}ms`);
+      await new Promise((r) => setTimeout(r, backoff));
+    } finally {
+      inflight--;
+    }
+  }
+}
 
 client.on('connect', () => {
   console.log('✅ Connected to MQTT broker');
@@ -110,14 +151,14 @@ client.on('message', async (topic, message) => {
     }
 
     try {
-      const response = await axios.post('https://egfollow.com/api/mqtt/trigger-order', {
+      const response = await throttledPost('https://egfollow.com/api/mqtt/trigger-order', {
         order_id,
         user_id,
         type,
         activation
       });
 
-      console.log(`✅ Triggered API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation} | Response:`, response.data);
+      if (DEBUG) console.log(`✅ Triggered API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation} | Response:`, response.data);
     } catch (err) {
       console.error(`❌ Failed to trigger API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation}:`, err.response?.data || err.message);
     }
@@ -135,12 +176,12 @@ client.on('message', async (topic, message) => {
 
     // Regular activation - cache it for dashboard
     try {
-      const res = await axios.post('https://egfollow.com/api/mqtt/device-activation', {
+      const res = await throttledPost('https://egfollow.com/api/mqtt/device-activation', {
         device_id,
         status,
       });
 
-      console.log(`✅ Stored activation for device ${device_id} | Status: ${status} | Count: ${res.data.count}`);
+      if (DEBUG) console.log(`✅ Stored activation for device ${device_id} | Status: ${status} | Count: ${res.data.count}`);
     } catch (err) {
       console.error('❌ Failed to store activation:', err.response?.data || err.message);
     }
@@ -189,15 +230,15 @@ client.on('message', async (topic, message) => {
     }
 
     try {
-      console.log(`📤 [API_POST] Sending to API: order_id=${order_id}, user_id=${user_id}, status=${status}`);
+      if (DEBUG) console.log(`📤 [API_POST] Sending to API: order_id=${order_id}, user_id=${user_id}, status=${status}`);
 
-      const res = await axios.post('https://egfollow.com/api/mqtt/response', {
+      const res = await throttledPost('https://egfollow.com/api/mqtt/response', {
         order_id,
         user_id,
         status
       });
 
-      console.log(`✅ [API_SUCCESS] Order ${order_id}, user ${user_id} | Status: ${status} | Response:`, res.data);
+      if (DEBUG) console.log(`✅ [API_SUCCESS] Order ${order_id}, user ${user_id} | Status: ${status} | Response:`, res.data);
     } catch (err) {
       console.error(`❌ [API_ERROR] Order ${order_id}, user ${user_id} | Status: ${status} | Error:`, err.response?.data || err.message);
     }
