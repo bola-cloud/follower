@@ -39,6 +39,30 @@ client.on('message', async (topic, message) => {
   // DEBUG: log every incoming topic and raw payload to help trace missing topics
   console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${message.toString()}`);
 
+  // 📊 TOPIC COUNTER: Track what topics we're actually receiving
+  const topicStats = {
+    'order/ping/req': 0,
+    'order/ping/res': 0,
+    'order/res/+/+': 0,
+    'devices/activation/req': 0,
+    'devices/activation/v2/res': 0,
+    'user/ping/+': 0,
+    'other': 0
+  };
+
+  if (topic === 'order/ping/req') topicStats['order/ping/req']++;
+  else if (topic === 'order/ping/res') topicStats['order/ping/res']++;
+  else if (topic.match(/^order\/res\/\d+\/\d+$/)) topicStats['order/res/+/+']++;
+  else if (topic === 'devices/activation/req') topicStats['devices/activation/req']++;
+  else if (topic === 'devices/activation/v2/res') topicStats['devices/activation/v2/res']++;
+  else if (topic.match(/^user\/ping\/\d+$/)) topicStats['user/ping/+']++;
+  else topicStats['other']++;
+
+  // Log topic statistics every 100 messages
+  if (Math.random() < 0.01) { // ~1% chance = roughly every 100 messages
+    console.log('📊 [TOPIC_STATS] Recent activity:', topicStats);
+  }
+
   // ✅ Handle device activation requests (for logging/monitoring)
   if (topic === 'devices/activation/req') {
     const { request, order_id } = payload;
