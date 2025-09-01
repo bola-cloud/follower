@@ -45,8 +45,7 @@ class BulkOrderProcessingJob implements ShouldQueue
             $processed = $this->processBatchOrders($orders);
             $totalProcessed += $processed;
 
-            // Small delay to prevent overwhelming the system
-            usleep(200000); // 0.2 second
+            // No delay for maximum speed
         }
 
         Log::info("🎯 BulkOrderProcessingJob completed. Total processed: {$totalProcessed}");

@@ -278,7 +278,7 @@ class OrderController extends Controller
             })
             ->orderBy('created_at', 'asc')
             ->with('user')
-            ->limit(30) // Balanced limit for immediate processing
+            ->limit(40) // Increased limit for processing more orders
             ->get();
 
         // Fast partitioning using array filters
@@ -308,7 +308,7 @@ class OrderController extends Controller
                 $processedOrderIds[] = $order->id;
                 $count++;
 
-                if ($count >= 20) break; // Process up to 20 orders immediately
+                if ($count >= 25) break; // Process up to 25 orders immediately
             }
         }
 
