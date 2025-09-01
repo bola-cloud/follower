@@ -253,21 +253,21 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        // 🚀 Smart rate limiting: Shorter cooldown for faster processing
+        // 🚀 Faster rate limiting for immediate user activation
         $rateLimitKey = "process_orders_user_{$user->id}";
         $lastProcessed = cache()->get($rateLimitKey);
 
-        if ($lastProcessed && now()->diffInSeconds($lastProcessed) < 5) { // Reduced from 10 to 5 seconds
+        if ($lastProcessed && now()->diffInSeconds($lastProcessed) < 3) { // Very fast cooldown
             return response()->json([
-                'error' => 'Please wait before processing more orders. Try again in ' . (5 - now()->diffInSeconds($lastProcessed)) . ' seconds.',
-                'retry_after' => 5 - now()->diffInSeconds($lastProcessed)
+                'error' => 'Please wait before processing more orders. Try again in ' . (3 - now()->diffInSeconds($lastProcessed)) . ' seconds.',
+                'retry_after' => 3 - now()->diffInSeconds($lastProcessed)
             ], 429);
         }
 
         // Set rate limit cache
         cache()->put($rateLimitKey, now(), now()->addMinutes(5));
 
-        // 🚀 Optimized query with better indexing strategy
+        // Optimized query for immediate processing
         $orders = \App\Models\Order::where('status', 'active')
             ->whereNotExists(function ($query) use ($user) {
                 $query->select(DB::raw(1))
@@ -278,10 +278,10 @@ class OrderController extends Controller
             })
             ->orderBy('created_at', 'asc')
             ->with('user')
-            ->limit(60) // Increased limit for better batch efficiency
+            ->limit(30) // Balanced limit for immediate processing
             ->get();
 
-        // 🚀 Faster partitioning using array filters
+        // Fast partitioning using array filters
         $adminOrders = $orders->filter(fn($order) => $order->user?->type === 'admin')->values()->all();
         $nonAdminOrders = $orders->filter(fn($order) => $order->user?->type !== 'admin')->values()->all();
         $prioritizedOrders = array_merge($adminOrders, $nonAdminOrders);
@@ -291,23 +291,6 @@ class OrderController extends Controller
         $count = 0;
         $service = app(\App\Services\ResumeOrderService::class);
 
-        // 🚀 Dynamic delay system based on system load
-        $systemLoad = sys_getloadavg()[0] ?? 0;
-        $baseDelay = 0;
-
-        if ($systemLoad > 20) {
-            $baseDelay = 3; // High load: slower processing
-            $maxJobs = 10;
-        } elseif ($systemLoad > 10) {
-            $baseDelay = 1; // Medium load: moderate processing
-            $maxJobs = 20;
-        } else {
-            $baseDelay = 0.5; // Low load: fast processing
-            $maxJobs = 25;
-        }
-
-        $delaySeconds = 0;
-
         foreach ($prioritizedOrders as $order) {
             // Avoid duplicates
             if (in_array($order->id, $processedOrderIds)) {
@@ -316,24 +299,16 @@ class OrderController extends Controller
 
             // Use ResumeOrderService eligibility logic
             if ($service->checkUserEligibility($order, $user)) {
-                // 🚀 Smart delay: immediate for first few jobs, then progressive
-                $currentDelay = $count < 5 ? 0 : $delaySeconds;
-
-                $result = $service->handle($order, $user, $currentDelay);
+                // 🚀 IMMEDIATE DISPATCH - No delays for user activation
+                $result = $service->handle($order, $user);
                 $processed[] = [
                     'order_id' => $order->id,
-                    'result' => $result,
-                    'delay_seconds' => $currentDelay
+                    'result' => $result
                 ];
                 $processedOrderIds[] = $order->id;
                 $count++;
 
-                // 🚀 Increment delay only after first 5 jobs
-                if ($count >= 5) {
-                    $delaySeconds += $baseDelay;
-                }
-
-                if ($count >= $maxJobs) break;
+                if ($count >= 20) break; // Process up to 20 orders immediately
             }
         }
 
@@ -341,11 +316,7 @@ class OrderController extends Controller
             'user_id' => $user->id,
             'processed_count' => $count,
             'results' => $processed,
-            'system_load' => $systemLoad,
-            'max_jobs_allowed' => $maxJobs,
-            'base_delay' => $baseDelay,
-            'total_delay_span' => $delaySeconds . ' seconds',
-            'note' => "First 5 jobs: immediate, rest distributed over {$delaySeconds}s (adaptive to load: {$systemLoad})"
+            'note' => 'All orders dispatched immediately for user activation'
         ]);
     }    /**
      * Test API: Simulate processActiveUserOrders for a specific user_id.

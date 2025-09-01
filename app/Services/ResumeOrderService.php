@@ -11,7 +11,7 @@ use Carbon\Carbon;
 
 class ResumeOrderService
 {
-    public function handle(Order $order, User $user, int $delaySeconds = 0): array
+    public function handle(Order $order, User $user): array
     {
         // No transaction or lock needed here - triggerOrder already validated slots and eligibility
         // Just check basic eligibility and create the action
@@ -29,13 +29,8 @@ class ResumeOrderService
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
-                // Re-dispatch job for pending action with delay
-                $job = new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url);
-                if ($delaySeconds > 0) {
-                    dispatch($job->delay(now()->addSeconds($delaySeconds)));
-                } else {
-                    dispatch($job);
-                }
+                // Re-dispatch job for pending action immediately
+                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
                 return ['message' => 'Pending action re-dispatched for this user.'];
             }
             return ['error' => 'Action already exists for this user.'];
@@ -67,13 +62,8 @@ class ResumeOrderService
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
-                // Re-dispatch job for pending action with delay
-                $job = new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url);
-                if ($delaySeconds > 0) {
-                    dispatch($job->delay(now()->addSeconds($delaySeconds)));
-                } else {
-                    dispatch($job);
-                }
+                // Re-dispatch job for pending action immediately
+                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
                 return ['message' => 'Pending action re-dispatched for this user.'];
             }
             // Block if status is done or external
@@ -93,13 +83,8 @@ class ResumeOrderService
                 'updated_at' => now(),
             ]);
 
-            // Dispatch job with delay if specified
-            $job = new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url);
-            if ($delaySeconds > 0) {
-                dispatch($job->delay(now()->addSeconds($delaySeconds)));
-            } else {
-                dispatch($job);
-            }
+            // Dispatch job immediately
+            dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
 
             return ['message' => 'User processed successfully.'];
         } catch (\Illuminate\Database\QueryException $e) {
@@ -121,12 +106,7 @@ class ResumeOrderService
 
                 if ($existingAction) {
                     if ($existingAction->status === 'pending') {
-                        $job = new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url);
-                        if ($delaySeconds > 0) {
-                            dispatch($job->delay(now()->addSeconds($delaySeconds)));
-                        } else {
-                            dispatch($job);
-                        }
+                        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
                         return ['message' => 'Pending action re-dispatched for this user.'];
                     }
                     if (in_array($existingAction->status, ['done', 'external'])) {
@@ -355,23 +335,15 @@ class ResumeOrderService
         ];
     }
 
-    private function dispatchMqttJob(Order $order, User $user, int $delaySeconds = 0): void
+    private function dispatchMqttJob(Order $order, User $user): void
     {
-        $job = new SendMqttToUserJob(
+        dispatch(new SendMqttToUserJob(
             $user->id,
             $order->id,
             $order->type,
             $order->target_url
-        );
-
-        if ($delaySeconds > 0) {
-            dispatch($job->delay(now()->addSeconds($delaySeconds)));
-        } else {
-            dispatch($job);
-        }
-    }
-
-    private function sendMqttToEligibleUsersWithPing(Order $order, $remaining): void
+        ));
+    }    private function sendMqttToEligibleUsersWithPing(Order $order, $remaining): void
     {
         $orderData = [
             'order_id' => $order->id
