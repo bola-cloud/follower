@@ -12,6 +12,13 @@ class MqttResponseController extends Controller
 {
     public function handle(Request $request)
     {
+        // 🚀 DEBUG: Log every incoming request
+        \Log::info("[MQTT_API] Request received", [
+            'payload' => $request->all(),
+            'ip' => $request->ip(),
+            'timestamp' => now()->toDateTimeString()
+        ]);
+
         $validated = $request->validate([
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
@@ -21,6 +28,12 @@ class MqttResponseController extends Controller
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
         $status = $validated['status'];
+
+        \Log::info("[MQTT_API] Processing", [
+            'order_id' => $orderId,
+            'user_id' => $userId,
+            'status' => $status
+        ]);
 
         try {
             // Update the action status
@@ -34,6 +47,13 @@ class MqttResponseController extends Controller
                     'updated_at' => now(),
                 ]);
 
+            \Log::info("[MQTT_API] Update result", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status,
+                'rows_updated' => $updated
+            ]);
+
             if ($updated === 0) {
                 // Check if action exists
                 $action = DB::table('actions')
@@ -42,11 +62,22 @@ class MqttResponseController extends Controller
                     ->first();
 
                 if (!$action) {
+                    \Log::warning("[MQTT_API] Action not found", [
+                        'order_id' => $orderId,
+                        'user_id' => $userId
+                    ]);
                     return response()->json([
                         'success' => false,
                         'message' => 'Action record not found'
                     ], 404);
                 }
+
+                \Log::info("[MQTT_API] Action exists but not updated", [
+                    'order_id' => $orderId,
+                    'user_id' => $userId,
+                    'current_status' => $action->status,
+                    'requested_status' => $status
+                ]);
 
                 // Action exists but wasn't updated (likely already done)
                 return response()->json([
@@ -62,6 +93,8 @@ class MqttResponseController extends Controller
                     ->where('id', $orderId)
                     ->increment('done_count');
 
+                \Log::info("[MQTT_API] Incremented done_count for order", ['order_id' => $orderId]);
+
                 // Check if order should be marked as completed
                 $order = DB::table('orders')
                     ->where('id', $orderId)
@@ -71,8 +104,20 @@ class MqttResponseController extends Controller
                     DB::table('orders')
                         ->where('id', $orderId)
                         ->update(['status' => 'completed']);
+
+                    \Log::info("[MQTT_API] Order marked as completed", [
+                        'order_id' => $orderId,
+                        'done_count' => $order->done_count,
+                        'total_count' => $order->total_count
+                    ]);
                 }
             }
+
+            \Log::info("[MQTT_API] Success", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status
+            ]);
 
             return response()->json([
                 'success' => true,
@@ -80,12 +125,21 @@ class MqttResponseController extends Controller
             ]);
 
         } catch (\Exception $e) {
+            \Log::error("[MQTT_API] Exception", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
             return response()->json([
                 'success' => false,
                 'message' => 'Failed to update action: ' . $e->getMessage()
             ], 500);
         }
-    }    public function recalculateAllOrders(Request $request)
+    }
+    public function recalculateAllOrders(Request $request)
     {
         $updatedCount = 0;
 

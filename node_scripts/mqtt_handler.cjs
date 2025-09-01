@@ -138,20 +138,25 @@ client.on('message', async (topic, message) => {
     const user_id = parseInt(match[2], 10);
     const { status } = payload;
 
+    console.log(`🎯 [ORDER_RES] Received order/res/${order_id}/${user_id} with status: ${status}`);
+
     if (!status || !order_id || !user_id) {
-      return console.warn('⚠️ Missing fields in order response:', payload);
+      console.warn('⚠️ Missing fields in order response:', payload);
+      return;
     }
 
     try {
+      console.log(`📤 [API_POST] Sending to API: order_id=${order_id}, user_id=${user_id}, status=${status}`);
+
       const res = await axios.post('https://egfollow.com/api/mqtt/response', {
         order_id,
         user_id,
         status
       });
 
-      console.log(`✅ Action updated for order ${order_id}, user ${user_id} | Status: ${status}`);
+      console.log(`✅ [API_SUCCESS] Order ${order_id}, user ${user_id} | Status: ${status} | Response:`, res.data);
     } catch (err) {
-      console.error('❌ Failed to update action:', err.response?.data || err.message);
+      console.error(`❌ [API_ERROR] Order ${order_id}, user ${user_id} | Status: ${status} | Error:`, err.response?.data || err.message);
     }
   } else {
     console.warn('⚠️ Unrecognized topic:', topic);
