@@ -22,79 +22,97 @@ class MqttResponseController extends Controller
         $userId = $validated['user_id'];
         $status = $validated['status'];
 
+        // 🚀 IDEMPOTENCY KEY: Prevent duplicate processing using cache
+        $idempotencyKey = "mqtt_response_{$orderId}_{$userId}_{$status}";
+
+        // Check if this exact request was processed recently (within 30 seconds)
+        $recentResult = cache()->get($idempotencyKey);
+        if ($recentResult) {
+            return response()->json([
+                'success' => true,
+                'message' => 'Duplicate request - already processed.',
+                'result' => $recentResult,
+                'idempotent' => true
+            ]);
+        }
+
         try {
-            // 🚀 MINIMAL LOCKING: Only lock what we absolutely need
-            $result = DB::transaction(function () use ($orderId, $userId, $status) {
-                // First, try a quick non-blocking read to check current status
-                $action = DB::table('actions')
-                    ->where('order_id', $orderId)
-                    ->where('user_id', $userId)
-                    ->first();
+            // 🚀 PURE ATOMIC OPERATION: Single query that handles all duplicate scenarios
+            $result = DB::transaction(function () use ($orderId, $userId, $status, $idempotencyKey) {
 
-                if (!$action) {
-                    throw new \Exception('Action record not found');
-                }
-
-                // Early exit if status hasn't changed (most common case)
-                if ($action->status === $status) {
-                    // Just update performed_at without locking if needed
-                    if (!$action->performed_at) {
-                        DB::table('actions')
-                            ->where('order_id', $orderId)
-                            ->where('user_id', $userId)
-                            ->where('performed_at', null) // Double-check it's still null
-                            ->update([
-                                'performed_at' => now(),
-                                'updated_at' => now(),
-                            ]);
-                    }
-                    return ['updated' => 0, 'already_done' => true];
-                }
-
-                // Only use locks when we actually need to change status
-                $incrementDone = ($action->status !== 'done' && $status === 'done');
-
-                // 🚀 OPTIMIZED: Use atomic UPDATE with WHERE conditions instead of SELECT FOR UPDATE
+                // 🚀 ATOMIC UPDATE: Only update if status is actually changing
+                // This single query handles all race conditions atomically
                 $updated = DB::table('actions')
                     ->where('order_id', $orderId)
                     ->where('user_id', $userId)
-                    ->where('status', $action->status) // Ensure status hasn't changed since we read it
+                    ->where('status', '!=', $status) // Only update if status is different
                     ->update([
                         'status' => $status,
-                        'performed_at' => now(),
+                        'performed_at' => DB::raw('COALESCE(performed_at, NOW())'), // Set only if null
                         'updated_at' => now(),
                     ]);
 
-                // If update affected 0 rows, someone else changed it first - that's OK
+                // If no rows updated, either:
+                // 1. Action doesn't exist, OR
+                // 2. Status was already set (duplicate message)
                 if ($updated === 0) {
-                    return ['updated' => 0, 'race_condition_avoided' => true];
+                    // Check if action exists to determine the reason
+                    $action = DB::table('actions')
+                        ->where('order_id', $orderId)
+                        ->where('user_id', $userId)
+                        ->first();
+
+                    if (!$action) {
+                        throw new \Exception('Action record not found');
+                    }
+
+                    // Action exists but status didn't change - this is a duplicate
+                    $result = ['updated' => 0, 'duplicate_message' => true, 'current_status' => $action->status];
+
+                    // 🚀 CACHE RESULT: Store for future duplicate requests
+                    cache()->put($idempotencyKey, $result, now()->addSeconds(30));
+
+                    return $result;
                 }
 
-                // Only recalculate done_count if this was a transition to 'done'
-                if ($incrementDone) {
-                    // 🚀 ATOMIC INCREMENT: Use a single SQL statement instead of count + update
+                // Status was successfully changed - check if we need to increment done_count
+                $shouldIncrementDone = ($status === 'done');
+
+                if ($shouldIncrementDone) {
+                    // 🚀 ATOMIC INCREMENT: Direct increment without race conditions
                     $orderUpdated = DB::table('orders')
                         ->where('id', $orderId)
                         ->increment('done_count');
 
-                    // Check if order should be completed (separate lightweight query)
+                    // Check if order should be completed (separate atomic check)
                     $order = DB::table('orders')
                         ->select('done_count', 'total_count', 'status')
                         ->where('id', $orderId)
                         ->first();
 
                     if ($order && $order->done_count >= $order->total_count && $order->status !== 'completed') {
+                        // 🚀 ATOMIC COMPLETION: Only mark as completed if not already completed
                         DB::table('orders')
                             ->where('id', $orderId)
-                            ->where('status', '!=', 'completed') // Avoid unnecessary updates
+                            ->where('status', '!=', 'completed')
                             ->update(['status' => 'completed']);
                     }
 
-                    return ['updated' => $updated, 'done_count_incremented' => true, 'current_done' => $order->done_count ?? 0];
+                    $result = [
+                        'updated' => $updated,
+                        'done_count_incremented' => true,
+                        'current_done' => $order->done_count ?? 0,
+                        'total_count' => $order->total_count ?? 0
+                    ];
+                } else {
+                    $result = ['updated' => $updated, 'status_changed_to' => $status];
                 }
 
-                return ['updated' => $updated, 'status_changed' => true];
-            }, 1); // 1 second transaction timeout - fail fast instead of waiting
+                // 🚀 CACHE SUCCESS RESULT: Prevent duplicate processing
+                cache()->put($idempotencyKey, $result, now()->addSeconds(30));
+
+                return $result;
+            }, 1); // 1 second timeout
 
             return response()->json([
                 'success' => true,
@@ -103,12 +121,17 @@ class MqttResponseController extends Controller
             ]);
 
         } catch (\Illuminate\Database\QueryException $e) {
-            // Handle deadlocks gracefully
+            // Handle specific database errors gracefully
             if (strpos($e->getMessage(), '1213') !== false || strpos($e->getMessage(), 'Deadlock') !== false) {
+                $result = ['duplicate_processing' => true];
+
+                // Cache the result to prevent retries
+                cache()->put($idempotencyKey, $result, now()->addSeconds(30));
+
                 return response()->json([
-                    'success' => true, // Still return success - the action was likely processed by another request
-                    'message' => 'Action processed by concurrent request.',
-                    'data' => $validated
+                    'success' => true, // Treat as success - likely processed by another request
+                    'message' => 'Action processed concurrently.',
+                    'result' => $result
                 ], 200);
             }
 
@@ -125,9 +148,7 @@ class MqttResponseController extends Controller
                 'data' => $validated
             ], $e->getMessage() === 'Action record not found' ? 404 : 500);
         }
-    }
-
-    public function recalculateAllOrders(Request $request)
+    }    public function recalculateAllOrders(Request $request)
     {
         $updatedCount = 0;
 
