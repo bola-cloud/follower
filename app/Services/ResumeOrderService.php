@@ -372,7 +372,7 @@ class ResumeOrderService
     private function publishToMqtt($topic, $data)
     {
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
-        $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1 --disable-retain";
+        $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1 ";
         exec($command . " > /dev/null 2>&1 &");
     }
 }
