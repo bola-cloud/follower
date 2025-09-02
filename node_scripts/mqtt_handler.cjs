@@ -4,6 +4,7 @@
 
 const mqtt = require('mqtt');
 const axios = require('axios');
+const { randomUUID } = require('crypto');
 
 const DEBUG = process.env.NODE_ENV !== 'production';
 const broker = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
@@ -112,15 +113,19 @@ client.on('message', async (topic, message) => {
         return;
       }
 
-      const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, {
+      const messageId = randomUUID();
+      const postBody = {
+        message_id: messageId,
         order_id: orderId,
         // send null or numeric user_id depending on what we parsed
         user_id: userId,
         type: mappedType,
         activation: true
-      });
+      };
 
-      if (DEBUG) console.log('✅ Triggered API:', res.data || res.status);
+      const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
+
+      if (DEBUG) console.log('✅ Triggered API:', res.data || res.status, 'message_id=', messageId);
     } catch (err) {
       console.error('❌ Failed to trigger API for ping response:', err.response?.data || err.message);
     }

@@ -242,7 +242,14 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
+        // Log incoming trigger requests and correlate with mqtt_handler via message_id when present
+        \Log::info('[MQTT_API] triggerOrder request received', [
+            'payload' => $request->all(),
+            'message_id' => $request->input('message_id')
+        ]);
+
         $validated = $request->validate([
+            'message_id' => 'sometimes|string',
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
             'type' => 'required|string|in:create,resume',
