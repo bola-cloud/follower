@@ -5,6 +5,7 @@
 const mqtt = require('mqtt');
 const axios = require('axios');
 const { randomUUID } = require('crypto');
+const fs = require('fs');
 
 const DEBUG = process.env.NODE_ENV !== 'production';
 const broker = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
@@ -14,6 +15,31 @@ const HTTP_TIMEOUT = parseInt(process.env.MQTT_HTTP_TIMEOUT || '20000', 10); // 
 // Concurrency control
 let inflightRequests = 0;
 const MAX_INFLIGHT = parseInt(process.env.MQTT_MAX_INFLIGHT || '50', 10);
+
+// --- Known orders cache --------------------------------------------------
+// Track order_ids observed via `orders/+` messages so we can detect when
+// devices reference an order (on order/ping/res) that wasn't announced to
+// users via `orders/{user_id}`. This is intentionally lightweight and
+// in-memory — it's only for detection/alerting, not a source of truth.
+const KNOWN_ORDERS = new Map(); // order_id -> timestamp(ms)
+const ORDER_TTL = parseInt(process.env.KNOWN_ORDER_TTL_MS || String(1000 * 60 * 10), 10); // 10m default
+
+// Periodic cleanup to avoid unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [orderId, ts] of KNOWN_ORDERS) {
+    if (now - ts > ORDER_TTL) KNOWN_ORDERS.delete(orderId);
+  }
+}, Math.max(60_000, Math.floor(ORDER_TTL / 10)));
+
+function recordMissingOrder(orderId, payload, topic) {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), orderId, topic, payload }) + '\n';
+    fs.appendFileSync('missing_orders.log', line, { encoding: 'utf8' });
+  } catch (err) {
+    if (DEBUG) console.error('Failed to write missing_orders.log:', err.message);
+  }
+}
 
 function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
@@ -144,6 +170,14 @@ client.on('message', async (topic, message) => {
         activation: true
       };
 
+      // Detect if this order_id was previously announced via orders/+
+      if (!KNOWN_ORDERS.has(orderId)) {
+        const msg = `⚠️ Received ping response for unknown order ${orderId} (user ${userId})`;
+        console.warn(msg, { original: payload });
+        // append to local log for later inspection
+        recordMissingOrder(orderId, payload, topic);
+      }
+
       const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
 
       if (DEBUG) console.log('✅ Triggered API:', res.data || res.status, 'message_id=', messageId);
@@ -176,6 +210,16 @@ client.on('message', async (topic, message) => {
       console.warn('⚠️ Missing fields in orders message:', payload);
       return;
     }
+    // Record the announced order_id in our known-orders cache so we can
+    // detect later if devices report pings for orders that were never
+    // announced to users via `orders/{user_id}`.
+    try {
+      const id = Number(order_id);
+      if (!Number.isNaN(id)) KNOWN_ORDERS.set(id, Date.now());
+    } catch (err) {
+      if (DEBUG) console.warn('Failed to record known order:', err.message);
+    }
+
     if (DEBUG) console.log(`� Order notification for user ${userId}: order ${order_id}`);
     return;
   }
