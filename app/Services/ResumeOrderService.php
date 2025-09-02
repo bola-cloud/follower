@@ -311,16 +311,13 @@ class ResumeOrderService
             ];
         });
 
-        // Use try-catch to handle any remaining duplicate constraint violations
+        // Use insertOrIgnore to avoid duplicate-entry race conditions when many workers
         try {
-            DB::table('actions')->insert($actions->toArray());
-        } catch (\Illuminate\Database\QueryException $e) {
-            // If duplicate entry error, log it but continue (1062 is duplicate entry error)
-            if ($e->getCode() === '23000' && strpos($e->getMessage(), '1062') !== false) {
-                \Log::warning('[ResumeOrderService] Duplicate action detected during bulk insert for order ' . $order->id, ['error' => $e->getMessage()]);
-            } else {
-                throw $e; // Re-throw if it's a different error
-            }
+            $inserted = DB::table('actions')->insertOrIgnore($actions->toArray());
+            Log::info('[ResumeOrderService] Bulk inserted actions (insertOrIgnore)', ['order_id' => $order->id, 'attempted' => count($actions->toArray()), 'inserted' => $inserted]);
+        } catch (\Throwable $e) {
+            Log::error('[ResumeOrderService] Failed bulk insert of actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+            throw $e;
         }
 
         // Diagnostic: log number of actions inserted and attempt

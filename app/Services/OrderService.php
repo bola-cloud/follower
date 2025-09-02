@@ -85,29 +85,32 @@ class OrderService
             })->toArray();
 
             // Diagnostic logging: show how many pending actions will be inserted
-            try {
-                $count = is_array($actions) ? count($actions) : 0;
-                if ($count === 0) {
-                    Log::info('[OrderService] No new pending actions to insert', [
-                        'order_id' => $order->id,
-                        'eligible_users_count' => $eligibleUsers->count()
-                    ]);
-                } else {
-                    Log::info('[OrderService] Inserting pending actions', [
-                        'order_id' => $order->id,
-                        'insert_count' => $count,
-                        'sample' => array_slice($actions, 0, 5)
-                    ]);
-                }
-
-                DB::table('actions')->insert($actions);
-            } catch (\Throwable $e) {
-                Log::error('[OrderService] Failed to insert pending actions', [
+            $count = is_array($actions) ? count($actions) : 0;
+            if ($count === 0) {
+                Log::info('[OrderService] No new pending actions to insert', [
                     'order_id' => $order->id,
-                    'error' => $e->getMessage(),
-                    'actions_count' => is_array($actions) ? count($actions) : 0,
+                    'eligible_users_count' => $eligibleUsers->count()
                 ]);
-                throw $e;
+            } else {
+                Log::info('[OrderService] Inserting pending actions (insertOrIgnore)', [
+                    'order_id' => $order->id,
+                    'attempt_count' => $count,
+                    'sample' => array_slice($actions, 0, 5)
+                ]);
+
+                // Use insertOrIgnore to avoid race-condition duplicate errors when many workers
+                // try to insert the same action concurrently. It returns number of rows inserted.
+                try {
+                    $inserted = DB::table('actions')->insertOrIgnore($actions);
+                    Log::info('[OrderService] Pending actions inserted', ['order_id' => $order->id, 'inserted' => $inserted]);
+                } catch (\Throwable $e) {
+                    Log::error('[OrderService] Failed to insert pending actions', [
+                        'order_id' => $order->id,
+                        'error' => $e->getMessage(),
+                        'actions_count' => $count,
+                    ]);
+                    throw $e;
+                }
             }
             DB::commit();
         } catch (\Throwable $e) {
