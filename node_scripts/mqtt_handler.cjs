@@ -72,6 +72,20 @@ client.on('message', async (topic, message) => {
 
   if (DEBUG) console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${JSON.stringify(payload)}`);
 
+  // order/ping/req — a request (incoming) to start/inspect a ping; accept and log to avoid 'Unrecognized topic'
+  if (topic === 'order/ping/req') {
+    const rawOrder = payload.order_id ?? payload.orderId ?? payload.order;
+    const rawUser = payload.user_id ?? payload.userId ?? payload.user;
+    const orderId = rawOrder == null ? null : parseInt(rawOrder, 10);
+    const userId = rawUser == null ? null : parseInt(rawUser, 10);
+
+    if (DEBUG) console.log('🔔 MQTT recv -> topic: order/ping/req | payload:', payload);
+
+    // Nothing to forward here by default; we just accept the topic so it doesn't show as unrecognized.
+    // If you want this to trigger an API call, we can add that behavior later.
+    return;
+  }
+
   // order/ping/res — devices report they received a ping (activation)
   if (topic === 'order/ping/res') {
     // Support both shapes: activation_order_id or order_id
@@ -79,13 +93,14 @@ client.on('message', async (topic, message) => {
     const rawUser = payload.user_id ?? payload.userId ?? payload.user;
     const type = payload.type;
 
-    const orderId = parseInt(rawActivation, 10);
-    const userId = parseInt(rawUser, 10);
+    const orderId = rawActivation == null ? NaN : parseInt(rawActivation, 10);
+    // Allow user_id to be null (device didn't provide a user); forward null to API instead of rejecting
+    const userId = rawUser == null ? null : parseInt(rawUser, 10);
 
-    if (!type || Number.isNaN(orderId) || Number.isNaN(userId)) {
+    if (!type || Number.isNaN(orderId)) {
       console.error('❌ Invalid ping response payload:', {
         type,
-        activation_order_id: orderId,
+        activation_order_id: Number.isNaN(orderId) ? rawActivation : orderId,
         user_id: userId,
         raw_user_id: rawUser,
         raw_activation_order_id: rawActivation,
@@ -97,6 +112,7 @@ client.on('message', async (topic, message) => {
     try {
       const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, {
         order_id: orderId,
+        // send null or numeric user_id depending on what we parsed
         user_id: userId,
         type,
         activation: true
