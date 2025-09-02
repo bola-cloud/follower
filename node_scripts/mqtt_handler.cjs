@@ -3,7 +3,26 @@
 const mqtt = require('mqtt');
 const axios = require('axios');
 
+const DEBUG = process.env.NODE_ENV !== 'production';
 const broker = 'mqtt://109.199.112.65:1883';
+
+// Simple throttling for API calls
+let inflightRequests = 0;
+const maxInflightRequests = 5;
+
+async function throttledPost(url, data) {
+  while (inflightRequests >= maxInflightRequests) {
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+
+  inflightRequests++;
+  try {
+    return await axios.post(url, data);
+  } finally {
+    inflightRequests--;
+  }
+}
+
 const client = mqtt.connect(broker);
 
 client.on('connect', () => {
@@ -15,7 +34,8 @@ client.on('connect', () => {
     'devices/activation/v2/res',  // Device activation responses (dashboard)
     'order/ping/req',          // Order ping requests
     'order/ping/res',          // Order ping responses
-    'order/res/+/+',
+    'order/res/+/+',           // Order completion responses
+    'orders/+',                // User order notifications
     'user/ping/+' // Add ping subscription
   ], (err) => {
     if (err) {
@@ -133,6 +153,24 @@ client.on('message', async (topic, message) => {
       client.publish(`user/ping/response/${userId}`, JSON.stringify(response), { qos: 1 });
       console.log(`🏓 Ping response sent for user ${userId}`);
     }
+    return;
+  }
+
+  // ✅ Handle orders/{user_id} messages (user order notifications)
+  const ordersMatch = topic.match(/^orders\/(\d+)$/);
+  if (ordersMatch) {
+    const userId = parseInt(ordersMatch[1], 10);
+    const { url, order_id, type } = payload;
+
+    if (!url || !order_id || !type || !userId) {
+      console.warn('⚠️ Missing fields in orders message:', payload);
+      return;
+    }
+
+    console.log(`📦 Order notification sent to user ${userId}: order ${order_id}, type ${type}, url ${url}`);
+
+    // This is just a notification message - the user device will process it
+    // and later respond on order/res/{order_id}/{user_id} when task is complete
     return;
   }
 
