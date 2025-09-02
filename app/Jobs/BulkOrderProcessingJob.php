@@ -20,7 +20,7 @@ class BulkOrderProcessingJob implements ShouldQueue
 
     public function handle()
     {
-        Log::info("🚀 BulkOrderProcessingJob started");
+        // Log::info("🚀 BulkOrderProcessingJob started");
 
         // 🚀 BULK PROCESSING: Process multiple orders in batches for high performance
         $batchSize = 20; // Smaller batches to reduce MQTT flood
@@ -35,7 +35,7 @@ class BulkOrderProcessingJob implements ShouldQueue
                 ->limit($batchSize)
                 ->get();
 
-            Log::info("Batch {$i}: Found {$orders->count()} orders to process");
+            // Log::info("Batch {$i}: Found {$orders->count()} orders to process");
 
             if ($orders->isEmpty()) {
                 Log::info("No more orders to process, stopping");
@@ -49,7 +49,7 @@ class BulkOrderProcessingJob implements ShouldQueue
             usleep(500000); // 0.5 second delay between batches
         }
 
-        Log::info("🎯 BulkOrderProcessingJob completed. Total processed: {$totalProcessed}");
+        // Log::info("🎯 BulkOrderProcessingJob completed. Total processed: {$totalProcessed}");
     }    private function processBatchOrders($orders): int
     {
         $processed = 0;
@@ -73,14 +73,14 @@ class BulkOrderProcessingJob implements ShouldQueue
                 'activation' => true
             ];
 
-            Log::info("🚀 Sending bulk activation ping for order {$order->id}", $pingData);
+            // Log::info("🚀 Sending bulk activation ping for order {$order->id}", $pingData);
 
             $pingService->sendPing('order/ping/req', $pingData);
 
-            Log::info("✅ Bulk activation ping sent successfully", [
-                'order_id' => $order->id,
-                'remaining_count' => $order->total_count - $order->done_count
-            ]);
+            // Log::info("✅ Bulk activation ping sent successfully", [
+            //     'order_id' => $order->id,
+            //     'remaining_count' => $order->total_count - $order->done_count
+            // ]);
         } catch (\Throwable $e) {
             Log::error("❌ Bulk ping failed for order {$order->id}: " . $e->getMessage());
         }
