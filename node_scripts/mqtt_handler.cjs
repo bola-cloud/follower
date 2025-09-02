@@ -2,102 +2,26 @@
 
 const mqtt = require('mqtt');
 const axios = require('axios');
-const https = require('https');
 
 const broker = 'mqtt://109.199.112.65:1883';
 const client = mqtt.connect(broker);
-
-// Debug gate: set MQTT_HANDLER_DEBUG=1 in the environment to enable per-message logging
-const DEBUG = process.env.MQTT_HANDLER_DEBUG === '1';
-
-// Axios instance with keep-alive to reduce TLS handshake churn
-const axiosInstance = axios.create({
-  httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 50 }),
-  timeout: 15000,
-});
-
-// Simple concurrency limiter + retry wrapper for API POSTs to avoid socket exhaustion
-let inflight = 0;
-const MAX_INFLIGHT = parseInt(process.env.MQTT_HANDLER_MAX_INFLIGHT || '20', 10);
-async function throttledPost(url, payload, maxAttempts = 3) {
-  let attempt = 0;
-  while (attempt < maxAttempts) {
-    // throttle
-    while (inflight >= MAX_INFLIGHT) {
-      await new Promise((r) => setTimeout(r, 50));
-    }
-
-    inflight++;
-    try {
-      const res = await axiosInstance.post(url, payload);
-      return res;
-    } catch (err) {
-      attempt++;
-      const code = err.code || err.response?.status;
-      // on network errors like EPIPE or ECONNRESET, retry with backoff
-      if (attempt >= maxAttempts) {
-        throw err;
-      }
-      const backoff = 200 * Math.pow(2, attempt);
-      console.warn(`⚠️ [HTTP_RETRY] attempt ${attempt} failed for ${url} (${code || err.message}), retrying in ${backoff}ms`);
-      await new Promise((r) => setTimeout(r, backoff));
-    } finally {
-      inflight--;
-    }
-  }
-}
-
-// Global topic counters (avoid allocating per-message objects)
-const topicCounts = {
-  'order/ping/req': 0,
-  'order/ping/res': 0,
-  'order/res/+/+': 0,
-  'devices/activation/req': 0,
-  'devices/activation/v2/res': 0,
-  'user/ping/+': 0,
-  'other': 0
-};
-
-// Periodic reporter to log and reset counts every 30s (less frequent to reduce CPU)
-const REPORT_INTERVAL_MS = parseInt(process.env.MQTT_HANDLER_REPORT_INTERVAL_MS || '30000', 10);
-setInterval(() => {
-  // Only log when there is some activity to avoid noisy logs
-  const total = Object.values(topicCounts).reduce((a, b) => a + b, 0);
-  if (total > 0 || DEBUG) {
-    console.log('📊 [TOPIC_STATS] Last', REPORT_INTERVAL_MS, 'ms activity:', { ...topicCounts });
-  }
-  // reset counts
-  for (const k of Object.keys(topicCounts)) topicCounts[k] = 0;
-}, REPORT_INTERVAL_MS);
 
 client.on('connect', () => {
   console.log('✅ Connected to MQTT broker');
 
   // Subscribe to all required topics
-  const topics = [
+  client.subscribe([
     'devices/activation/req',  // Listen to activation requests (dashboard)
     'devices/activation/v2/res',  // Device activation responses (dashboard)
     'order/ping/req',          // Order ping requests
     'order/ping/res',          // Order ping responses
     'order/res/+/+',
     'user/ping/+' // Add ping subscription
-  ];
-
-  // Subscribe and show granted subscriptions (helps debug wildcard failures)
-  client.subscribe(topics, (err, granted) => {
+  ], (err) => {
     if (err) {
       console.error('❌ Subscription error:', err.message);
     } else {
-      console.log('✅ Subscribed to topics. Granted:', granted);
-    }
-  });
-
-  // Fallback: also subscribe to order/res/# (covers any depth if devices use different format)
-  client.subscribe('order/res/#', { qos: 0 }, (err, granted) => {
-    if (err) {
-      console.error('❌ Fallback subscription error for order/res/#:', err.message);
-    } else {
-      console.log('✅ Fallback subscribed to order/res/#. Granted:', granted);
+      console.log('✅ Subscribed to all required topics');
     }
   });
 });
@@ -112,17 +36,8 @@ client.on('message', async (topic, message) => {
     return;
   }
 
-  // DEBUG: log every incoming topic and raw payload only when DEBUG=1 to avoid heavy logging
-  if (DEBUG) console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${message.toString()}`);
-
-  // Increment lightweight global topic counters (no allocation per message)
-  if (topic === 'order/ping/req') topicCounts['order/ping/req']++;
-  else if (topic === 'order/ping/res') topicCounts['order/ping/res']++;
-  else if (topic.match(/^order\/res\/\d+\/\d+$/)) topicCounts['order/res/+/+']++;
-  else if (topic === 'devices/activation/req') topicCounts['devices/activation/req']++;
-  else if (topic === 'devices/activation/v2/res') topicCounts['devices/activation/v2/res']++;
-  else if (topic.match(/^user\/ping\/\d+$/)) topicCounts['user/ping/+']++;
-  else topicCounts['other']++;
+  // DEBUG: log every incoming topic and raw payload to help trace missing topics
+  console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${message.toString()}`);
 
   // ✅ Handle device activation requests (for logging/monitoring)
   if (topic === 'devices/activation/req') {
@@ -148,37 +63,27 @@ client.on('message', async (topic, message) => {
 
   // ✅ Handle order ping responses (separate from device activation)
   if (topic === 'order/ping/res') {
-    if (DEBUG) console.log('🔎 [DEBUG] Received message on order/ping/res:', message.toString());
+    console.log('🔎 [DEBUG] Received message on order/ping/res:', message.toString());
     const { type, order_id, user_id } = payload;
     const activation = true;
-    if (DEBUG) console.log('🔎 [DEBUG] Parsed payload:', { ...payload, activation });
+    console.log('🔎 [DEBUG] Parsed payload:', { ...payload, activation });
 
-    // Convert user_id from string to integer and validate
-    const userIdInt = parseInt(user_id, 10);
-    const orderIdInt = parseInt(order_id, 10);
-
-    if (!type || !orderIdInt || !userIdInt || isNaN(userIdInt) || isNaN(orderIdInt)) {
-      console.error('❌ Invalid response payload (missing/invalid IDs):', {
-        type,
-        order_id: orderIdInt,
-        user_id: userIdInt,
-        raw_user_id: user_id,
-        raw_order_id: order_id
-      });
+    if (!type || !order_id || !user_id) {
+      console.error('❌ Invalid response payload:', payload);
       return;
     }
 
     try {
-      const response = await throttledPost('https://egfollow.com/api/mqtt/trigger-order', {
-        order_id: orderIdInt,
-        user_id: userIdInt,
+      const response = await axios.post('https://egfollow.com/api/mqtt/trigger-order', {
+        order_id,
+        user_id,
         type,
         activation
       });
 
-      if (DEBUG) console.log(`✅ Triggered API for type ${type}, order_id ${orderIdInt}, user ${userIdInt}, activation: ${activation} | Response:`, response.data);
+      console.log(`✅ Triggered API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation} | Response:`, response.data);
     } catch (err) {
-      console.error(`❌ Failed to trigger API for type ${type}, order_id ${orderIdInt}, user ${userIdInt}, activation: ${activation}:`, err.response?.data || err.message);
+      console.error(`❌ Failed to trigger API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation}:`, err.response?.data || err.message);
     }
 
     return;
@@ -194,12 +99,12 @@ client.on('message', async (topic, message) => {
 
     // Regular activation - cache it for dashboard
     try {
-      const res = await throttledPost('https://egfollow.com/api/mqtt/device-activation', {
+      const res = await axios.post('https://egfollow.com/api/mqtt/device-activation', {
         device_id,
         status,
       });
 
-      if (DEBUG) console.log(`✅ Stored activation for device ${device_id} | Status: ${status} | Count: ${res.data.count}`);
+      console.log(`✅ Stored activation for device ${device_id} | Status: ${status} | Count: ${res.data.count}`);
     } catch (err) {
       console.error('❌ Failed to store activation:', err.response?.data || err.message);
     }
@@ -229,45 +134,27 @@ client.on('message', async (topic, message) => {
   // ✅ Handle order responses
   const match = topic.match(/^order\/res\/(\d+)\/(\d+)$/);
   if (match) {
-    // Extract order_id and user_id from the topic path, not payload
     const order_id = parseInt(match[1], 10);
     const user_id = parseInt(match[2], 10);
-    const { status } = payload; // Only status comes from payload
+    const { status } = payload;
 
-    console.log(`🎯 [ORDER_RES] Received order/res/${order_id}/${user_id} with status: ${status}`);
-
-    if (!status) {
-      console.warn('⚠️ Missing status in order response payload:', payload);
-      return;
-    }
-
-    // Validate status is one of the expected values
-    if (status !== 'done' && status !== 'external') {
-      console.warn(`⚠️ Invalid status "${status}" in order response. Expected: done|external`);
-      return;
+    if (!status || !order_id || !user_id) {
+      return console.warn('⚠️ Missing fields in order response:', payload);
     }
 
     try {
-      if (DEBUG) console.log(`📤 [API_POST] Sending to API: order_id=${order_id}, user_id=${user_id}, status=${status}`);
-
-      const res = await throttledPost('https://egfollow.com/api/mqtt/response', {
+      const res = await axios.post('https://egfollow.com/api/mqtt/response', {
         order_id,
         user_id,
         status
       });
 
-      if (DEBUG) console.log(`✅ [API_SUCCESS] Order ${order_id}, user ${user_id} | Status: ${status} | Response:`, res.data);
+      console.log(`✅ Action updated for order ${order_id}, user ${user_id} | Status: ${status}`);
     } catch (err) {
-      console.error(`❌ [API_ERROR] Order ${order_id}, user ${user_id} | Status: ${status} | Error:`, err.response?.data || err.message);
+      console.error('❌ Failed to update action:', err.response?.data || err.message);
     }
-  } else if (topic.startsWith('order/res/')) {
-    // Log unexpected order/res topics that don't match the pattern
-    console.warn(`⚠️ Unexpected order/res topic format: ${topic} | payload: ${message.toString()}`);
   } else {
-    // Only log non-ping topics to avoid spam
-    if (!topic.includes('ping')) {
-      console.warn('⚠️ Unrecognized topic:', topic);
-    }
+    console.warn('⚠️ Unrecognized topic:', topic);
   }
 });
 
