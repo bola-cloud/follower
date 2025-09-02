@@ -50,7 +50,6 @@ client.on('connect', () => {
   client.subscribe([
     'devices/activation/req',
     'devices/activation/v2/res',
-    'order/ping/req',
     'order/ping/res',
     'order/res/+/+',
     'orders/+',
@@ -72,19 +71,7 @@ client.on('message', async (topic, message) => {
 
   if (DEBUG) console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${JSON.stringify(payload)}`);
 
-  // order/ping/req — a request (incoming) to start/inspect a ping; accept and log to avoid 'Unrecognized topic'
-  if (topic === 'order/ping/req') {
-    const rawOrder = payload.order_id ?? payload.orderId ?? payload.order;
-    const rawUser = payload.user_id ?? payload.userId ?? payload.user;
-    const orderId = rawOrder == null ? null : parseInt(rawOrder, 10);
-    const userId = rawUser == null ? null : parseInt(rawUser, 10);
-
-    if (DEBUG) console.log('🔔 MQTT recv -> topic: order/ping/req | payload:', payload);
-
-    // Nothing to forward here by default; we just accept the topic so it doesn't show as unrecognized.
-    // If you want this to trigger an API call, we can add that behavior later.
-    return;
-  }
+  // ...existing code...
 
   // order/ping/res — devices report they received a ping (activation)
   if (topic === 'order/ping/res') {
