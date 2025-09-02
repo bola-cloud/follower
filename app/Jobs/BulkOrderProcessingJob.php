@@ -66,14 +66,11 @@ class BulkOrderProcessingJob implements ShouldQueue
         try {
             $pingService = app()->make(\App\Services\PingService::class);
 
-            // 🚀 CRITICAL FIX: Use 'create' type since 'resume' isn't accepted by MQTT handler
+            // Clean ping format with only essential keys
             $pingData = [
-                'type' => 'create',  // Changed from 'resume' to 'create'
+                'type' => $order->type ?? 'create',  // Use order type or default to 'create'
                 'order_id' => $order->id,
-                'user_id' => $order->user_id,
-                'activation' => true,
-                'bulk_processing' => true,
-                'timestamp' => now()->toISOString()
+                'activation' => true
             ];
 
             Log::info("🚀 Sending bulk activation ping for order {$order->id}", $pingData);

@@ -54,36 +54,41 @@ client.on('message', async (topic, message) => {
   // ✅ Handle order ping requests (for logging/monitoring)
   if (topic === 'order/ping/req') {
     const { type, order_id } = payload;
-    const activation = true;
-    console.log(`📡 Order ping broadcast sent for order_id ${order_id} with type ${type}, activation: ${activation}`);
-    // If you need to publish or forward, include activation in the payload
-    // client.publish('order/ping/req', JSON.stringify({ type, order_id, activation }), { qos: 1 });
+    console.log(`📡 Order ping request for order_id ${order_id} with type ${type}`);
     return;
   }
 
-  // ✅ Handle order ping responses (separate from device activation)
+    // ✅ Handle order ping responses (device response to ping)
   if (topic === 'order/ping/res') {
-    console.log('🔎 [DEBUG] Received message on order/ping/res:', message.toString());
-    const { type, order_id, user_id } = payload;
-    const activation = true;
-    console.log('🔎 [DEBUG] Parsed payload:', { ...payload, activation });
+    if (DEBUG) console.log('🔎 [DEBUG] Received message on order/ping/res:', message.toString());
+    const { activation_order_id, user_id, type } = payload;
 
-    if (!type || !order_id || !user_id) {
-      console.error('❌ Invalid response payload:', payload);
+    // Convert user_id from string to integer and validate
+    const userIdInt = parseInt(user_id, 10);
+    const orderIdInt = parseInt(activation_order_id, 10);
+
+    if (!type || !orderIdInt || !userIdInt || isNaN(userIdInt) || isNaN(orderIdInt)) {
+      console.error('❌ Invalid ping response payload:', {
+        type,
+        activation_order_id: orderIdInt,
+        user_id: userIdInt,
+        raw_user_id: user_id,
+        raw_activation_order_id: activation_order_id
+      });
       return;
     }
 
     try {
-      const response = await axios.post('https://egfollow.com/api/mqtt/trigger-order', {
-        order_id,
-        user_id,
+      const response = await throttledPost('https://egfollow.com/api/mqtt/trigger-order', {
+        order_id: orderIdInt,
+        user_id: userIdInt,
         type,
-        activation
+        activation: true
       });
 
-      console.log(`✅ Triggered API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation} | Response:`, response.data);
+      if (DEBUG) console.log(`✅ Triggered API for type ${type}, order_id ${orderIdInt}, user ${userIdInt} | Response:`, response.data);
     } catch (err) {
-      console.error(`❌ Failed to trigger API for type ${type}, order_id ${order_id}, user ${user_id}, activation: ${activation}:`, err.response?.data || err.message);
+      console.error(`❌ Failed to trigger API for type ${type}, order_id ${orderIdInt}, user ${userIdInt}:`, err.response?.data || err.message);
     }
 
     return;

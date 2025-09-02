@@ -116,7 +116,7 @@ class OrderController extends Controller
             $pingService->sendPing('order/ping/req', [
                 'type' => 'create',
                 'order_id' => $order->id,
-                'activation' => true,
+                'activation' => true
             ]);
             } catch (\Throwable $e) {
                 Log::error("[OrderStore] Error sending ping: " . $e->getMessage());
@@ -192,7 +192,7 @@ class OrderController extends Controller
                 $pingService->sendPing('order/ping/req', [
                     'type' => 'resume',
                     'order_id' => $order->id,
-                    'activation' => true,
+                    'activation' => true
                 ]);
             } catch (\Throwable $e) {
                 Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());

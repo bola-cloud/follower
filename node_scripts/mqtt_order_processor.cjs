@@ -111,8 +111,9 @@ async function pingUsersInBatches(users, orderId, batchSize = 50) {
 
     // Send one broadcast ping using order ping topic
     const pingData = {
-      order_id: orderId,
-      request: 'ping_check'
+  type: 'create',
+  order_id: orderId,
+  activation: true
     };
     client.publish(`order/ping/req`, JSON.stringify(pingData), { qos: 1 });
 
@@ -138,8 +139,9 @@ async function pingUsersInBatches(users, orderId, batchSize = 50) {
 
 async function sendPingToUser(userId, orderId) {
   const pingData = {
-    order_id: orderId,
-    request: 'ping_check'
+  type: 'create',
+  order_id: orderId,
+  activation: true
   };
 
   // Set timeout for this ping

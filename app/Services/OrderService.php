@@ -104,7 +104,9 @@ class OrderService
         $sentOrders[] = $order->id;
 
         $pingData = [
-            'order_id' => $order->id
+            'type' => $order->type ?? 'create',
+            'order_id' => $order->id,
+            'activation' => true
         ];
 
         $this->publishToMqtt('order/ping/req', $pingData);
