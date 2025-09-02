@@ -36,11 +36,13 @@ class MqttResponseController extends Controller
         ]);
 
         try {
-            // Update the action status
+            // Update the action status only if it is not already marked 'done'.
+            // Using status != 'done' allows processing 'pending' and 'external' -> 'done'
+            // while avoiding unnecessary writes when status is already 'done'.
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->where('user_id', $userId)
-                ->where('status', 'pending') // Only update if currently pending
+                ->where('status', '!=', 'done') // Skip if already done
                 ->update([
                     'status' => $status,
                     'performed_at' => now(),
@@ -148,8 +150,9 @@ class MqttResponseController extends Controller
                 ]);
             }
 
-            // If status is 'done', increment the order's done_count
-            if ($status === 'done') {
+            // If we updated a row and the incoming status is 'done', increment order.done_count
+            // This prevents double increments when the action was already done.
+            if ($updated > 0 && $status === 'done') {
                 DB::table('orders')
                     ->where('id', $orderId)
                     ->increment('done_count');
