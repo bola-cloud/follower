@@ -9,6 +9,7 @@ const { randomUUID } = require('crypto');
 const DEBUG = process.env.NODE_ENV !== 'production';
 const broker = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
 const API_BASE = process.env.API_BASE || 'https://egfollow.com';
+const HTTP_TIMEOUT = parseInt(process.env.MQTT_HTTP_TIMEOUT || '20000', 10); // ms
 
 // Concurrency control
 let inflightRequests = 0;
@@ -18,14 +19,34 @@ function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
-async function postWithRetries(url, data, retries = 3, backoff = 200) {
+async function postWithRetries(url, data, retries = 4, backoff = 300) {
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try {
-      return await axios.post(url, data, { timeout: 10_000 });
+      return await axios.post(url, data, { timeout: HTTP_TIMEOUT });
     } catch (err) {
       lastErr = err;
-      if (i < retries) await sleep(backoff * Math.pow(2, i));
+
+      const status = err.response?.status;
+      const isServerError = status >= 500 && status < 600;
+      const isConflict = status === 409;
+
+      // Decide whether to retry: network errors, 5xx, or 409 (DB busy)
+      const shouldRetry = !err.response || isServerError || isConflict;
+
+      if (!shouldRetry) {
+        // Not retriable (eg. validation error) — rethrow immediately
+        throw err;
+      }
+
+      if (i < retries) {
+        // exponential backoff with jitter
+        const delay = Math.round(backoff * Math.pow(2, i) + (Math.random() * backoff));
+        if (DEBUG) console.warn(`⚠️ HTTP retry ${i + 1}/${retries} for ${url} (status=${status || 'network'}, delay=${delay}ms)`);
+        await sleep(delay);
+        continue;
+      }
+      // final failure after retries
     }
   }
   throw lastErr;
