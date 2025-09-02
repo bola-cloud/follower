@@ -36,71 +36,28 @@ class MqttResponseController extends Controller
         ]);
 
         try {
-            // Use a transaction with a FOR UPDATE lock on the action row so concurrent
-            // updates for the same (order_id,user_id) serialize and we avoid lost updates
-            // or double increments of order.done_count.
-            $autoCreate = env('MQTT_AUTO_CREATE_MISSING', false);
-            $updated = 0;
-            $created = false;
-
-            DB::transaction(function () use (&$updated, &$created, $orderId, $userId, $status, $autoCreate) {
-                // Attempt to lock the action row if it exists
-                $action = DB::table('actions')
-                    ->where('order_id', $orderId)
-                    ->where('user_id', $userId)
-                    ->lockForUpdate()
-                    ->first();
-
-                if ($action) {
-                    // If action already done, nothing to do
-                    if ($action->status === 'done') {
-                        // leave $updated as 0 to indicate no change
-                        return;
-                    }
-
-                    $updated = DB::table('actions')
-                        ->where('order_id', $orderId)
-                        ->where('user_id', $userId)
-                        ->update([
-                            'status' => $status,
-                            'performed_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                    return;
-                }
-
-                if ($autoCreate) {
-                    // Try to infer type from the order record if available
-                    $orderRow = DB::table('orders')->where('id', $orderId)->first();
-                    $actionType = $orderRow->type ?? 'create';
-
-                    DB::table('actions')->insert([
-                        'order_id' => $orderId,
-                        'user_id' => $userId,
-                        'type' => $actionType,
-                        'status' => $status,
-                        'performed_at' => now(),
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-                    $created = true;
-                    return;
-                }
-
-                // If we reach here: action doesn't exist and auto-create is disabled
-                // leave $updated == 0 and $created == false so caller can return 404
-            });
+            // Update the action status only if it is not already marked 'done'.
+            // Using status != 'done' allows processing 'pending' and 'external' -> 'done'
+            // while avoiding unnecessary writes when status is already 'done'.
+            $updated = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->where('user_id', $userId)
+                ->where('status', '!=', 'done') // Skip if already done
+                ->update([
+                    'status' => $status,
+                    'performed_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
             \Log::info("[MQTT_API] Update result", [
                 'order_id' => $orderId,
                 'user_id' => $userId,
                 'status' => $status,
-                'rows_updated' => $updated,
-                'created' => $created
+                'rows_updated' => $updated
             ]);
 
-            if ($updated === 0 && !$created) {
-                // verify whether action exists to give a helpful response
+            if ($updated === 0) {
+                // Check if action exists
                 $action = DB::table('actions')
                     ->where('order_id', $orderId)
                     ->where('user_id', $userId)
@@ -112,13 +69,72 @@ class MqttResponseController extends Controller
                         'user_id' => $userId
                     ]);
 
+                    // Optional: auto-create missing action when configured.
+                    // This helps testing and late responses from devices that missed the ping->trigger cycle.
+                    $autoCreate = env('MQTT_AUTO_CREATE_MISSING', false);
+
+                    if ($autoCreate) {
+                        try {
+                            // Try to infer type from the order record if available
+                            $orderRow = DB::table('orders')->where('id', $orderId)->first();
+                            $actionType = $orderRow->type ?? 'create';
+
+                            DB::table('actions')->insert([
+                                'order_id' => $orderId,
+                                'user_id' => $userId,
+                                'type' => $actionType,
+                                'status' => $status,
+                                'performed_at' => now(),
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+
+                            \Log::info("[MQTT_API] Auto-created missing action", [
+                                'order_id' => $orderId,
+                                'user_id' => $userId,
+                                'status' => $status,
+                            ]);
+
+                            // If status is 'done' we must increment order done_count and possibly mark completed
+                            if ($status === 'done') {
+                                DB::table('orders')->where('id', $orderId)->increment('done_count');
+
+                                $ord = DB::table('orders')
+                                    ->where('id', $orderId)
+                                    ->first(['done_count', 'total_count', 'status']);
+
+                                if ($ord && $ord->done_count >= $ord->total_count && $ord->status !== 'completed') {
+                                    DB::table('orders')
+                                        ->where('id', $orderId)
+                                        ->update(['status' => 'completed']);
+                                    \Log::info("[MQTT_API] Order auto-marked as completed", ['order_id' => $orderId]);
+                                }
+                            }
+
+                            return response()->json([
+                                'success' => true,
+                                'message' => 'Action auto-created and processed.'
+                            ]);
+                        } catch (\Throwable $e) {
+                            \Log::error("[MQTT_API] Failed to auto-create action", [
+                                'order_id' => $orderId,
+                                'user_id' => $userId,
+                                'error' => $e->getMessage()
+                            ]);
+
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Action missing and auto-create failed.'
+                            ], 500);
+                        }
+                    }
+
                     return response()->json([
                         'success' => false,
                         'message' => 'Action record not found'
                     ], 404);
                 }
 
-                // Action exists but wasn't updated (likely already done)
                 \Log::info("[MQTT_API] Action exists but not updated", [
                     'order_id' => $orderId,
                     'user_id' => $userId,
@@ -126,6 +142,7 @@ class MqttResponseController extends Controller
                     'requested_status' => $status
                 ]);
 
+                // Action exists but wasn't updated (likely already done)
                 return response()->json([
                     'success' => true,
                     'message' => 'Action already processed',
@@ -133,9 +150,9 @@ class MqttResponseController extends Controller
                 ]);
             }
 
-            // If we updated a row or created one and the incoming status is 'done', increment order.done_count
-            // This prevents double increments when the action was already done because we locked the row.
-            if (($updated > 0 || $created) && $status === 'done') {
+            // If we updated a row and the incoming status is 'done', increment order.done_count
+            // This prevents double increments when the action was already done.
+            if ($updated > 0 && $status === 'done') {
                 DB::table('orders')
                     ->where('id', $orderId)
                     ->increment('done_count');
@@ -171,24 +188,6 @@ class MqttResponseController extends Controller
                 'message' => 'Action status updated successfully'
             ]);
 
-        } catch (\Illuminate\Database\QueryException $ex) {
-            // Handle lock wait timeout specifically (MySQL code 1205 or message contains Lock wait timeout)
-            if (strpos($ex->getMessage(), '1205') !== false || strpos($ex->getMessage(), 'Lock wait timeout') !== false) {
-                \Log::warning('[MQTT_API] Lock wait timeout while updating action ' . $orderId . '/' . $userId);
-                return response()->json(['error' => 'Database busy, please retry.'], 409);
-            }
-
-            \Log::error("[MQTT_API] DB QueryException", [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'status' => $status,
-                'error' => $ex->getMessage()
-            ]);
-
-            return response()->json([
-                'success' => false,
-                'message' => 'Failed to update action: ' . $ex->getMessage()
-            ], 500);
         } catch (\Exception $e) {
             \Log::error("[MQTT_API] Exception", [
                 'order_id' => $orderId,
@@ -242,14 +241,7 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
-        // Log incoming trigger requests and correlate with mqtt_handler via message_id when present
-        \Log::info('[MQTT_API] triggerOrder request received', [
-            'payload' => $request->all(),
-            'message_id' => $request->input('message_id')
-        ]);
-
         $validated = $request->validate([
-            'message_id' => 'sometimes|string',
             'order_id' => 'required|integer',
             'user_id' => 'required|integer',
             'type' => 'required|string|in:create,resume',
