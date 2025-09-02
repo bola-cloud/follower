@@ -66,6 +66,67 @@ class MqttResponseController extends Controller
                         'order_id' => $orderId,
                         'user_id' => $userId
                     ]);
+
+                    // Optional: auto-create missing action when configured.
+                    // This helps testing and late responses from devices that missed the ping->trigger cycle.
+                    $autoCreate = env('MQTT_AUTO_CREATE_MISSING', false);
+
+                    if ($autoCreate) {
+                        try {
+                            // Try to infer type from the order record if available
+                            $orderRow = DB::table('orders')->where('id', $orderId)->first();
+                            $actionType = $orderRow->type ?? 'create';
+
+                            DB::table('actions')->insert([
+                                'order_id' => $orderId,
+                                'user_id' => $userId,
+                                'type' => $actionType,
+                                'status' => $status,
+                                'performed_at' => now(),
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+
+                            \Log::info("[MQTT_API] Auto-created missing action", [
+                                'order_id' => $orderId,
+                                'user_id' => $userId,
+                                'status' => $status,
+                            ]);
+
+                            // If status is 'done' we must increment order done_count and possibly mark completed
+                            if ($status === 'done') {
+                                DB::table('orders')->where('id', $orderId)->increment('done_count');
+
+                                $ord = DB::table('orders')
+                                    ->where('id', $orderId)
+                                    ->first(['done_count', 'total_count', 'status']);
+
+                                if ($ord && $ord->done_count >= $ord->total_count && $ord->status !== 'completed') {
+                                    DB::table('orders')
+                                        ->where('id', $orderId)
+                                        ->update(['status' => 'completed']);
+                                    \Log::info("[MQTT_API] Order auto-marked as completed", ['order_id' => $orderId]);
+                                }
+                            }
+
+                            return response()->json([
+                                'success' => true,
+                                'message' => 'Action auto-created and processed.'
+                            ]);
+                        } catch (\Throwable $e) {
+                            \Log::error("[MQTT_API] Failed to auto-create action", [
+                                'order_id' => $orderId,
+                                'user_id' => $userId,
+                                'error' => $e->getMessage()
+                            ]);
+
+                            return response()->json([
+                                'success' => false,
+                                'message' => 'Action missing and auto-create failed.'
+                            ], 500);
+                        }
+                    }
+
                     return response()->json([
                         'success' => false,
                         'message' => 'Action record not found'
