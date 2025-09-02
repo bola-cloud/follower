@@ -97,11 +97,26 @@ client.on('message', async (topic, message) => {
     }
 
     try {
+      // Map device-level types (follow/like/...) to API-allowed types (create/resume)
+      let mappedType = 'create';
+      if (typeof type === 'string') {
+        const t = type.toLowerCase();
+        if (t === 'resume') mappedType = 'resume';
+        else mappedType = 'create';
+      }
+
+      // If the device didn't provide a user_id, skip calling trigger-order because
+      // the Laravel endpoint requires a numeric user_id (required|integer).
+      if (userId === null) {
+        console.warn('⚠️ Ping response missing user_id, skipping trigger-order:', payload);
+        return;
+      }
+
       const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, {
         order_id: orderId,
         // send null or numeric user_id depending on what we parsed
         user_id: userId,
-        type,
+        type: mappedType,
         activation: true
       });
 
