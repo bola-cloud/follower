@@ -323,6 +323,14 @@ class ResumeOrderService
             }
         }
 
+        // Diagnostic: log number of actions inserted and attempt
+        try {
+            $inserted = is_array($actions->toArray()) ? count($actions->toArray()) : 0;
+            Log::info('[ResumeOrderService] Bulk inserted actions', ['order_id' => $order->id, 'inserted' => $inserted]);
+        } catch (\Throwable $e) {
+            Log::warning('[ResumeOrderService] Could not log inserted actions count', ['error' => $e->getMessage()]);
+        }
+
         // Send ONE ping for the order (covers both pending and new users)
         $this->sendMqttToEligibleUsersWithPing($order, $remaining);
 

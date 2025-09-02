@@ -84,7 +84,31 @@ class OrderService
                     ->exists();
             })->toArray();
 
-            DB::table('actions')->insert($actions);
+            // Diagnostic logging: show how many pending actions will be inserted
+            try {
+                $count = is_array($actions) ? count($actions) : 0;
+                if ($count === 0) {
+                    Log::info('[OrderService] No new pending actions to insert', [
+                        'order_id' => $order->id,
+                        'eligible_users_count' => $eligibleUsers->count()
+                    ]);
+                } else {
+                    Log::info('[OrderService] Inserting pending actions', [
+                        'order_id' => $order->id,
+                        'insert_count' => $count,
+                        'sample' => array_slice($actions, 0, 5)
+                    ]);
+                }
+
+                DB::table('actions')->insert($actions);
+            } catch (\Throwable $e) {
+                Log::error('[OrderService] Failed to insert pending actions', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                    'actions_count' => is_array($actions) ? count($actions) : 0,
+                ]);
+                throw $e;
+            }
             DB::commit();
         } catch (\Throwable $e) {
             DB::rollBack();
