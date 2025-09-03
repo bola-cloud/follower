@@ -30,6 +30,8 @@ Route::post('/trigger-test-response', [SoketiTestController::class, 'triggerTest
 
 Route::get('/orders/{order_id}/eligible-users', [OrderController::class, 'eligibleUsers']);
 
+Route::post('/orders/publish-announcement', [OrderController::class, 'publishAnnouncement']);
+
 // Protected Routes (Require authentication)
 Route::middleware('auth:sanctum')->group(function () {
     Route::get('/user', function (Request $request) {
@@ -44,7 +46,6 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/promocode/redeem', [PromocodeController::class, 'redeem']);
     Route::get('/user/points', [AuthController::class, 'points']);
     Route::post('/user/process-active-orders', [OrderController::class, 'processActiveUserOrders']);
-    Route::post('/orders/publish-announcement', [OrderController::class, 'publishAnnouncement']);
     // Disconnect Google/Instagram account
     Route::post('/user/disconnect-account', [AuthController::class, 'disconnectAccount']);
 });
