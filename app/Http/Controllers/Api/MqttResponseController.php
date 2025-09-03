@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Cache;
 use App\Models\Order;
 use App\Models\User;
 
@@ -238,18 +239,37 @@ class MqttResponseController extends Controller
             'message_id' => $request->input('message_id')
         ]);
 
+        // Accept numeric strings from MQTT payloads and normalize 'type'
         $validated = $request->validate([
             'message_id' => 'sometimes|string',
-            'order_id' => 'required|integer',
-            'user_id' => 'required|integer',
-            'type' => 'required|string|in:create,resume',
+            'order_id' => 'required|numeric',
+            'user_id' => 'required|numeric',
+            // Accept any string here; we'll normalize below to map device action types
+            'type' => 'required|string',
             'activation' => 'sometimes|boolean',
             'bulk_processing' => 'sometimes|boolean', // Support bulk processing flag
         ]);
 
-        $orderId = $validated['order_id'];
-        $userId = $validated['user_id'];
-        $type = $validated['type'];
+        // Cast incoming ids to integers (handles numeric strings)
+        $orderId = (int) $validated['order_id'];
+        $userId = (int) $validated['user_id'];
+
+        // Normalize type: API expects 'create' or 'resume'. Device may send action types like 'follow' or 'like'.
+        $incomingType = strtolower($validated['type']);
+        if (in_array($incomingType, ['resume'])) {
+            $type = 'resume';
+        } else {
+            // Anything else (including 'follow', 'like', etc.) should be treated as a create activation
+            $type = 'create';
+        }
+
+        \Log::info('[MQTT_API] triggerOrder normalized', [
+            'message_id' => $validated['message_id'] ?? null,
+            'incoming_type' => $validated['type'],
+            'normalized_type' => $type,
+            'order_id' => $orderId,
+            'user_id' => $userId
+        ]);
         $activation = $validated['activation'] ?? true;
         $isBulk = $validated['bulk_processing'] ?? false;
 
