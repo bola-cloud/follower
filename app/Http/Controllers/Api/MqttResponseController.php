@@ -14,11 +14,11 @@ class MqttResponseController extends Controller
     public function handle(Request $request)
     {
         // 🚀 DEBUG: Log every incoming request
-        \Log::info("[MQTT_API] Request received", [
-            'payload' => $request->all(),
-            'ip' => $request->ip(),
-            'timestamp' => now()->toDateTimeString()
-        ]);
+        // \Log::info("[MQTT_API] Request received", [
+        //     'payload' => $request->all(),
+        //     'ip' => $request->ip(),
+        //     'timestamp' => now()->toDateTimeString()
+        // ]);
 
         $validated = $request->validate([
             'order_id' => 'required|integer',
@@ -30,11 +30,11 @@ class MqttResponseController extends Controller
         $userId = $validated['user_id'];
         $status = $validated['status'];
 
-        \Log::info("[MQTT_API] Processing", [
-            'order_id' => $orderId,
-            'user_id' => $userId,
-            'status' => $status
-        ]);
+        // \Log::info("[MQTT_API] Processing", [
+        //     'order_id' => $orderId,
+        //     'user_id' => $userId,
+        //     'status' => $status
+        // ]);
 
         try {
             // 🚀 OPTIMIZED: Use UPDATE with WHERE conditions to handle race conditions
@@ -81,13 +81,13 @@ class MqttResponseController extends Controller
                 }
             }
 
-            \Log::info("[MQTT_API] Update result", [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'status' => $status,
-                'rows_updated' => $updated,
-                'created' => $created
-            ]);
+            // \Log::info("[MQTT_API] Update result", [
+            //     'order_id' => $orderId,
+            //     'user_id' => $userId,
+            //     'status' => $status,
+            //     'rows_updated' => $updated,
+            //     'created' => $created
+            // ]);
 
             if ($updated === 0 && !$created) {
                 // verify whether action exists to give a helpful response
@@ -97,10 +97,10 @@ class MqttResponseController extends Controller
                     ->first();
 
                 if (!$action) {
-                    \Log::warning("[MQTT_API] Action not found", [
-                        'order_id' => $orderId,
-                        'user_id' => $userId
-                    ]);
+                    // \Log::warning("[MQTT_API] Action not found", [
+                    //     'order_id' => $orderId,
+                    //     'user_id' => $userId
+                    // ]);
 
                     return response()->json([
                         'success' => false,
@@ -109,12 +109,12 @@ class MqttResponseController extends Controller
                 }
 
                 // Action exists but wasn't updated (likely already done)
-                \Log::info("[MQTT_API] Action exists but not updated", [
-                    'order_id' => $orderId,
-                    'user_id' => $userId,
-                    'current_status' => $action->status,
-                    'requested_status' => $status
-                ]);
+                // \Log::info("[MQTT_API] Action exists but not updated", [
+                //     'order_id' => $orderId,
+                //     'user_id' => $userId,
+                //     'current_status' => $action->status,
+                //     'requested_status' => $status
+                // ]);
 
                 return response()->json([
                     'success' => true,
@@ -130,7 +130,7 @@ class MqttResponseController extends Controller
                     ->where('id', $orderId)
                     ->increment('done_count');
 
-                \Log::info("[MQTT_API] Incremented done_count for order", ['order_id' => $orderId]);
+                // \Log::info("[MQTT_API] Incremented done_count for order", ['order_id' => $orderId]);
 
                 // Check if order should be marked as completed (use fresh data)
                 $order = DB::table('orders')
@@ -143,19 +143,19 @@ class MqttResponseController extends Controller
                         ->where('status', '!=', 'completed') // Prevent race condition
                         ->update(['status' => 'completed']);
 
-                    \Log::info("[MQTT_API] Order marked as completed", [
-                        'order_id' => $orderId,
-                        'done_count' => $order->done_count,
-                        'total_count' => $order->total_count
-                    ]);
+                    // \Log::info("[MQTT_API] Order marked as completed", [
+                    //     'order_id' => $orderId,
+                    //     'done_count' => $order->done_count,
+                    //     'total_count' => $order->total_count
+                    // ]);
                 }
             }
 
-            \Log::info("[MQTT_API] Success", [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'status' => $status
-            ]);
+            // \Log::info("[MQTT_API] Success", [
+            //     'order_id' => $orderId,
+            //     'user_id' => $userId,
+            //     'status' => $status
+            // ]);
 
             return response()->json([
                 'success' => true,
@@ -233,11 +233,11 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
-        // Log incoming trigger requests and correlate with mqtt_handler via message_id when present
-        \Log::info('[MQTT_API] triggerOrder request received', [
-            'payload' => $request->all(),
-            'message_id' => $request->input('message_id')
-        ]);
+        // // Log incoming trigger requests and correlate with mqtt_handler via message_id when present
+        // \Log::info('[MQTT_API] triggerOrder request received', [
+        //     'payload' => $request->all(),
+        //     'message_id' => $request->input('message_id')
+        // ]);
 
         // Accept numeric strings from MQTT payloads and normalize 'type'
         $validated = $request->validate([
@@ -263,13 +263,13 @@ class MqttResponseController extends Controller
             $type = 'create';
         }
 
-        \Log::info('[MQTT_API] triggerOrder normalized', [
-            'message_id' => $validated['message_id'] ?? null,
-            'incoming_type' => $validated['type'],
-            'normalized_type' => $type,
-            'order_id' => $orderId,
-            'user_id' => $userId
-        ]);
+        // \Log::info('[MQTT_API] triggerOrder normalized', [
+        //     'message_id' => $validated['message_id'] ?? null,
+        //     'incoming_type' => $validated['type'],
+        //     'normalized_type' => $type,
+        //     'order_id' => $orderId,
+        //     'user_id' => $userId
+        // ]);
         $activation = $validated['activation'] ?? true;
         $isBulk = $validated['bulk_processing'] ?? false;
 
