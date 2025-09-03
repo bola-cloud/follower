@@ -145,11 +145,22 @@ class OrderService
         exec($command, $output, $exitCode);
 
         if ($exitCode !== 0) {
+            // Primary attempt failed (node script timeout or error). Log and fall back to a non-blocking publisher
             Log::warning('Failed to publish order announcement', [
                 'user_id' => $userId,
                 'order_id' => $orderId,
                 'exit_code' => $exitCode,
                 'output' => implode("\n", $output)
+            ]);
+
+            // Fallback: launch the same node publisher in background (non-blocking). This avoids long synchronous timeouts
+            $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
+            @exec($bgCommand);
+
+            Log::warning('Fallback publisher launched in background', [
+                'user_id' => $userId,
+                'order_id' => $orderId,
+                'bg_command' => $bgCommand
             ]);
         } else {
             Log::info('Order announcement published', [
