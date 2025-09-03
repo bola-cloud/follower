@@ -23,31 +23,31 @@ class BulkOrderProcessingJob implements ShouldQueue
         // Log::info("🚀 BulkOrderProcessingJob started");
 
         // 🚀 BULK PROCESSING: Process multiple orders in batches for high performance
-        $batchSize = 20; // Smaller batches to reduce MQTT flood
-        $maxIterations = 3; // Fewer iterations to reduce load
-        $totalProcessed = 0;
+        // $batchSize = 20; // Smaller batches to reduce MQTT flood
+        // $maxIterations = 3; // Fewer iterations to reduce load
+        // $totalProcessed = 0;
 
-        for ($i = 0; $i < $maxIterations; $i++) {
-            // 🚀 SIMPLIFIED QUERY: Get orders that need actions
-            $orders = Order::where('status', 'active')
-                ->where('done_count', '<', DB::raw('total_count'))
-                ->orderBy('created_at', 'asc')
-                ->limit($batchSize)
-                ->get();
+        // for ($i = 0; $i < $maxIterations; $i++) {
+        //     // 🚀 SIMPLIFIED QUERY: Get orders that need actions
+        //     $orders = Order::where('status', 'active')
+        //         ->where('done_count', '<', DB::raw('total_count'))
+        //         ->orderBy('created_at', 'asc')
+        //         ->limit($batchSize)
+        //         ->get();
 
-            // Log::info("Batch {$i}: Found {$orders->count()} orders to process");
+        //     // Log::info("Batch {$i}: Found {$orders->count()} orders to process");
 
-            if ($orders->isEmpty()) {
-                Log::info("No more orders to process, stopping");
-                break; // No more orders to process
-            }
+        //     if ($orders->isEmpty()) {
+        //         Log::info("No more orders to process, stopping");
+        //         break; // No more orders to process
+        //     }
 
-            $processed = $this->processBatchOrders($orders);
-            $totalProcessed += $processed;
+        //     $processed = $this->processBatchOrders($orders);
+        //     $totalProcessed += $processed;
 
-            // Small delay to let MQTT broker process messages
-            usleep(500000); // 0.5 second delay between batches
-        }
+        //     // Small delay to let MQTT broker process messages
+        //     usleep(500000); // 0.5 second delay between batches
+        // }
 
         // Log::info("🎯 BulkOrderProcessingJob completed. Total processed: {$totalProcessed}");
     }    private function processBatchOrders($orders): int

@@ -213,7 +213,7 @@ class OrderService
 
     public function handle(Order $order, User $user): array
     {
-        Log::warning('Bola create 1', [
+        Log::info('Bola create 1', [
             'user_id' => $user->id,
             'order_id' => $order->id,
         ]);
