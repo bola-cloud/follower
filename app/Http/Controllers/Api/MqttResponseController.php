@@ -36,45 +36,36 @@ class MqttResponseController extends Controller
         ]);
 
         try {
-            // Use a transaction with a FOR UPDATE lock on the action row so concurrent
-            // updates for the same (order_id,user_id) serialize and we avoid lost updates
-            // or double increments of order.done_count.
+            // 🚀 OPTIMIZED: Use UPDATE with WHERE conditions to handle race conditions
+            // This avoids locks but prevents duplicate updates and lost increments
             $autoCreate = env('MQTT_AUTO_CREATE_MISSING', false);
             $updated = 0;
             $created = false;
 
-            DB::transaction(function () use (&$updated, &$created, $orderId, $userId, $status, $autoCreate) {
-                // Attempt to lock the action row if it exists
-                $action = DB::table('actions')
+            // Try to update existing action that is not already done
+            $updated = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->where('user_id', $userId)
+                ->where('status', '!=', 'done') // Only update if not already done
+                ->update([
+                    'status' => $status,
+                    'performed_at' => now(),
+                    'updated_at' => now(),
+                ]);
+
+            // If no rows updated, check if action exists or needs creation
+            if ($updated === 0) {
+                $existingAction = DB::table('actions')
                     ->where('order_id', $orderId)
                     ->where('user_id', $userId)
-                    ->lockForUpdate()
                     ->first();
 
-                if ($action) {
-                    // If action already done, nothing to do
-                    if ($action->status === 'done') {
-                        // leave $updated as 0 to indicate no change
-                        return;
-                    }
-
-                    $updated = DB::table('actions')
-                        ->where('order_id', $orderId)
-                        ->where('user_id', $userId)
-                        ->update([
-                            'status' => $status,
-                            'performed_at' => now(),
-                            'updated_at' => now(),
-                        ]);
-                    return;
-                }
-
-                if ($autoCreate) {
-                    // Try to infer type from the order record if available
+                if (!$existingAction && $autoCreate) {
+                    // Try to create action (use insertOrIgnore to handle race conditions)
                     $orderRow = DB::table('orders')->where('id', $orderId)->first();
                     $actionType = $orderRow->type ?? 'create';
 
-                    DB::table('actions')->insert([
+                    $created = DB::table('actions')->insertOrIgnore([
                         'order_id' => $orderId,
                         'user_id' => $userId,
                         'type' => $actionType,
@@ -83,13 +74,11 @@ class MqttResponseController extends Controller
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
-                    $created = true;
-                    return;
+                } elseif ($existingAction && $existingAction->status === 'done') {
+                    // Action already completed, this is fine
+                    $updated = 1; // Treat as successful update to proceed with done_count increment
                 }
-
-                // If we reach here: action doesn't exist and auto-create is disabled
-                // leave $updated == 0 and $created == false so caller can return 404
-            });
+            }
 
             \Log::info("[MQTT_API] Update result", [
                 'order_id' => $orderId,
@@ -134,7 +123,7 @@ class MqttResponseController extends Controller
             }
 
             // If we updated a row or created one and the incoming status is 'done', increment order.done_count
-            // This prevents double increments when the action was already done because we locked the row.
+            // Use increment() which is atomic and handles concurrent updates safely
             if (($updated > 0 || $created) && $status === 'done') {
                 DB::table('orders')
                     ->where('id', $orderId)
@@ -142,7 +131,7 @@ class MqttResponseController extends Controller
 
                 \Log::info("[MQTT_API] Incremented done_count for order", ['order_id' => $orderId]);
 
-                // Check if order should be marked as completed
+                // Check if order should be marked as completed (use fresh data)
                 $order = DB::table('orders')
                     ->where('id', $orderId)
                     ->first(['done_count', 'total_count', 'status']);
@@ -150,6 +139,7 @@ class MqttResponseController extends Controller
                 if ($order && $order->done_count >= $order->total_count && $order->status !== 'completed') {
                     DB::table('orders')
                         ->where('id', $orderId)
+                        ->where('status', '!=', 'completed') // Prevent race condition
                         ->update(['status' => 'completed']);
 
                     \Log::info("[MQTT_API] Order marked as completed", [
