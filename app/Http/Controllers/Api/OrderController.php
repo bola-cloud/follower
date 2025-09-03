@@ -252,11 +252,6 @@ class OrderController extends Controller
      */
     public function publishAnnouncement(Request $request)
     {
-        $user = $request->user();
-        if (!$user || $user->type !== 'admin') {
-            return response()->json(['error' => 'Unauthorized. Admins only.'], 403);
-        }
-
         $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
             'user_id' => 'required|integer',
             'order_id' => 'required|integer',
