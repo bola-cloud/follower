@@ -213,6 +213,10 @@ class OrderService
 
     public function handle(Order $order, User $user): array
     {
+        Log::warning('Bola create 1', [
+            'user_id' => $user->id,
+            'order_id' => $order->id,
+        ]);
         // No transaction or lock needed here - triggerOrder already validated slots and eligibility
         // Just check basic eligibility and create the action
 
