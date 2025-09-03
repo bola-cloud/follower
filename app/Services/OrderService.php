@@ -171,6 +171,21 @@ class OrderService
         }
     }
 
+    /**
+     * Public wrapper to allow controlled invocation of the publisher from controllers or tests.
+     * This calls the existing private publisher and returns a simple result array.
+     */
+    public function publishAnnouncementPublic(int $userId, int $orderId, string $type, string $url): array
+    {
+        try {
+            $this->publishOrderAnnouncement($userId, $orderId, $type, $url);
+            return ['success' => true, 'message' => 'Publish attempted'];
+        } catch (\Throwable $e) {
+            Log::error('[OrderService] publishAnnouncementPublic failed', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
     private function sendMqttPing(Order $order)
     {
         static $sentOrders = [];

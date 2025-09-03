@@ -246,6 +246,35 @@ class OrderController extends Controller
         ]);
     }
 
+    /**
+     * Admin-only: Trigger the synchronous publisher for a specific user/order (testing/support)
+     * POST payload: { user_id, order_id, type, url }
+     */
+    public function publishAnnouncement(Request $request)
+    {
+        $user = $request->user();
+        if (!$user || $user->type !== 'admin') {
+            return response()->json(['error' => 'Unauthorized. Admins only.'], 403);
+        }
+
+        $validator = \Illuminate\Support\Facades\Validator::make($request->all(), [
+            'user_id' => 'required|integer',
+            'order_id' => 'required|integer',
+            'type' => 'required|string',
+            'url' => 'required|string'
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $data = $validator->validated();
+        $service = app(\App\Services\OrderService::class);
+        $result = $service->publishAnnouncementPublic((int)$data['user_id'], (int)$data['order_id'], $data['type'], $data['url']);
+
+        return response()->json($result);
+    }
+
     public function processActiveUserOrders(Request $request)
     {
         $user = $request->user();
