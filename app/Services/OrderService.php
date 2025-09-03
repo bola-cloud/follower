@@ -119,6 +119,47 @@ class OrderService
         }
     }
 
+    /**
+     * 🔄 SYNCHRONOUS ORDER ANNOUNCEMENT
+     * Publish order to users immediately (not queued) to ensure MQTT handler
+     * knows about the order before devices respond to pings
+     */
+    private function publishOrderAnnouncement($userId, $orderId, $type, $url)
+    {
+        $payloadArray = [
+            'user_id' => $userId,
+            'url' => $url,
+            'order_id' => $orderId,
+            'type' => $type,
+        ];
+
+        $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $escapedJson = escapeshellarg($json);
+        $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
+
+        // Execute synchronously and capture output for debugging
+        $command = "node {$scriptPath} {$escapedJson} 2>&1";
+        $output = [];
+        $exitCode = 0;
+
+        exec($command, $output, $exitCode);
+
+        if ($exitCode !== 0) {
+            Log::warning('Failed to publish order announcement', [
+                'user_id' => $userId,
+                'order_id' => $orderId,
+                'exit_code' => $exitCode,
+                'output' => implode("\n", $output)
+            ]);
+        } else {
+            Log::info('Order announcement published', [
+                'user_id' => $userId,
+                'order_id' => $orderId,
+                'output' => implode("\n", $output)
+            ]);
+        }
+    }
+
     private function sendMqttPing(Order $order)
     {
         static $sentOrders = [];
@@ -177,8 +218,8 @@ class OrderService
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
-                // Re-dispatch job for pending action
-                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                // Re-publish order announcement
+                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
                 return ['message' => 'Pending action re-dispatched for this user.'];
             }
             // Block if status is done or external
@@ -206,6 +247,10 @@ class OrderService
         }
 
         try {
+            // 🔄 SYNCHRONOUS ORDER ANNOUNCEMENT: Publish order to users BEFORE ping
+            // This ensures MQTT handler knows about the order before devices respond
+            $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+
             DB::table('actions')->insert([
                 'order_id' => $order->id,
                 'user_id' => $user->id,
@@ -214,9 +259,6 @@ class OrderService
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
-
-            // Dispatch job
-            dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
 
             return ['message' => 'User processed successfully.'];
         } catch (\Illuminate\Database\QueryException $e) {
@@ -238,7 +280,8 @@ class OrderService
 
                 if ($existingAction) {
                     if ($existingAction->status === 'pending') {
-                        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                        // Re-publish order announcement and return success
+                        $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
                         return ['message' => 'Pending action re-dispatched for this user.'];
                     }
                     if (in_array($existingAction->status, ['done', 'external'])) {
