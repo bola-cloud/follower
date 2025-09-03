@@ -121,7 +121,7 @@ client.on('message', async (topic, message) => {
 
   // ...existing code...
 
-  // order/ping/res — devices report they received a ping (activation)
+  // order/ping/res — devices report task completion (mark action as done)
   if (topic === 'order/ping/res') {
     // Support both shapes: activation_order_id or order_id
     const rawActivation = payload.activation_order_id ?? payload.order_id ?? payload.activationOrderId ?? payload.activationOrder_id;
@@ -129,11 +129,10 @@ client.on('message', async (topic, message) => {
     const type = payload.type;
 
     const orderId = rawActivation == null ? NaN : parseInt(rawActivation, 10);
-    // Allow user_id to be null (device didn't provide a user); forward null to API instead of rejecting
     const userId = rawUser == null ? null : parseInt(rawUser, 10);
 
-    if (!type || Number.isNaN(orderId)) {
-      console.error('❌ Invalid ping response payload:', {
+    if (!type || Number.isNaN(orderId) || userId === null || Number.isNaN(userId)) {
+      console.error('❌ Invalid ping response payload (missing order_id, user_id, or type):', {
         type,
         activation_order_id: Number.isNaN(orderId) ? rawActivation : orderId,
         user_id: userId,
@@ -145,31 +144,7 @@ client.on('message', async (topic, message) => {
     }
 
     try {
-      // Map device-level types (follow/like/...) to API-allowed types (create/resume)
-      let mappedType = 'create';
-      if (typeof type === 'string') {
-        const t = type.toLowerCase();
-        if (t === 'resume') mappedType = 'resume';
-        else mappedType = 'create';
-      }
-
-      // If the device didn't provide a user_id, skip calling trigger-order because
-      // the Laravel endpoint requires a numeric user_id (required|integer).
-      if (userId === null) {
-        console.warn('⚠️ Ping response missing user_id, skipping trigger-order:', payload);
-        return;
-      }
-
-      const messageId = randomUUID();
-      const postBody = {
-        message_id: messageId,
-        order_id: orderId,
-        // send null or numeric user_id depending on what we parsed
-        user_id: userId,
-        type: mappedType,
-        activation: true
-      };
-
+      try {
       // Detect if this order_id was previously announced via orders/+
       if (!KNOWN_ORDERS.has(orderId)) {
         const msg = `⚠️ Received ping response for unknown order ${orderId} (user ${userId})`;
@@ -178,9 +153,16 @@ client.on('message', async (topic, message) => {
         recordMissingOrder(orderId, payload, topic);
       }
 
-      const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
+      const res = await throttledPost(`${API_BASE}/api/mqtt/response`, {
+        order_id: orderId,
+        user_id: userId,
+        status: 'done'
+      });
 
-      if (DEBUG) console.log('✅ Triggered API:', res.data || res.status, 'message_id=', messageId);
+      if (DEBUG) console.log('✅ Action marked as done:', res.data || res.status, 'order=', orderId, 'user=', userId);
+    } catch (err) {
+      console.error('❌ Failed to mark action as done:', err.response?.data || err.message);
+    }
     } catch (err) {
       console.error('❌ Failed to trigger API for ping response:', err.response?.data || err.message);
     }
