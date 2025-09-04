@@ -153,10 +153,19 @@ class ActionQueueJob implements ShouldQueue
 
         try {
             // Update action with race condition protection
+            // Allow updating from 'pending' to any status, but prevent re-updating 'done' actions
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->where('user_id', $userId)
-                ->where('status', '!=', 'done') // Prevent duplicate updates
+                ->where(function($query) use ($status) {
+                    // If incoming status is 'done', allow update from any non-done status
+                    if ($status === 'done') {
+                        $query->where('status', '!=', 'done');
+                    } else {
+                        // For other statuses (like 'external'), allow update from 'pending' or same status
+                        $query->whereIn('status', ['pending', $status]);
+                    }
+                })
                 ->update([
                     'status' => $status,
                     'updated_at' => now(),
@@ -171,6 +180,7 @@ class ActionQueueJob implements ShouldQueue
 
                 if (!$existingAction && env('MQTT_AUTO_CREATE_MISSING', false)) {
                     // Create missing action
+                    Log::info("🔨 Creating missing action", ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]);
                     DB::table('actions')->insertOrIgnore([
                         'order_id' => $orderId,
                         'user_id' => $userId,
@@ -180,7 +190,31 @@ class ActionQueueJob implements ShouldQueue
                         'updated_at' => now(),
                     ]);
                     $updated = 1;
+                } else {
+                    // Log why the update was skipped
+                    if ($existingAction) {
+                        Log::warning("⚠️ Action update skipped", [
+                            'order_id' => $orderId,
+                            'user_id' => $userId,
+                            'requested_status' => $status,
+                            'current_status' => $existingAction->status,
+                            'action_id' => $existingAction->id
+                        ]);
+                    } else {
+                        Log::warning("⚠️ Action not found and auto-create disabled", [
+                            'order_id' => $orderId,
+                            'user_id' => $userId,
+                            'status' => $status
+                        ]);
+                    }
                 }
+            } else {
+                Log::info("✅ Action updated successfully", [
+                    'order_id' => $orderId,
+                    'user_id' => $userId,
+                    'status' => $status,
+                    'rows_affected' => $updated
+                ]);
             }
 
             // Increment order done_count if action was successful and status is 'done'
