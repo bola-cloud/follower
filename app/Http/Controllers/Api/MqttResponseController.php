@@ -539,6 +539,7 @@ class MqttResponseController extends Controller
                 ->where('status', '!=', 'done')
                 ->update([
                     'status' => $status,
+                    'performed_at' => now(),
                     'updated_at' => now(),
                 ]);
 
