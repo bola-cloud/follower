@@ -13,9 +13,11 @@ class ResumeOrderService
 {
     public function handle(Order $order, User $user): array
     {
-        Log::warning('Bola create 1', [
+        // Focused debug logging for resume processing
+        Log::debug('[ResumeOrderService] resume start', [
             'user_id' => $user->id,
             'order_id' => $order->id,
+            'order_type' => $order->type
         ]);
         // No transaction or lock needed here - triggerOrder already validated slots and eligibility
         // Just check basic eligibility and create the action
