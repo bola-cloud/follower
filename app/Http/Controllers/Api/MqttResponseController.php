@@ -28,10 +28,12 @@ class MqttResponseController extends Controller
         // ]);
 
         try {
+            // Accept status as a string then normalize below so unknown device statuses
+            // (for example 'busy') don't cause validation failures or heavy DB work.
             $validated = $request->validate([
                 'order_id' => 'required|integer',
                 'user_id' => 'required|integer',
-                'status' => 'required|in:done,external',
+                'status' => 'required|string',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             \Log::warning("[MQTT_API] Validation failed", [
@@ -43,7 +45,42 @@ class MqttResponseController extends Controller
 
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
-        $status = $validated['status'];
+
+        // Normalize status values coming from devices. Only allow known statuses
+        // to continue the DB processing. Unknown statuses (like 'busy') are
+        // acknowledged quickly to the device and ignored to avoid DB overload
+        // and invalid-state entries.
+        $rawStatus = strtolower(trim($validated['status']));
+        $allowed = ['done', 'external'];
+
+        if (in_array($rawStatus, $allowed, true)) {
+            $status = $rawStatus;
+        } elseif ($rawStatus === 'busy') {
+            // Device reports busy — acknowledge and ignore; log for visibility.
+            \Log::warning('[MQTT_API] Device reported busy - ignoring payload', [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'payload_status' => $rawStatus
+            ]);
+
+            // Return 202 Accepted quickly so MQTT clients don't block/retry heavily.
+            return response()->json([
+                'accepted' => true,
+                'message' => 'Device busy - status ignored'
+            ], 202);
+        } else {
+            // Unknown status — don't try to write unexpected values to the DB.
+            \Log::warning('[MQTT_API] Unknown status received - ignoring payload', [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'payload_status' => $rawStatus
+            ]);
+
+            return response()->json([
+                'accepted' => true,
+                'message' => 'Unknown status ignored'
+            ], 202);
+        }
 
         // \Log::info("[MQTT_API] Processing", [
         //     'order_id' => $orderId,
