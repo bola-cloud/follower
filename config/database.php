@@ -62,7 +62,9 @@ return [
                 PDO::MYSQL_ATTR_SSL_CA => env('MYSQL_ATTR_SSL_CA'),
                 PDO::ATTR_TIMEOUT => 30,
                 PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
-                PDO::MYSQL_ATTR_INIT_COMMAND => "SET sql_mode='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'",
+                // Use an environment-configurable SQL mode. NO_AUTO_CREATE_USER was removed in
+                // MySQL 8.0 and will cause errors on newer servers, so keep a safe default here.
+                PDO::MYSQL_ATTR_INIT_COMMAND => "SET sql_mode='" . env('DB_SQL_MODE', 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION') . "'",
                 PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true,
                 PDO::MYSQL_ATTR_FOUND_ROWS => true,
             ]) : [],

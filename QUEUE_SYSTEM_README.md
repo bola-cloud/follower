@@ -121,3 +121,15 @@ The system activates automatically when `MQTT_USE_QUEUE=true`. No code changes n
 - **Actions not updating**: Check Redis connection
 - **Still getting timeouts**: Verify MQTT_USE_QUEUE=true
 - **Database errors**: Check database configuration and connectivity
+
+### MySQL sql_mode compatibility
+
+- Newer MySQL versions (8.0+) removed the `NO_AUTO_CREATE_USER` SQL mode. If your server is MySQL 8+ and you see errors mentioning `NO_AUTO_CREATE_USER`, ensure you set a compatible SQL mode in your environment.
+
+Set `DB_SQL_MODE` in your `.env` to a safe default (example):
+
+```bash
+DB_SQL_MODE=STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION
+```
+
+The application will use `DB_SQL_MODE` if present; otherwise it falls back to a safe default that excludes `NO_AUTO_CREATE_USER`.

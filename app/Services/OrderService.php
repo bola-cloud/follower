@@ -283,7 +283,7 @@ class OrderService
             // This ensures MQTT handler knows about the order before devices respond
             $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
 
-            DB::table('actions')->insert([
+            $inserted = DB::table('actions')->insertOrIgnore([
                 'order_id' => $order->id,
                 'user_id' => $user->id,
                 'type' => $order->type,
@@ -291,6 +291,29 @@ class OrderService
                 'created_at' => now(),
                 'updated_at' => now(),
             ]);
+
+            if ($inserted === 0) {
+                // Another worker likely inserted the same action concurrently. Fetch and respond accordingly.
+                $existingAction = DB::table('actions')
+                    ->select('status')
+                    ->where('order_id', $order->id)
+                    ->where('user_id', $user->id)
+                    ->first();
+
+                if ($existingAction) {
+                    if ($existingAction->status === 'pending') {
+                        $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+                        return ['message' => 'Pending action re-dispatched for this user.'];
+                    }
+                    if (in_array($existingAction->status, ['done', 'external'])) {
+                        return ['error' => 'User already completed or has external action for this order.'];
+                    }
+                    return ['error' => 'Action already exists for this user.'];
+                }
+
+                // If no existing action found after an ignored insert, fall through to a generic response
+                return ['error' => 'Failed to create action due to concurrent activity.'];
+            }
 
             return ['message' => 'User processed successfully.'];
         } catch (\Illuminate\Database\QueryException $e) {
