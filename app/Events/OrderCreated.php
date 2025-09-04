@@ -120,7 +120,11 @@ class OrderCreated implements ShouldBroadcast
                     ->exists();
             })->toArray();
 
-            DB::table('actions')->insert($actions);
+            // Use insertOrIgnore to avoid duplicate-key errors when multiple processes
+            // create pending actions concurrently. We already filtered existing entries,
+            // but insertOrIgnore provides an additional safety net.
+            $inserted = DB::table('actions')->insertOrIgnore($actions);
+            \Log::info('OrderCreated: pending actions insert attempt', ['order_id' => $order->id, 'attempted' => count($actions), 'inserted' => $inserted]);
 
             DB::commit();
         } catch (\Throwable $e) {

@@ -253,7 +253,7 @@ class ResumeOrderService
             ->first();
 
         if (!$existingAction) {
-            DB::table('actions')->insert([
+            DB::table('actions')->insertOrIgnore([
                 'order_id' => $order->id,
                 'user_id' => $user->id,
                 'type' => $order->type,
