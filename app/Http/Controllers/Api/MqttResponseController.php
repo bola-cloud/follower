@@ -13,6 +13,12 @@ class MqttResponseController extends Controller
 {
     public function handle(Request $request)
     {
+        // Check database connectivity first
+        if (!$this->checkDatabaseConnectivity()) {
+            \Log::error("[MQTT_API] Database connection failed, rejecting request");
+            return response()->json(['error' => 'Database temporarily unavailable'], 503);
+        }
+
         // 🚀 DEBUG: Log every incoming request
         // \Log::info("[MQTT_API] Request received", [
         //     'payload' => $request->all(),
@@ -20,11 +26,19 @@ class MqttResponseController extends Controller
         //     'timestamp' => now()->toDateTimeString()
         // ]);
 
-        $validated = $request->validate([
-            'order_id' => 'required|integer',
-            'user_id' => 'required|integer',
-            'status' => 'required|in:done,external',
-        ]);
+        try {
+            $validated = $request->validate([
+                'order_id' => 'required|integer',
+                'user_id' => 'required|integer',
+                'status' => 'required|in:done,external',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::warning("[MQTT_API] Validation failed", [
+                'payload' => $request->all(),
+                'errors' => $e->errors()
+            ]);
+            return response()->json(['error' => 'Invalid request data'], 422);
+        }
 
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
@@ -35,6 +49,11 @@ class MqttResponseController extends Controller
         //     'user_id' => $userId,
         //     'status' => $status
         // ]);
+
+        // 🚀 QUEUE ACTIONS: Store actions for batch processing to prevent database overload
+        if (env('MQTT_USE_QUEUE', true)) {
+            return $this->queueActionForProcessing($orderId, $userId, $status, $request);
+        }
 
         try {
             // 🚀 OPTIMIZED: Use UPDATE with WHERE conditions to handle race conditions
@@ -163,6 +182,12 @@ class MqttResponseController extends Controller
             ]);
 
         } catch (\Illuminate\Database\QueryException $ex) {
+            // Handle connection refused specifically
+            if (strpos($ex->getMessage(), 'Connection refused') !== false || strpos($ex->getMessage(), '2002') !== false) {
+                \Log::error('[MQTT_API] Database connection refused while updating action ' . $orderId . '/' . $userId);
+                return response()->json(['error' => 'Database temporarily unavailable'], 503);
+            }
+
             // Handle lock wait timeout specifically (MySQL code 1205 or message contains Lock wait timeout)
             if (strpos($ex->getMessage(), '1205') !== false || strpos($ex->getMessage(), 'Lock wait timeout') !== false) {
                 \Log::warning('[MQTT_API] Lock wait timeout while updating action ' . $orderId . '/' . $userId);
@@ -233,6 +258,12 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
+        // Check database connectivity first
+        if (!$this->checkDatabaseConnectivity()) {
+            \Log::error("[triggerOrder] Database connection failed, rejecting request");
+            return response()->json(['error' => 'Database temporarily unavailable'], 503);
+        }
+
         // // Log incoming trigger requests and correlate with mqtt_handler via message_id when present
         // \Log::info('[MQTT_API] triggerOrder request received', [
         //     'payload' => $request->all(),
@@ -322,6 +353,17 @@ class MqttResponseController extends Controller
                 $service = app(\App\Services\OrderService::class);
                 $result = $service->handle($order, $user);
             }
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Handle database connection issues specifically
+            if (strpos($e->getMessage(), 'Connection refused') !== false || strpos($e->getMessage(), '2002') !== false) {
+                \Log::error('[triggerOrder] Database connection refused for order ' . $orderId . ': ' . $e->getMessage());
+                return response()->json(['error' => 'Database temporarily unavailable'], 503);
+            }
+
+            // Log other database errors and return a safe response
+            \Log::error('[triggerOrder] Database error while handling order ' . $orderId . ': ' . $e->getMessage());
+            return response()->json(['error' => 'Database error occurred.'], 500);
+
         } catch (\Throwable $e) {
             // Log error and return a safe response
             \Log::error('[triggerOrder] Error while handling order ' . $orderId . ': ' . $e->getMessage());
@@ -374,6 +416,127 @@ class MqttResponseController extends Controller
                 'success' => false,
                 'message' => 'Fast trigger failed: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Queue action for batch processing to prevent database overload
+     */
+    private function queueActionForProcessing($orderId, $userId, $status, $request)
+    {
+        try {
+            $actionData = [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status,
+                'type' => 'follow', // Default type
+                'timestamp' => now()->toDateTimeString(),
+                'ip' => $request->ip(),
+            ];
+
+            // Store in cache queue for batch processing
+            $cacheKey = 'mqtt_actions_queue';
+            $existing = \Cache::get($cacheKey, []);
+            $existing[] = $actionData;
+            
+            // Keep only recent actions (last 1000)
+            if (count($existing) > 1000) {
+                $existing = array_slice($existing, -1000);
+            }
+            
+            \Cache::put($cacheKey, $existing, now()->addHours(1));
+
+            \Log::info("[MQTT_API] Action queued for batch processing", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status,
+                'queue_size' => count($existing)
+            ]);
+
+            // Dispatch ActionQueueJob if not already running
+            $this->ensureActionQueueJobRunning();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Action queued for processing',
+                'queued' => true
+            ]);
+
+        } catch (\Throwable $e) {
+            \Log::error("[MQTT_API] Failed to queue action: " . $e->getMessage(), [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status
+            ]);
+
+            // Fallback to immediate processing if queuing fails
+            return $this->processActionImmediately($orderId, $userId, $status);
+        }
+    }
+
+    /**
+     * Ensure ActionQueueJob is running to process queued actions
+     */
+    private function ensureActionQueueJobRunning()
+    {
+        $lockKey = 'action_queue_job_running';
+        
+        if (!\Cache::has($lockKey)) {
+            // Set lock for 2 minutes
+            \Cache::put($lockKey, true, now()->addMinutes(2));
+            
+            // Dispatch the job with a small delay
+            \App\Jobs\ActionQueueJob::dispatch()->delay(now()->addSeconds(2));
+            
+            \Log::info("🚀 ActionQueueJob dispatched");
+        }
+    }
+
+    /**
+     * Fallback: Process action immediately if queuing fails
+     */
+    private function processActionImmediately($orderId, $userId, $status)
+    {
+        try {
+            // Simplified immediate processing
+            $updated = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->where('user_id', $userId)
+                ->where('status', '!=', 'done')
+                ->update([
+                    'status' => $status,
+                    'updated_at' => now(),
+                ]);
+
+            if ($updated > 0 && $status === 'done') {
+                DB::table('orders')
+                    ->where('id', $orderId)
+                    ->increment('done_count');
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Action processed immediately',
+                'fallback' => true
+            ]);
+
+        } catch (\Throwable $e) {
+            \Log::error("[MQTT_API] Immediate processing failed: " . $e->getMessage());
+            return response()->json(['error' => 'Processing failed'], 500);
+        }
+    }
+
+    /**
+     * Check if database connection is available before processing
+     */
+    private function checkDatabaseConnectivity(): bool
+    {
+        try {
+            DB::connection()->getPdo();
+            return true;
+        } catch (\Throwable $e) {
+            \Log::error("[MQTT_API] Database connectivity check failed: " . $e->getMessage());
+            return false;
         }
     }
 }
