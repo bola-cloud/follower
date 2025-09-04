@@ -10,6 +10,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Redis;
 
 class ActionQueueJob implements ShouldQueue
 {
@@ -80,19 +81,15 @@ class ActionQueueJob implements ShouldQueue
      */
     private function getPendingActions($limit)
     {
-        $cacheKey = 'mqtt_actions_queue';
-        $actions = Cache::get($cacheKey, []);
+    $redisKey = 'mqtt_actions_queue';
+        $batch = [];
 
-        if (empty($actions)) {
-            return [];
+        for ($i = 0; $i < $limit; $i++) {
+            $item = Redis::lpop($redisKey);
+            if ($item === null) break;
+            $decoded = json_decode($item, true);
+            if ($decoded !== null) $batch[] = $decoded;
         }
-
-        // Take the first batch
-        $batch = array_slice($actions, 0, $limit);
-
-        // Remove processed actions from cache
-        $remaining = array_slice($actions, $limit);
-        Cache::put($cacheKey, $remaining, now()->addHours(1));
 
         return $batch;
     }
@@ -102,9 +99,8 @@ class ActionQueueJob implements ShouldQueue
      */
     private function hasPendingActions()
     {
-        $cacheKey = 'mqtt_actions_queue';
-        $actions = Cache::get($cacheKey, []);
-        return !empty($actions);
+    $redisKey = 'mqtt_actions_queue';
+    return Redis::llen($redisKey) > 0;
     }
 
     /**
@@ -230,12 +226,12 @@ class ActionQueueJob implements ShouldQueue
     {
         if (empty($actions)) return;
 
-        $cacheKey = 'mqtt_actions_queue';
-        $existing = Cache::get($cacheKey, []);
-
-        // Add failed actions back to the front of the queue
-        $updated = array_merge($actions, $existing);
-        Cache::put($cacheKey, $updated, now()->addHours(1));
+        $redisKey = 'mqtt_actions_queue';
+        // Push back to the front of the list in the same order
+        foreach (array_reverse($actions) as $act) {
+            Redis::lpush($redisKey, json_encode($act));
+        }
+        Redis::expire($redisKey, 3600);
 
         Log::info("🔄 Re-queued " . count($actions) . " actions for later processing");
     }

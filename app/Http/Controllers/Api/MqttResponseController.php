@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Redis;
 use App\Models\Order;
 use App\Models\User;
 
@@ -433,24 +434,20 @@ class MqttResponseController extends Controller
                 'timestamp' => now()->toDateTimeString(),
                 'ip' => $request->ip(),
             ];
+            // Store in Redis list for atomic append (safer under high concurrency)
+            $redisKey = 'mqtt_actions_queue';
+            Redis::rpush($redisKey, json_encode($actionData));
+            // Trim to keep only most recent 1000
+            Redis::ltrim($redisKey, -1000, -1);
+            // Set expiry to avoid stale growth
+            Redis::expire($redisKey, 3600);
 
-            // Store in cache queue for batch processing
-            $cacheKey = 'mqtt_actions_queue';
-            $existing = \Cache::get($cacheKey, []);
-            $existing[] = $actionData;
-
-            // Keep only recent actions (last 1000)
-            if (count($existing) > 1000) {
-                $existing = array_slice($existing, -1000);
-            }
-
-            \Cache::put($cacheKey, $existing, now()->addHours(1));
-
+            $queueSize = Redis::llen($redisKey);
             \Log::info("[MQTT_API] Action queued for batch processing", [
                 'order_id' => $orderId,
                 'user_id' => $userId,
                 'status' => $status,
-                'queue_size' => count($existing)
+                'queue_size' => $queueSize
             ]);
 
             // Dispatch ActionQueueJob if not already running

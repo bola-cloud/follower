@@ -80,7 +80,7 @@ Route::get('/health/queue-db', function () {
         $db = false;
     }
 
-    $queueSize = Cache::get('mqtt_actions_queue', []);
+    $queueSize = \Illuminate\Support\Facades\Redis::llen('mqtt_actions_queue');
     $lastRun = Cache::get('bulk_order_last_run_at');
 
     return response()->json([
