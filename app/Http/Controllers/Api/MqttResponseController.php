@@ -438,12 +438,12 @@ class MqttResponseController extends Controller
             $cacheKey = 'mqtt_actions_queue';
             $existing = \Cache::get($cacheKey, []);
             $existing[] = $actionData;
-            
+
             // Keep only recent actions (last 1000)
             if (count($existing) > 1000) {
                 $existing = array_slice($existing, -1000);
             }
-            
+
             \Cache::put($cacheKey, $existing, now()->addHours(1));
 
             \Log::info("[MQTT_API] Action queued for batch processing", [
@@ -480,14 +480,14 @@ class MqttResponseController extends Controller
     private function ensureActionQueueJobRunning()
     {
         $lockKey = 'action_queue_job_running';
-        
+
         if (!\Cache::has($lockKey)) {
             // Set lock for 2 minutes
             \Cache::put($lockKey, true, now()->addMinutes(2));
-            
+
             // Dispatch the job with a small delay
             \App\Jobs\ActionQueueJob::dispatch()->delay(now()->addSeconds(2));
-            
+
             \Log::info("🚀 ActionQueueJob dispatched");
         }
     }

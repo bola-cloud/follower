@@ -51,7 +51,7 @@ class ActionQueueJob implements ShouldQueue
         for ($batch = 0; $batch < $maxBatches; $batch++) {
             // Get pending actions from cache
             $actions = $this->getPendingActions($batchSize);
-            
+
             if (empty($actions)) {
                 Log::info("✅ No more pending actions to process");
                 break;
@@ -82,14 +82,14 @@ class ActionQueueJob implements ShouldQueue
     {
         $cacheKey = 'mqtt_actions_queue';
         $actions = Cache::get($cacheKey, []);
-        
+
         if (empty($actions)) {
             return [];
         }
 
         // Take the first batch
         $batch = array_slice($actions, 0, $limit);
-        
+
         // Remove processed actions from cache
         $remaining = array_slice($actions, $limit);
         Cache::put($cacheKey, $remaining, now()->addHours(1));
@@ -118,10 +118,10 @@ class ActionQueueJob implements ShouldQueue
             try {
                 $this->processAction($actionData);
                 $processed++;
-                
+
                 // Tiny delay between individual actions
                 usleep(100000); // 0.1 second
-                
+
             } catch (\Illuminate\Database\QueryException $e) {
                 if (strpos($e->getMessage(), 'Connection refused') !== false) {
                     Log::error("❌ Database connection lost during batch processing");
@@ -129,10 +129,10 @@ class ActionQueueJob implements ShouldQueue
                     $this->requeueActions(array_slice($actions, $processed));
                     throw $e;
                 }
-                
+
                 Log::warning("⚠️ Database error processing action: " . $e->getMessage(), $actionData);
                 continue;
-                
+
             } catch (\Throwable $e) {
                 Log::warning("⚠️ Error processing action: " . $e->getMessage(), $actionData);
                 continue;
@@ -154,7 +154,7 @@ class ActionQueueJob implements ShouldQueue
         Log::debug("🔄 Processing action", ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]);
 
         DB::beginTransaction();
-        
+
         try {
             // Update action with race condition protection
             $updated = DB::table('actions')
@@ -232,11 +232,11 @@ class ActionQueueJob implements ShouldQueue
 
         $cacheKey = 'mqtt_actions_queue';
         $existing = Cache::get($cacheKey, []);
-        
+
         // Add failed actions back to the front of the queue
         $updated = array_merge($actions, $existing);
         Cache::put($cacheKey, $updated, now()->addHours(1));
-        
+
         Log::info("🔄 Re-queued " . count($actions) . " actions for later processing");
     }
 
