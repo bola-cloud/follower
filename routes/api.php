@@ -9,6 +9,8 @@ use App\Http\Controllers\SoketiTestController;
 use Illuminate\Support\Facades\Broadcast;
 use App\Http\Controllers\Admin\Dashboard;
 use App\Http\Controllers\Api\PromocodeController;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 
 /*
 |--------------------------------------------------------------------------
@@ -68,3 +70,22 @@ Route::get('/test/process-active-orders/{userId}', [OrderController::class, 'tes
 Route::get('/settings', [SettingController::class, 'index']);
 Route::get('/chart/users', [Dashboard::class, 'users']);
 Route::get('/chart/actions', [Dashboard::class, 'actions']);
+
+// Lightweight health endpoint: DB connectivity + queued actions size + last bulk run
+Route::get('/health/queue-db', function () {
+    try {
+        DB::connection()->getPdo();
+        $db = true;
+    } catch (\Throwable $e) {
+        $db = false;
+    }
+
+    $queueSize = Cache::get('mqtt_actions_queue', []);
+    $lastRun = Cache::get('bulk_order_last_run_at');
+
+    return response()->json([
+        'db_connected' => $db,
+        'queued_actions' => is_array($queueSize) ? count($queueSize) : 0,
+        'last_bulk_run_at' => $lastRun ? date('c', (int) $lastRun) : null,
+    ]);
+});

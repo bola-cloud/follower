@@ -9,6 +9,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 use App\Models\Order;
 
 class BulkOrderProcessingJob implements ShouldQueue
@@ -22,6 +23,33 @@ class BulkOrderProcessingJob implements ShouldQueue
     public function handle()
     {
         Log::info("🚀 BulkOrderProcessingJob started");
+
+        // Prevent overlapping executions using a distributed lock (Redis)
+        try {
+            $lock = Cache::lock('bulk_order_processing_lock', 60);
+        } catch (\Throwable $e) {
+            // If cache/lock unavailable, proceed but be cautious
+            Log::warning('BulkOrderProcessingJob: cache lock unavailable, proceeding without it: ' . $e->getMessage());
+            $lock = null;
+        }
+
+        if ($lock) {
+            if (!$lock->get()) {
+                Log::info('BulkOrderProcessingJob: another instance is running, exiting early');
+                return;
+            }
+        }
+
+        // Enforce a minimum interval between runs to reduce churn
+        $minIntervalSeconds = 8; // minimum seconds between runs
+        $lastRunKey = 'bulk_order_last_run_at';
+        $lastRun = Cache::get($lastRunKey);
+        if ($lastRun && (time() - (int) $lastRun) < $minIntervalSeconds) {
+            Log::info('BulkOrderProcessingJob: ran recently, skipping this run');
+            if ($lock) { $lock->release(); }
+            return;
+        }
+        Cache::put($lastRunKey, time(), now()->addMinutes(5));
 
         try {
             // Check database connectivity first
@@ -55,7 +83,9 @@ class BulkOrderProcessingJob implements ShouldQueue
                     $totalProcessed += $processed;
 
                     // Much longer delay to reduce system load
-                    sleep(5); // 5 second delay between batches
+                    // 5 second delay between batches with small jitter to avoid thundering herd
+                    $delay = 5 + rand(0, 2);
+                    sleep($delay);
 
                 } catch (\Illuminate\Database\QueryException $e) {
                     Log::error("❌ Database error in batch {$i}: " . $e->getMessage());
@@ -79,8 +109,11 @@ class BulkOrderProcessingJob implements ShouldQueue
 
             Log::info("🎯 BulkOrderProcessingJob completed. Total processed: {$totalProcessed}");
 
+            if ($lock) { $lock->release(); }
+
         } catch (\Throwable $e) {
             Log::error("❌ BulkOrderProcessingJob failed: " . $e->getMessage());
+            if (isset($lock) && $lock) { try { $lock->release(); } catch (\Throwable $inner) { Log::warning('Failed to release lock: ' . $inner->getMessage()); } }
             throw $e; // Re-throw to trigger retry mechanism
         }
     }
@@ -110,7 +143,8 @@ class BulkOrderProcessingJob implements ShouldQueue
                 $processed++;
 
                 // Small delay between individual pings
-                usleep(200000); // 0.2 second delay
+                // Add slight random jitter per-ping to spread load
+                usleep((200000 + rand(0, 100000))); // 0.2 - 0.3 second
 
             } catch (\Throwable $e) {
                 Log::error("❌ Failed to process order {$order->id}: " . $e->getMessage());
