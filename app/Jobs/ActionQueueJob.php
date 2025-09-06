@@ -168,7 +168,6 @@ class ActionQueueJob implements ShouldQueue
                 })
                 ->update([
                     'status' => $status,
-                    'performed_at' => now(),
                     'updated_at' => now(),
                 ]);
 
@@ -188,8 +187,6 @@ class ActionQueueJob implements ShouldQueue
                         'type' => $actionData['type'] ?? 'follow',
                         'status' => $status,
                         'performed_at' => now(),
-                        'created_at' => now(),
-                        'updated_at' => now(),
                     ]);
                     $updated = 1;
                 } else {
