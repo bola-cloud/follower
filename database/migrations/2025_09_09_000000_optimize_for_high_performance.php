@@ -71,7 +71,7 @@ return new class extends Migration
 
         foreach ($optimizations as $sql) {
             // extract variable name (e.g. max_connections) from the SQL
-            if (!preg_match("/SET\\s+GLOBAL\\s+([^\\s=]+)\\s*=.*/i", $sql, $m)) {
+            if (!preg_match("/SET\s+GLOBAL\s+([^\s=]+)\s*=.*/i", $sql, $m)) {
                 echo "⚠️ Skipping invalid SQL: {$sql}\n";
                 continue;
             }
@@ -92,7 +92,7 @@ return new class extends Migration
                 // Use unprepared to avoid COM_STMT_PREPARE / prepared-statement issues on some drivers
                 DB::unprepared($sql);
                 echo "✅ Applied: {$sql}\n";
-            } catch (\\Exception $e) {
+            } catch (\Exception $e) {
                 // Don't rethrow; this migration should not break on servers without SUPER privileges
                 echo "⚠️ Failed: {$sql} - {$e->getMessage()}\n";
             }
@@ -110,8 +110,8 @@ return new class extends Migration
         try {
             DB::statement("ALTER TABLE `{$table}` ADD INDEX `{$indexName}` {$columns}");
             echo "✅ Added index {$indexName} on {$table}\n";
-        } catch (\\Exception $e) {
-                echo "⚠️ Failed to add index {$indexName} on {$table} - {$e->getMessage()}\n";
+        } catch (\Exception $e) {
+            echo "⚠️ Failed to add index {$indexName} on {$table} - {$e->getMessage()}\n";
         }
     }
 
@@ -126,8 +126,8 @@ return new class extends Migration
         try {
             DB::statement("ALTER TABLE `{$table}` DROP INDEX `{$indexName}`");
             echo "✅ Dropped index {$indexName} on {$table}\n";
-        } catch (\\Exception $e) {
-                echo "⚠️ Failed to drop index {$indexName} on {$table} - {$e->getMessage()}\n";
+        } catch (\Exception $e) {
+            echo "⚠️ Failed to drop index {$indexName} on {$table} - {$e->getMessage()}\n";
         }
     }
 
@@ -140,7 +140,7 @@ return new class extends Migration
             );
 
             return isset($res->c) ? ((int)$res->c > 0) : false;
-        } catch (\\Exception $e) {
+        } catch (\Exception $e) {
             // If the check fails, be conservative and assume it exists to avoid duplicate creation
             echo "⚠️ indexExists check failed for {$table}.{$indexName} - {$e->getMessage()}\n";
             return true;
