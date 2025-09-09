@@ -45,8 +45,8 @@ class ActionQueueJob implements ShouldQueue
      */
     private function processBatchedActions()
     {
-        $batchSize = 5; // Very small batches
-        $maxBatches = 10; // Maximum batches per job run
+        $batchSize = 20; // Increased batch size for better efficiency
+        $maxBatches = 5; // Reduced max batches but larger sizes
         $totalProcessed = 0;
 
         for ($batch = 0; $batch < $maxBatches; $batch++) {
@@ -63,8 +63,8 @@ class ActionQueueJob implements ShouldQueue
             $processed = $this->processBatch($actions);
             $totalProcessed += $processed;
 
-            // Small delay between batches
-            usleep(500000); // 0.5 second delay
+            // Smaller delay between batches for faster processing
+            usleep(200000); // 0.2 second delay
         }
 
         Log::info("🎯 ActionQueueJob completed. Total processed: {$totalProcessed}");
@@ -115,8 +115,7 @@ class ActionQueueJob implements ShouldQueue
                 $this->processAction($actionData);
                 $processed++;
 
-                // Tiny delay between individual actions
-                usleep(100000); // 0.1 second
+                // Removed individual action delay for faster processing
 
             } catch (\Illuminate\Database\QueryException $e) {
                 if (strpos($e->getMessage(), 'Connection refused') !== false) {

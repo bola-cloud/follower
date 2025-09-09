@@ -64,11 +64,9 @@ return [
 
         'redis' => [
             'driver' => 'redis',
-            'connection' => 'default',
-            'queue' => env('REDIS_QUEUE', 'default'),
-            'retry_after' => 90,
-            'block_for' => null,
-            'after_commit' => false,
+            'connection' => 'queue', // <- use the DB2 connection above
+            'retry_after' => 150,     // > longest job runtime
+            'block_for'   => 5,       // BRPOP blocks up to 5s (no busy loop)
         ],
 
     ],
