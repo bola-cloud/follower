@@ -43,9 +43,9 @@ class MqttLoadTest extends Command
         $endTime = microtime(true);
 
         $duration = $endTime - $startTime;
-        $totalRequests = count($results);
-        $successfulRequests = count(array_filter($results, fn($r) => $r['success']));
-        $failedRequests = $totalRequests - $successfulRequests;
+    $totalRequests = count($results);
+    $successfulRequests = count(array_filter($results, fn($r) => $r['success']));
+    $failedRequests = $totalRequests - $successfulRequests;
 
         // Wait a bit for async processing
         $this->info("Waiting 10 seconds for async processing...");
@@ -53,7 +53,7 @@ class MqttLoadTest extends Command
 
         // Check final database state
         $finalCount = $this->getActionCount($orderId);
-        $recordedActions = $finalCount - $initialCount;
+    $recordedActions = $finalCount - $initialCount;
 
         // Display results
         $this->info("\n📊 Load Test Results:");
@@ -64,20 +64,28 @@ class MqttLoadTest extends Command
                 ['Total Requests', $totalRequests],
                 ['Successful Requests', $successfulRequests],
                 ['Failed Requests', $failedRequests],
-                ['Success Rate', round(($successfulRequests / $totalRequests) * 100, 2) . '%'],
-                ['Requests per Second', round($totalRequests / $duration, 2)],
-                ['Average Response Time', round(array_sum(array_column($results, 'duration')) / $totalRequests, 4) . ' seconds'],
+                ['Success Rate', $totalRequests > 0 ? round(($successfulRequests / $totalRequests) * 100, 2) . '%' : '0%'],
+                ['Requests per Second', $duration > 0 ? round($totalRequests / $duration, 2) : '0'],
+                ['Average Response Time', $totalRequests > 0 ? round(array_sum(array_column($results, 'duration')) / $totalRequests, 4) . ' seconds' : '0 seconds'],
                 ['Actions Recorded in DB', $recordedActions],
-                ['Recording Success Rate', round(($recordedActions / $successfulRequests) * 100, 2) . '%']
+                ['Recording Success Rate', $successfulRequests > 0 ? round(($recordedActions / $successfulRequests) * 100, 2) . '%' : '0%']
             ]
         );
 
         // Response time distribution
         $responseTimes = array_column($results, 'duration');
         sort($responseTimes);
-        $p50 = $responseTimes[intval(count($responseTimes) * 0.5)];
-        $p95 = $responseTimes[intval(count($responseTimes) * 0.95)];
-        $p99 = $responseTimes[intval(count($responseTimes) * 0.99)];
+        if (count($responseTimes) === 0) {
+            $p50 = $p95 = $p99 = 0.0;
+            $minRt = 0.0;
+            $maxRt = 0.0;
+        } else {
+            $p50 = $responseTimes[intval(count($responseTimes) * 0.5)];
+            $p95 = $responseTimes[intval(count($responseTimes) * 0.95)];
+            $p99 = $responseTimes[intval(count($responseTimes) * 0.99)];
+            $minRt = min($responseTimes);
+            $maxRt = max($responseTimes);
+        }
 
         $this->info("\n⏱️ Response Time Distribution:");
         $this->table(
@@ -86,8 +94,8 @@ class MqttLoadTest extends Command
                 ['50th (Median)', round($p50, 4)],
                 ['95th', round($p95, 4)],
                 ['99th', round($p99, 4)],
-                ['Min', round(min($responseTimes), 4)],
-                ['Max', round(max($responseTimes), 4)]
+                ['Min', round($minRt, 4)],
+                ['Max', round($maxRt, 4)]
             ]
         );
 
@@ -194,7 +202,7 @@ class MqttLoadTest extends Command
     {
         $this->info("\n🎯 Performance Assessment:");
 
-        $rps = $successful / $duration;
+    $rps = $duration > 0 ? ($successful / $duration) : 0;
         if ($rps >= 500) {
             $this->info("✅ Excellent throughput: {$rps} requests/second");
         } elseif ($rps >= 200) {
@@ -215,7 +223,7 @@ class MqttLoadTest extends Command
             $this->error("❌ Slow response times (95th percentile: {$p95}s)");
         }
 
-        $recordingRate = ($recorded / $successful) * 100;
+    $recordingRate = $successful > 0 ? (($recorded / $successful) * 100) : 0;
         if ($recordingRate >= 95) {
             $this->info("✅ Excellent data integrity: {$recordingRate}% recorded");
         } elseif ($recordingRate >= 90) {

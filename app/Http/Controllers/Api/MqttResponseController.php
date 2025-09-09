@@ -31,7 +31,7 @@ class MqttResponseController extends Controller
             $validated = $request->validate([
                 'order_id' => 'required|integer',
                 'user_id' => 'required|integer',
-                'status' => 'required|in:done,external',
+                'status' => 'required|string', // Accept any string, normalize below
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             \Log::warning("[MQTT_API] Validation failed", [
@@ -43,7 +43,23 @@ class MqttResponseController extends Controller
 
         $orderId = $validated['order_id'];
         $userId = $validated['user_id'];
-        $status = $validated['status'];
+        $rawStatus = $validated['status'];
+
+        // Normalize status: handle device-specific statuses
+        $status = $this->normalizeStatus($rawStatus);
+
+        // Handle device "busy" status - return 202 and don't process
+        if ($rawStatus === 'busy') {
+            \Log::info("[MQTT_API] Device busy status received, ignoring", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $rawStatus
+            ]);
+            return response()->json([
+                'accepted' => true,
+                'message' => 'Device busy - status ignored'
+            ], 202);
+        }
 
         // \Log::info("[MQTT_API] Processing", [
         //     'order_id' => $orderId,
@@ -535,6 +551,35 @@ class MqttResponseController extends Controller
         } catch (\Throwable $e) {
             \Log::error("[MQTT_API] Database connectivity check failed: " . $e->getMessage());
             return false;
+        }
+    }
+
+    /**
+     * Normalize device status to standard values
+     */
+    private function normalizeStatus(string $rawStatus): string
+    {
+        $normalized = strtolower(trim($rawStatus));
+
+        switch ($normalized) {
+            case 'done':
+            case 'completed':
+            case 'success':
+            case 'finished':
+                return 'done';
+
+            case 'external':
+            case 'redirect':
+            case 'forwarded':
+                return 'external';
+
+            default:
+                // For unknown statuses, treat as external
+                \Log::info("[MQTT_API] Unknown status normalized to external", [
+                    'original' => $rawStatus,
+                    'normalized' => 'external'
+                ]);
+                return 'external';
         }
     }
 }
