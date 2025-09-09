@@ -77,10 +77,28 @@ return new class extends Migration
         ];
 
         foreach ($optimizations as $sql) {
+            // extract variable name (e.g. max_connections) from the SQL
+            if (!preg_match("/SET\s+GLOBAL\s+([^\s=]+)\s*=.*/i", $sql, $m)) {
+                echo "⚠️ Skipping invalid SQL: {$sql}\n";
+                continue;
+            }
+
+            $variable = $m[1];
+
             try {
-                DB::statement($sql);
+                // Check whether the server exposes this variable (some variables removed in MySQL 8+)
+                $row = DB::selectOne("SHOW GLOBAL VARIABLES LIKE ?", [$variable]);
+
+                if (!$row) {
+                    echo "ℹ️ Skipped unsupported variable: {$variable}\n";
+                    continue;
+                }
+
+                // Use unprepared to avoid COM_STMT_PREPARE / prepared-statement issues on some drivers
+                DB::unprepared($sql);
                 echo "✅ Applied: {$sql}\n";
             } catch (\Exception $e) {
+                // Don't rethrow; this migration should not break on servers without SUPER privileges
                 echo "⚠️ Failed: {$sql} - {$e->getMessage()}\n";
             }
         }
