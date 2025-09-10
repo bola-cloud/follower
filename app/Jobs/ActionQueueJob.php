@@ -16,9 +16,9 @@ class ActionQueueJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 30; // Reduced timeout for faster processing
-    public $tries = 3; // Allow retries
-    public $backoff = [2, 5, 10]; // Faster progressive backoff
+    public $timeout = 60; // Extended for heavy processing
+    public $tries = 1; // No retries for maximum speed
+    public $backoff = []; // No backoff delays
     public $queue = 'actions'; // Use dedicated actions queue
 
     public function __construct()
@@ -51,8 +51,8 @@ class ActionQueueJob implements ShouldQueue
      */
     private function processBatchedActions()
     {
-        $batchSize = 15; // Optimized for 3 vCPU server
-        $maxBatches = 8; // Reduced for server capacity
+        $batchSize = 50; // Maximum batch size for instant processing
+        $maxBatches = 20; // Maximum batches for high volume
         $totalProcessed = 0;
 
         for ($batch = 0; $batch < $maxBatches; $batch++) {
@@ -69,8 +69,8 @@ class ActionQueueJob implements ShouldQueue
             $processed = $this->processBatch($actions);
             $totalProcessed += $processed;
 
-            // Optimized delay for 3 vCPU server
-            usleep(100000); // 0.1 second delay
+            // NO DELAY - maximum speed processing
+            // usleep removed for instant execution
         }
 
         Log::info("🎯 ActionQueueJob completed. Total processed: {$totalProcessed}");
@@ -78,7 +78,7 @@ class ActionQueueJob implements ShouldQueue
         // If there are still pending actions, dispatch another job
         if ($this->hasPendingActions()) {
             Log::info("🔄 More actions pending, dispatching next job");
-            self::dispatch()->delay(now()->addSeconds(3)); // Faster redispatch
+            self::dispatch(); // Instant redispatch - no delay
         }
     }
 
@@ -121,7 +121,7 @@ class ActionQueueJob implements ShouldQueue
                 $this->processAction($actionData);
                 $processed++;
 
-                // Removed individual action delay for faster processing
+                // NO DELAYS - process actions at maximum speed
 
             } catch (\Illuminate\Database\QueryException $e) {
                 if (strpos($e->getMessage(), 'Connection refused') !== false) {

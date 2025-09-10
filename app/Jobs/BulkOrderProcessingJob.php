@@ -16,9 +16,9 @@ class BulkOrderProcessingJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 120; // Reduced to 2 minutes
-    public $tries = 2; // Allow 1 retry
-    public $backoff = 30; // 30 second delay between retries
+    public $timeout = 300; // Extended for heavy processing
+    public $tries = 1; // No retries for maximum speed
+    public $backoff = []; // No backoff delays
 
     public function handle()
     {
@@ -40,15 +40,16 @@ class BulkOrderProcessingJob implements ShouldQueue
             }
         }
 
-        // Enforce a minimum interval between runs to reduce churn
-        $minIntervalSeconds = 8; // minimum seconds between runs
-        $lastRunKey = 'bulk_order_last_run_at';
+        // NO minimum interval - execute immediately for maximum speed
+        // $minIntervalSeconds = 0; // No throttling
+        // $lastRunKey = 'bulk_order_last_run_at';
         $lastRun = Cache::get($lastRunKey);
-        if ($lastRun && (time() - (int) $lastRun) < $minIntervalSeconds) {
-            Log::info('BulkOrderProcessingJob: ran recently, skipping this run');
-            if ($lock) { $lock->release(); }
-            return;
-        }
+        // REMOVED: No minimum interval check for maximum speed
+        // if ($lastRun && (time() - (int) $lastRun) < $minIntervalSeconds) {
+        //     Log::info('BulkOrderProcessingJob: ran recently, skipping this run');
+        //     if ($lock) { $lock->release(); }
+        //     return;
+        // }
         Cache::put($lastRunKey, time(), now()->addMinutes(5));
 
         try {
@@ -58,9 +59,9 @@ class BulkOrderProcessingJob implements ShouldQueue
                 return;
             }
 
-            // 🚀 OPTIMIZED PROCESSING: Small batches for 3 vCPU server
-            $batchSize = 2; // Very small batches for server capacity
-            $maxIterations = 3; // Fewer iterations
+            // 🚀 MAXIMUM SPEED: Large batches with no delays
+            $batchSize = 10; // Larger batches for maximum throughput
+            $maxIterations = 10; // More iterations for maximum volume
             $totalProcessed = 0;
 
             for ($i = 0; $i < $maxIterations; $i++) {
@@ -82,9 +83,8 @@ class BulkOrderProcessingJob implements ShouldQueue
                     $processed = $this->processBatchOrders($orders);
                     $totalProcessed += $processed;
 
-                    // Longer delay for 3 vCPU server stability
-                    $delay = 8 + rand(0, 3); // 8-11 second delay
-                    sleep($delay);
+                    // NO DELAYS - execute at maximum speed
+                    // All delays removed for instant processing
 
                 } catch (\Illuminate\Database\QueryException $e) {
                     Log::error("❌ Database error in batch {$i}: " . $e->getMessage());
@@ -95,13 +95,12 @@ class BulkOrderProcessingJob implements ShouldQueue
                         break;
                     }
 
-                    // For other DB errors, wait longer and continue
-                    sleep(10);
+                    // For other DB errors, continue immediately - no delays
                     continue;
 
                 } catch (\Throwable $e) {
                     Log::error("❌ General error in batch {$i}: " . $e->getMessage());
-                    sleep(5);
+                    // NO DELAYS - continue immediately for maximum speed
                     continue;
                 }
             }
@@ -141,8 +140,8 @@ class BulkOrderProcessingJob implements ShouldQueue
                 $this->sendActivationPing($order);
                 $processed++;
 
-                // Small delay between individual pings for server stability
-                usleep((300000 + rand(0, 200000))); // 0.3 - 0.5 second
+                // NO DELAYS between pings - maximum speed execution
+                // All delays removed for instant processing
 
             } catch (\Throwable $e) {
                 Log::error("❌ Failed to process order {$order->id}: " . $e->getMessage());
