@@ -51,8 +51,8 @@ class ActionQueueJob implements ShouldQueue
      */
     private function processBatchedActions()
     {
-        $batchSize = 500; // ULTRA HIGH batch size for maximum MySQL throughput
-        $maxBatches = 100; // Process up to 50,000 actions per job run
+        $batchSize = 1000; // EXTREME batch size for absolute maximum MySQL throughput
+        $maxBatches = 200; // Process up to 200,000 actions per job run
         $totalProcessed = 0;
 
         for ($batch = 0; $batch < $maxBatches; $batch++) {
@@ -129,8 +129,8 @@ class ActionQueueJob implements ShouldQueue
             Log::debug("Could not check MySQL load: " . $e->getMessage());
         }
 
-        // Process actions in larger sub-batches for maximum speed
-        $subBatchSize = $dbLoadHigh ? 25 : 50; // Much larger batches
+        // Process actions in ultra-large sub-batches for absolute maximum speed
+        $subBatchSize = $dbLoadHigh ? 50 : 100; // Massive batches even under load
         $actionChunks = array_chunk($actions, $subBatchSize);
 
         foreach ($actionChunks as $chunkIndex => $chunk) {
