@@ -19,7 +19,6 @@ class ActionQueueJob implements ShouldQueue
     public $timeout = 60; // Extended for heavy processing
     public $tries = 1; // No retries for maximum speed
     public $backoff = []; // No backoff delays
-    public $queue = 'actions'; // Use dedicated actions queue
 
     public function __construct()
     {
@@ -173,6 +172,7 @@ class ActionQueueJob implements ShouldQueue
                 })
                 ->update([
                     'status' => $status,
+                    'performed_at' => now(),
                     'updated_at' => now(),
                 ]);
 
