@@ -16,9 +16,10 @@ class ActionQueueJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 60; // Extended for heavy processing
-    public $tries = 1; // No retries for maximum speed
+    public $timeout = 120; // Extended for processing up to 5000 actions
+    public $tries = 1; // No retries for maximum speed - handle errors gracefully
     public $backoff = []; // No backoff delays
+    public $maxExceptions = 3; // Allow some exceptions before failing
 
     public function __construct()
     {
@@ -46,12 +47,12 @@ class ActionQueueJob implements ShouldQueue
     }
 
     /**
-     * Process pending actions in small batches
+     * Process pending actions in optimized batches for maximum speed
      */
     private function processBatchedActions()
     {
-        $batchSize = 50; // Maximum batch size for instant processing
-        $maxBatches = 20; // Maximum batches for high volume
+        $batchSize = 100; // MAXIMUM batch size for ultra-fast processing
+        $maxBatches = 50; // Process up to 5000 actions per job run
         $totalProcessed = 0;
 
         for ($batch = 0; $batch < $maxBatches; $batch++) {
@@ -69,19 +70,17 @@ class ActionQueueJob implements ShouldQueue
             $totalProcessed += $processed;
 
             // NO DELAY - maximum speed processing
-            // usleep removed for instant execution
+            // Continue immediately to next batch
         }
 
         Log::info("🎯 ActionQueueJob completed. Total processed: {$totalProcessed}");
 
-        // If there are still pending actions, dispatch another job
+        // If there are still pending actions, dispatch another job IMMEDIATELY
         if ($this->hasPendingActions()) {
             Log::info("🔄 More actions pending, dispatching next job");
             self::dispatch(); // Instant redispatch - no delay
         }
-    }
-
-    /**
+    }    /**
      * Get pending actions from cache storage
      */
     private function getPendingActions($limit)
@@ -109,32 +108,71 @@ class ActionQueueJob implements ShouldQueue
     }
 
     /**
-     * Process a batch of actions with database safety
+     * Process a batch of actions with intelligent MySQL load management
      */
     private function processBatch($actions)
     {
         $processed = 0;
+        $dbLoadHigh = false;
 
-        foreach ($actions as $actionData) {
+        // Check MySQL load before processing
+        try {
+            $processlist = DB::select('SHOW PROCESSLIST');
+            $activeConnections = count($processlist);
+            $dbLoadHigh = $activeConnections > 50; // Adjust threshold as needed
+
+            if ($dbLoadHigh) {
+                Log::warning("⚠️ High MySQL load detected", ['active_connections' => $activeConnections]);
+            }
+        } catch (\Throwable $e) {
+            // If can't check load, assume normal
+            Log::debug("Could not check MySQL load: " . $e->getMessage());
+        }
+
+        // Process actions in smaller sub-batches if load is high
+        $subBatchSize = $dbLoadHigh ? 5 : 15;
+        $actionChunks = array_chunk($actions, $subBatchSize);
+
+        foreach ($actionChunks as $chunkIndex => $chunk) {
             try {
-                $this->processAction($actionData);
-                $processed++;
+                foreach ($chunk as $actionData) {
+                    try {
+                        $this->processAction($actionData);
+                        $processed++;
 
-                // NO DELAYS - process actions at maximum speed
+                        // NO DELAYS - process actions at maximum speed
+                        // Only add tiny delay if MySQL load is extremely high
+                        if ($dbLoadHigh && $processed % 10 === 0) {
+                            usleep(1000); // 1ms delay every 10 actions under high load
+                        }
 
-            } catch (\Illuminate\Database\QueryException $e) {
-                if (strpos($e->getMessage(), 'Connection refused') !== false) {
-                    Log::error("❌ Database connection lost during batch processing");
-                    // Re-queue the remaining actions
-                    $this->requeueActions(array_slice($actions, $processed));
-                    throw $e;
+                    } catch (\Illuminate\Database\QueryException $e) {
+                        if (strpos($e->getMessage(), 'Connection refused') !== false ||
+                            strpos($e->getMessage(), 'MySQL server has gone away') !== false ||
+                            strpos($e->getMessage(), 'Too many connections') !== false) {
+                            Log::error("❌ Database overload during batch processing");
+                            // Re-queue the remaining actions
+                            $remaining = array_slice($actions, $processed);
+                            $this->requeueActions($remaining);
+                            throw $e;
+                        }
+
+                        Log::warning("⚠️ Database error processing action: " . $e->getMessage(), $actionData);
+                        continue;
+
+                    } catch (\Throwable $e) {
+                        Log::warning("⚠️ Error processing action: " . $e->getMessage(), $actionData);
+                        continue;
+                    }
                 }
 
-                Log::warning("⚠️ Database error processing action: " . $e->getMessage(), $actionData);
-                continue;
+                // Small pause between chunks only if load is very high
+                if ($dbLoadHigh && $chunkIndex < count($actionChunks) - 1) {
+                    usleep(2000); // 2ms between chunks under high load
+                }
 
             } catch (\Throwable $e) {
-                Log::warning("⚠️ Error processing action: " . $e->getMessage(), $actionData);
+                Log::error("❌ Batch chunk failed: " . $e->getMessage());
                 continue;
             }
         }
@@ -143,86 +181,49 @@ class ActionQueueJob implements ShouldQueue
     }
 
     /**
-     * Process a single action update
+     * Process a single action update - ONLY UPDATE EXISTING ACTIONS
      */
     private function processAction($actionData)
     {
         $orderId = $actionData['order_id'];
         $userId = $actionData['user_id'];
-        $status = $actionData['status'];
+        $status = $actionData['status']; // Only 'done' or 'external'
 
-        Log::debug("🔄 Processing action", ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]);
+        Log::debug("🔄 Processing action update", ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]);
 
-        DB::beginTransaction();
-
+        // NO TRANSACTION - for maximum speed, single atomic update
         try {
-            // Update action with race condition protection
-            // Allow updating from 'pending' to any status, but prevent re-updating 'done' actions
+            // Only update existing actions - DO NOT CREATE NEW ONES
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->where('user_id', $userId)
-                ->where(function($query) use ($status) {
-                    // If incoming status is 'done', allow update from any non-done status
-                    if ($status === 'done') {
-                        $query->where('status', '!=', 'done');
-                    } else {
-                        // For other statuses (like 'external'), allow update from 'pending' or same status
-                        $query->whereIn('status', ['pending', $status]);
-                    }
-                })
+                // Only update rows where the current status differs from the requested status
+                ->where('status', '!=', $status)
                 ->update([
                     'status' => $status,
                     'performed_at' => now(),
                     'updated_at' => now(),
                 ]);
 
-            // If no action was updated, check if we need to create one
             if ($updated === 0) {
-                $existingAction = DB::table('actions')
-                    ->where('order_id', $orderId)
-                    ->where('user_id', $userId)
-                    ->first();
-
-                if (!$existingAction && env('MQTT_AUTO_CREATE_MISSING', false)) {
-                    // Create missing action
-                    Log::info("🔨 Creating missing action", ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]);
-                    DB::table('actions')->insertOrIgnore([
-                        'order_id' => $orderId,
-                        'user_id' => $userId,
-                        'type' => $actionData['type'] ?? 'follow',
-                        'status' => $status,
-                        'performed_at' => now(),
-                    ]);
-                    $updated = 1;
-                } else {
-                    // Log why the update was skipped
-                    if ($existingAction) {
-                        Log::warning("⚠️ Action update skipped", [
-                            'order_id' => $orderId,
-                            'user_id' => $userId,
-                            'requested_status' => $status,
-                            'current_status' => $existingAction->status,
-                            'action_id' => $existingAction->id
-                        ]);
-                    } else {
-                        Log::warning("⚠️ Action not found and auto-create disabled", [
-                            'order_id' => $orderId,
-                            'user_id' => $userId,
-                            'status' => $status
-                        ]);
-                    }
-                }
-            } else {
-                Log::info("✅ Action updated successfully", [
+                // Action doesn't exist or status is already correct - this is normal
+                Log::debug("⚠️ Action not updated (not found or status unchanged)", [
                     'order_id' => $orderId,
                     'user_id' => $userId,
-                    'status' => $status,
-                    'rows_affected' => $updated
+                    'requested_status' => $status
                 ]);
+                return; // Continue processing - not an error
             }
 
+            Log::info("✅ Action updated successfully", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status,
+                'rows_affected' => $updated
+            ]);
+
             // Increment order done_count if action was successful and status is 'done'
-            if ($updated > 0 && $status === 'done') {
+            if ($status === 'done') {
                 DB::table('orders')
                     ->where('id', $orderId)
                     ->increment('done_count');
@@ -231,11 +232,13 @@ class ActionQueueJob implements ShouldQueue
                 $this->checkOrderCompletion($orderId);
             }
 
-            DB::commit();
-            Log::debug("✅ Action processed successfully", ['order_id' => $orderId, 'user_id' => $userId]);
-
         } catch (\Throwable $e) {
-            DB::rollBack();
+            Log::error("❌ Failed to update action", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status,
+                'error' => $e->getMessage()
+            ]);
             throw $e;
         }
     }
