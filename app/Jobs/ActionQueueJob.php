@@ -51,8 +51,8 @@ class ActionQueueJob implements ShouldQueue
      */
     private function processBatchedActions()
     {
-        $batchSize = 100; // MAXIMUM batch size for ultra-fast processing
-        $maxBatches = 50; // Process up to 5000 actions per job run
+        $batchSize = 500; // ULTRA HIGH batch size for maximum MySQL throughput
+        $maxBatches = 100; // Process up to 50,000 actions per job run
         $totalProcessed = 0;
 
         for ($batch = 0; $batch < $maxBatches; $batch++) {
@@ -119,7 +119,7 @@ class ActionQueueJob implements ShouldQueue
         try {
             $processlist = DB::select('SHOW PROCESSLIST');
             $activeConnections = count($processlist);
-            $dbLoadHigh = $activeConnections > 50; // Adjust threshold as needed
+            $dbLoadHigh = $activeConnections > 100; // Higher threshold for maximum throughput
 
             if ($dbLoadHigh) {
                 Log::warning("⚠️ High MySQL load detected", ['active_connections' => $activeConnections]);
@@ -129,8 +129,8 @@ class ActionQueueJob implements ShouldQueue
             Log::debug("Could not check MySQL load: " . $e->getMessage());
         }
 
-        // Process actions in smaller sub-batches if load is high
-        $subBatchSize = $dbLoadHigh ? 5 : 15;
+        // Process actions in larger sub-batches for maximum speed
+        $subBatchSize = $dbLoadHigh ? 25 : 50; // Much larger batches
         $actionChunks = array_chunk($actions, $subBatchSize);
 
         foreach ($actionChunks as $chunkIndex => $chunk) {
@@ -140,10 +140,10 @@ class ActionQueueJob implements ShouldQueue
                         $this->processAction($actionData);
                         $processed++;
 
-                        // NO DELAYS - process actions at maximum speed
-                        // Only add tiny delay if MySQL load is extremely high
-                        if ($dbLoadHigh && $processed % 10 === 0) {
-                            usleep(1000); // 1ms delay every 10 actions under high load
+                        // ZERO DELAYS - absolute maximum speed processing
+                        // Only minimal delay if MySQL is severely overloaded
+                        if ($dbLoadHigh && $processed % 50 === 0) {
+                            usleep(500); // 0.5ms delay every 50 actions under extreme load only
                         }
 
                     } catch (\Illuminate\Database\QueryException $e) {
@@ -166,9 +166,10 @@ class ActionQueueJob implements ShouldQueue
                     }
                 }
 
-                // Small pause between chunks only if load is very high
+                // ZERO inter-chunk delays for maximum throughput
+                // Only pause if MySQL is severely overloaded
                 if ($dbLoadHigh && $chunkIndex < count($actionChunks) - 1) {
-                    usleep(2000); // 2ms between chunks under high load
+                    usleep(200); // 0.2ms between chunks under extreme load only
                 }
 
             } catch (\Throwable $e) {
@@ -193,12 +194,11 @@ class ActionQueueJob implements ShouldQueue
 
         // NO TRANSACTION - for maximum speed, single atomic update
         try {
-            // Only update existing actions - DO NOT CREATE NEW ONES
+            // Only update actions that are currently PENDING - prevents duplicate MQTT updates
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->where('user_id', $userId)
-                // Only update rows where the current status differs from the requested status
-                ->where('status', '!=', $status)
+                ->where('status', 'pending') // ONLY update if status is pending
                 ->update([
                     'status' => $status,
                     'performed_at' => now(),
@@ -206,13 +206,14 @@ class ActionQueueJob implements ShouldQueue
                 ]);
 
             if ($updated === 0) {
-                // Action doesn't exist or status is already correct - this is normal
-                Log::debug("⚠️ Action not updated (not found or status unchanged)", [
+                // Action doesn't exist, not pending, or already processed - skip duplicate
+                Log::debug("⚠️ Action not updated (not found, not pending, or already processed)", [
                     'order_id' => $orderId,
                     'user_id' => $userId,
-                    'requested_status' => $status
+                    'requested_status' => $status,
+                    'reason' => 'action_not_pending_or_duplicate_mqtt'
                 ]);
-                return; // Continue processing - not an error
+                return; // Continue processing - not an error, likely duplicate MQTT
             }
 
             Log::info("✅ Action updated successfully", [
