@@ -58,9 +58,9 @@ class BulkOrderProcessingJob implements ShouldQueue
                 return;
             }
 
-            // 🚀 GENTLE PROCESSING: Much smaller batches with longer delays
-            $batchSize = 3; // Very small batches to prevent overload
-            $maxIterations = 2; // Fewer iterations
+            // 🚀 OPTIMIZED PROCESSING: Small batches for 3 vCPU server
+            $batchSize = 2; // Very small batches for server capacity
+            $maxIterations = 3; // Fewer iterations
             $totalProcessed = 0;
 
             for ($i = 0; $i < $maxIterations; $i++) {
@@ -82,9 +82,8 @@ class BulkOrderProcessingJob implements ShouldQueue
                     $processed = $this->processBatchOrders($orders);
                     $totalProcessed += $processed;
 
-                    // Much longer delay to reduce system load
-                    // 5 second delay between batches with small jitter to avoid thundering herd
-                    $delay = 5 + rand(0, 2);
+                    // Longer delay for 3 vCPU server stability
+                    $delay = 8 + rand(0, 3); // 8-11 second delay
                     sleep($delay);
 
                 } catch (\Illuminate\Database\QueryException $e) {
@@ -142,9 +141,8 @@ class BulkOrderProcessingJob implements ShouldQueue
                 $this->sendActivationPing($order);
                 $processed++;
 
-                // Small delay between individual pings
-                // Add slight random jitter per-ping to spread load
-                usleep((200000 + rand(0, 100000))); // 0.2 - 0.3 second
+                // Small delay between individual pings for server stability
+                usleep((300000 + rand(0, 200000))); // 0.3 - 0.5 second
 
             } catch (\Throwable $e) {
                 Log::error("❌ Failed to process order {$order->id}: " . $e->getMessage());

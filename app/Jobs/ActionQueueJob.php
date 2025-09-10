@@ -16,9 +16,15 @@ class ActionQueueJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public $timeout = 60; // 1 minute timeout
+    public $timeout = 30; // Reduced timeout for faster processing
     public $tries = 3; // Allow retries
-    public $backoff = [10, 30, 60]; // Progressive backoff
+    public $backoff = [2, 5, 10]; // Faster progressive backoff
+    public $queue = 'actions'; // Use dedicated actions queue
+
+    public function __construct()
+    {
+        $this->onQueue('actions');
+    }
 
     public function handle()
     {
@@ -45,8 +51,8 @@ class ActionQueueJob implements ShouldQueue
      */
     private function processBatchedActions()
     {
-        $batchSize = 20; // Increased batch size for better efficiency
-        $maxBatches = 5; // Reduced max batches but larger sizes
+        $batchSize = 15; // Optimized for 3 vCPU server
+        $maxBatches = 8; // Reduced for server capacity
         $totalProcessed = 0;
 
         for ($batch = 0; $batch < $maxBatches; $batch++) {
@@ -63,8 +69,8 @@ class ActionQueueJob implements ShouldQueue
             $processed = $this->processBatch($actions);
             $totalProcessed += $processed;
 
-            // Smaller delay between batches for faster processing
-            usleep(200000); // 0.2 second delay
+            // Optimized delay for 3 vCPU server
+            usleep(100000); // 0.1 second delay
         }
 
         Log::info("🎯 ActionQueueJob completed. Total processed: {$totalProcessed}");
@@ -72,7 +78,7 @@ class ActionQueueJob implements ShouldQueue
         // If there are still pending actions, dispatch another job
         if ($this->hasPendingActions()) {
             Log::info("🔄 More actions pending, dispatching next job");
-            self::dispatch()->delay(now()->addSeconds(5));
+            self::dispatch()->delay(now()->addSeconds(3)); // Faster redispatch
         }
     }
 
