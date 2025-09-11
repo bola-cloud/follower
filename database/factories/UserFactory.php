@@ -32,7 +32,7 @@ class UserFactory extends Factory
             'google_id' => (string) $this->faker->unique()->numberBetween(1000000000, 9999999999999),
             'profile_link' => $this->faker->userName(),
             'points' => 0,
-            'timer' => 0,
+            'timer' => null,
             'type' => 'user',
         ];
     }
