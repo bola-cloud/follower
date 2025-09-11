@@ -304,7 +304,7 @@ class OrderController extends Controller
             })
             ->orderBy('created_at', 'asc')
             ->with('user')
-            ->limit(40) // Increased limit for processing more orders
+            ->limit(25) // Increased limit for processing more orders
             ->get();
 
         // Fast partitioning using array filters
