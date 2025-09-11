@@ -279,34 +279,19 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        // 🚀 Improved rate limiting - shorter cooldown with intelligent caching
+        // 🚀 Faster rate limiting for immediate user activation
         $rateLimitKey = "process_orders_user_{$user->id}";
-        $lastProcessedKey = "last_processed_user_{$user->id}";
-        $successCacheKey = "process_success_user_{$user->id}";
-
         $lastProcessed = cache()->get($rateLimitKey);
-        $cooldownPeriod = 1; // Reduced to 1 second for better UX
 
-        if ($lastProcessed && now()->diffInSeconds($lastProcessed) < $cooldownPeriod) {
-            $waitTime = $cooldownPeriod - now()->diffInSeconds($lastProcessed);
+        if ($lastProcessed && now()->diffInSeconds($lastProcessed) < 3) { // Very fast cooldown
             return response()->json([
-                'error' => 'Processing in progress. Please wait a moment.',
-                'retry_after' => max(1, ceil($waitTime)),
-                'message' => 'Your request is being processed. Try again in a moment.'
+                'error' => 'Please wait before processing more orders. Try again in ' . (3 - now()->diffInSeconds($lastProcessed)) . ' seconds.',
+                'retry_after' => 3 - now()->diffInSeconds($lastProcessed)
             ], 429);
         }
 
-        // Check if we have a recent successful result cached (within 10 seconds)
-        $cachedResult = cache()->get($successCacheKey);
-        if ($cachedResult && now()->diffInSeconds($cachedResult['timestamp']) < 10) {
-            return response()->json(array_merge($cachedResult['data'], [
-                'cached' => true,
-                'message' => 'Recent result (cached)'
-            ]));
-        }
-
         // Set rate limit cache
-        cache()->put($rateLimitKey, now(), now()->addMinutes(2)); // Shorter cache duration
+        cache()->put($rateLimitKey, now(), now()->addMinutes(5));
 
         // Optimized query for immediate processing
         $orders = \App\Models\Order::where('status', 'active')
@@ -330,7 +315,6 @@ class OrderController extends Controller
         $processed = [];
         $processedOrderIds = [];
         $count = 0;
-        $sentCount = 0; // number of orders actually sent/dispatched
         $service = app(\App\Services\ResumeOrderService::class);
 
         foreach ($prioritizedOrders as $order) {
@@ -347,10 +331,6 @@ class OrderController extends Controller
                     'order_id' => $order->id,
                     'result' => $result
                 ];
-                // consider the order "sent" if the service returned a truthy value
-                if ($result) {
-                    $sentCount++;
-                }
                 $processedOrderIds[] = $order->id;
                 $count++;
 
@@ -358,26 +338,13 @@ class OrderController extends Controller
             }
         }
 
-        $result = [
+        return response()->json([
             'user_id' => $user->id,
             'processed_count' => $count,
-            'orders_sent' => $sentCount,
             'results' => $processed,
-            'note' => $count > 0 ? 'Orders processed successfully' : 'No eligible orders available at this time',
-            'timestamp' => now()->toISOString()
-        ];
-
-        // Cache successful result for 10 seconds to prevent duplicate processing
-        if ($count > 0) {
-            cache()->put($successCacheKey, [
-                'data' => $result,
-                'timestamp' => now()
-            ], now()->addSeconds(10));
-        }
-
-        return response()->json($result);
-    }
-    /**
+            'note' => 'All orders dispatched immediately for user activation'
+        ]);
+    }    /**
      * Test API: Simulate processActiveUserOrders for a specific user_id.
      * Returns the candidate orders and the order type that would be sent to the user.
      * This is read-only and does NOT create actions or dispatch jobs.
