@@ -61,10 +61,13 @@
                         <td>{{ $order->id }}</td>
                         <td>
                             <div class="d-flex align-items-center gap-2">
-                                <img src="{{ $order->user->profile_photo_url ?? 'https://ui-avatars.com/api/?name=' . urlencode($order->user->name) }}" alt="avatar" class="rounded-circle" width="32" height="32">
+                                <img src="{{ optional($order->user)->profile_photo_url
+                                    ?? 'https://ui-avatars.com/api/?name=' . urlencode(optional($order->user)->name ?? 'Guest') }}"
+                                    alt="avatar" class="rounded-circle" width="32" height="32">
+
                                 <div>
-                                    <strong>{{ $order->user->name }}</strong><br>
-                                    <small class="text-muted">{{ $order->user->email }}</small>
+                                    <strong>{{ optional($order->user)->name ?? 'Unknown User' }}</strong><br>
+                                    <small class="text-muted">{{ optional($order->user)->email ?? 'no-email' }}</small>
                                 </div>
                             </div>
                         </td>
