@@ -76,8 +76,18 @@ return [
             'driver' => 'redis',
             'connection' => env('REDIS_CONNECTION', 'queue'),
             'queue' => 'optimized-actions',
-            'retry_after' => 90,
+            'retry_after' => 120,
             'block_for' => 3,
+            'after_commit' => false,
+        ],
+
+        // High priority queue for MQTT and real-time operations
+        'high-priority' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_CONNECTION', 'queue'),
+            'queue' => 'high',
+            'retry_after' => 60,
+            'block_for' => 1,
             'after_commit' => false,
         ],
 

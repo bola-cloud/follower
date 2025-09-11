@@ -14,7 +14,20 @@ class OrderService
     public function handleOrderCreated(Order $order)
     {
         try {
-            $remaining = $order->total_count - $order->done_count;
+            // Calculate remaining slots considering recent pending actions
+            $actualDoneCount = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->where('status', 'done')
+                ->count();
+
+            // Count pending actions created within the past 30 minutes
+            $recentPendingCount = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->where('status', 'pending')
+                ->where('created_at', '>=', now()->subMinutes(30))
+                ->count();
+
+            $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
 
             if ($remaining <= 0) {
                 return;

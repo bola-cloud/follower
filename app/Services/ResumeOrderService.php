@@ -194,7 +194,14 @@ class ResumeOrderService
             ->where('status', 'done')
             ->count();
 
-        $remaining = $order->total_count - $actualDoneCount;
+        // Count pending actions created within the past 30 minutes
+        $recentPendingCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'pending')
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->count();
+
+        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
 
         if ($remaining <= 0) {
             // // Debugging: Log no remaining actions
@@ -289,13 +296,20 @@ class ResumeOrderService
 
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
 
-        // Recalculate actual done count from database
+        // Recalculate actual done count and recent pending actions from database
         $actualDoneCount = DB::table('actions')
             ->where('order_id', $order->id)
             ->where('status', 'done')
             ->count();
 
-        $remaining = $order->total_count - $actualDoneCount;
+        // Count pending actions created within the past 30 minutes
+        $recentPendingCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'pending')
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->count();
+
+        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
         if ($remaining <= 0) {
             // Only send ping for pending users if there are any and no remaining work
             if ($pendingUsers->count() > 0) {
