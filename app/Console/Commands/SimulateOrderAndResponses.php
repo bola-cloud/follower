@@ -1,0 +1,182 @@
+<?php
+
+namespace App\Console\Commands;
+
+use Illuminate\Console\Command;
+use Illuminate\Support\Str;
+use Illuminate\Http\Request;
+use App\Models\User;
+use App\Models\Order;
+use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\DB;
+use App\Jobs\AddPointsToUser;
+use Illuminate\Support\Facades\Log;
+use Symfony\Component\Process\Process;
+
+class SimulateOrderAndResponses extends Command
+{
+    protected $signature = 'simulate:order {--count=1000} {--no-node=false} {--broker=mqtt://109.199.112.65:1883} {--concurrency=100} {--delay=5}';
+    protected $description = 'Create users, call order API to create an order, export metadata and run Node MQTT simulator to reply as those users.';
+
+    public function handle()
+    {
+        $count = (int) $this->option('count');
+        $noNode = filter_var($this->option('no-node'), FILTER_VALIDATE_BOOLEAN);
+        $broker = $this->option('broker');
+        $concurrency = (int) $this->option('concurrency');
+        $delay = (int) $this->option('delay');
+
+        $this->info("Simulate: creating {$count} users...");
+
+        // Create an owner (the user who will place the order)
+        $owner = User::factory()->create([
+            'type' => 'user',
+            'points' => max(100000, $count * 10),
+        ]);
+
+        $this->info('Owner created: id=' . $owner->id);
+
+        // create responders in chunks to avoid memory spikes
+        $chunk = 200;
+        $createdIds = [];
+        for ($i = 0; $i < $count; $i += $chunk) {
+            $c = min($chunk, $count - $i);
+            $users = User::factory()->count($c)->create([
+                'type' => 'user',
+                // responders don't need points but give a small amount
+                'points' => 10,
+            ]);
+            $createdIds = array_merge($createdIds, $users->pluck('id')->toArray());
+            $this->info("Created {$c} users (total " . count($createdIds) . ")");
+        }
+
+        // Prepare order payload
+        $data = [
+            'type' => 'follow',
+            'total_count' => $count,
+            'target_url' => Str::random(12),
+        ];
+
+        $this->info('Creating order inline (replicating store logic)...');
+
+        try {
+            DB::beginTransaction();
+
+            // Ensure owner has enough points
+            $pointsPerAction = function_exists('setting') ? setting('points_per_follow', 1) : 1;
+            $cost = $data['total_count'] * $pointsPerAction;
+            if ($owner->points < $cost) {
+                $this->error('Owner has insufficient points to create test order.');
+                DB::rollBack();
+                return 1;
+            }
+
+            // Deduct points
+            $owner->decrement('points', $cost);
+
+            // Create order
+            $order = Order::create([
+                'type' => $data['type'],
+                'total_count' => $data['total_count'],
+                'done_count' => 0,
+                'cost' => $cost,
+                'status' => 'active',
+                'target_url' => $data['target_url'],
+                'target_url_hash' => sha1($data['target_url']),
+                'user_id' => $owner->id,
+            ]);
+
+            if (! $order) {
+                DB::rollBack();
+                $this->error('Failed to create order model.');
+                return 1;
+            }
+
+            // Timer logic similar to controller
+            if ($owner->points === 0) {
+                if (! $owner->timer || now()->greaterThan($owner->timer)) {
+                    AddPointsToUser::dispatch($owner->id)->delay(now()->addMinutes(30));
+                    $newTimer = now()->addMinutes(30);
+                    $owner->update(['timer' => $newTimer]);
+                }
+            } else {
+                $owner->update(['timer' => null]);
+            }
+
+            DB::commit();
+
+            $orderId = $order->id;
+            $this->info('Order created: id=' . $orderId);
+
+            // Send ping via PingService (non-blocking try/catch)
+            try {
+                $pingService = app()->make(\App\Services\PingService::class);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'create',
+                    'order_id' => $orderId,
+                    'activation' => true,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('[SimulateOrder] Error sending ping: ' . $e->getMessage());
+            }
+
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            $this->error('Exception while creating order: ' . $e->getMessage());
+            return 1;
+        }
+
+        // export metadata
+        $ts = time();
+        $export = [
+            'ts' => $ts,
+            'order_id' => $orderId,
+            'owner_id' => $owner->id,
+            'user_ids' => $createdIds,
+            'count' => count($createdIds),
+        ];
+
+        $exportPath = storage_path("logs/loadtest_{$ts}.json");
+        file_put_contents($exportPath, json_encode($export, JSON_PRETTY_PRINT));
+        $this->info('Exported metadata to ' . $exportPath);
+
+        // Start Node simulator unless asked not to
+        if ($noNode) {
+            $this->info('Node simulator disabled (--no-node=true).');
+            $this->info('You can run: node node_scripts/load_test_mqtt_simulator.cjs ' . escapeshellarg($exportPath) . ' --broker=' . escapeshellarg($broker) . ' --concurrency=' . $concurrency . ' --delay=' . $delay);
+            return 0;
+        }
+
+        $nodeScript = base_path('node_scripts/load_test_mqtt_simulator.cjs');
+        if (!file_exists($nodeScript)) {
+            $this->error('Node script not found at ' . $nodeScript . '. Create node_scripts/load_test_mqtt_simulator.cjs first.');
+            return 1;
+        }
+
+        $logPath = storage_path("logs/loadtest-mqtt-{$ts}.log");
+        $cmd = ['node', $nodeScript, $exportPath, '--broker=' . $broker, '--concurrency=' . $concurrency, '--delay=' . $delay, '--log=' . $logPath];
+
+        $this->info('Starting Node simulator (will run until completion)...');
+        $process = new Process($cmd);
+        $process->setTimeout(null);
+
+        // Run the Node script and stream output to console so we can monitor progress.
+        $exitCode = $process->run(function ($type, $buffer) {
+            // OUT vs ERR
+            if (defined('\Symfony\Component\Process\Process::OUT') && \Symfony\Component\Process\Process::OUT === $type) {
+                $this->line(trim($buffer));
+            } else {
+                $this->error(trim($buffer));
+            }
+        });
+
+        if ($exitCode !== 0 || ! $process->isSuccessful()) {
+            $this->error('Node simulator finished with errors. Exit code: ' . $exitCode);
+            $this->error('Node stderr: ' . $process->getErrorOutput());
+        } else {
+            $this->info('Node simulator finished successfully. Log: ' . $logPath);
+        }
+
+        return 0;
+    }
+}
