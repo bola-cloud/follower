@@ -340,21 +340,27 @@ class ResumeOrderService
             ];
         });
 
-        // Use insertOrIgnore to avoid duplicate-entry race conditions when many workers
-        try {
-            $inserted = DB::table('actions')->insertOrIgnore($actions->toArray());
-            Log::info('[ResumeOrderService] Bulk inserted actions (insertOrIgnore)', ['order_id' => $order->id, 'attempted' => count($actions->toArray()), 'inserted' => $inserted]);
-        } catch (\Throwable $e) {
-            Log::error('[ResumeOrderService] Failed bulk insert of actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-            throw $e;
-        }
+        // Use optimized batch service for better connection management
+        $batchService = app(\App\Services\BatchDatabaseService::class);
 
-        // Diagnostic: log number of actions inserted and attempt
         try {
-            $inserted = is_array($actions->toArray()) ? count($actions->toArray()) : 0;
-            Log::info('[ResumeOrderService] Bulk inserted actions', ['order_id' => $order->id, 'inserted' => $inserted]);
+            $userIds = $eligibleUsers->pluck('id')->toArray();
+
+            // Use batch service for optimized insertion
+            $inserted = $batchService->createOrderActions($order, $userIds);
+
+            Log::info('[ResumeOrderService] Batch actions created', [
+                'order_id' => $order->id,
+                'attempted' => count($userIds),
+                'inserted' => $inserted
+            ]);
+
         } catch (\Throwable $e) {
-            Log::warning('[ResumeOrderService] Could not log inserted actions count', ['error' => $e->getMessage()]);
+            Log::error('[ResumeOrderService] Failed batch insert of actions', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage()
+            ]);
+            throw $e;
         }
 
         // Send ONE ping for the order (covers both pending and new users)
@@ -429,7 +435,8 @@ class ResumeOrderService
             $order->type,
             $order->target_url
         ));
-    }    private function sendMqttToEligibleUsersWithPing(Order $order, $remaining): void
+    }
+    private function sendMqttToEligibleUsersWithPing(Order $order, $remaining): void
     {
         $orderData = [
             'type' => 'resume',

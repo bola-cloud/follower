@@ -71,6 +71,16 @@ return [
             'after_commit' => false,
         ],
 
+        // Optimized action processing queue with connection pooling
+        'optimized-actions' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_CONNECTION', 'queue'),
+            'queue' => 'optimized-actions',
+            'retry_after' => 90,
+            'block_for' => 3,
+            'after_commit' => false,
+        ],
+
     ],
 
     /*

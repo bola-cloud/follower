@@ -63,58 +63,28 @@ class OrderService
 
     private function createPendingActions(Order $order, $eligibleUsers)
     {
-        DB::beginTransaction();
+        // Use optimized batch service for better connection management
+        $batchService = app(\App\Services\BatchDatabaseService::class);
+
         try {
             $now = now();
+            $userIds = $eligibleUsers->pluck('id')->toArray();
 
-            $actions = $eligibleUsers->map(function ($user) use ($order, $now) {
-                return [
-                    'order_id' => $order->id,
-                    'user_id' => $user->id,
-                    'type' => $order->type,
-                    'status' => 'pending',
-                    'created_at' => $now,
-                    'updated_at' => $now,
-                    'performed_at' => $now, // Store specific execution time
-                ];
-            })->filter(function ($action) {
-                return !DB::table('actions')
-                    ->where('order_id', $action['order_id'])
-                    ->where('user_id', $action['user_id'])
-                    ->exists();
-            })->toArray();
+            // Use batch service for optimized insertion
+            $inserted = $batchService->createOrderActions($order, $userIds);
 
-            // Diagnostic logging: show how many pending actions will be inserted
-            $count = is_array($actions) ? count($actions) : 0;
-            if ($count === 0) {
-                Log::info('[OrderService] No new pending actions to insert', [
-                    'order_id' => $order->id,
-                    'eligible_users_count' => $eligibleUsers->count()
-                ]);
-            } else {
-                Log::info('[OrderService] Inserting pending actions (insertOrIgnore)', [
-                    'order_id' => $order->id,
-                    'attempt_count' => $count,
-                    'sample' => array_slice($actions, 0, 5)
-                ]);
+            Log::info('[OrderService] Batch pending actions created', [
+                'order_id' => $order->id,
+                'eligible_users_count' => count($userIds),
+                'inserted' => $inserted
+            ]);
 
-                // Use insertOrIgnore to avoid race-condition duplicate errors when many workers
-                // try to insert the same action concurrently. It returns number of rows inserted.
-                try {
-                    $inserted = DB::table('actions')->insertOrIgnore($actions);
-                    Log::info('[OrderService] Pending actions inserted', ['order_id' => $order->id, 'inserted' => $inserted]);
-                } catch (\Throwable $e) {
-                    Log::error('[OrderService] Failed to insert pending actions', [
-                        'order_id' => $order->id,
-                        'error' => $e->getMessage(),
-                        'actions_count' => $count,
-                    ]);
-                    throw $e;
-                }
-            }
-            DB::commit();
         } catch (\Throwable $e) {
-            DB::rollBack();
+            Log::error('[OrderService] Failed to create batch pending actions', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+                'eligible_users_count' => $eligibleUsers->count(),
+            ]);
             throw $e;
         }
     }
