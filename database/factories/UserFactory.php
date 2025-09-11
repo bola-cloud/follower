@@ -23,13 +23,17 @@ class UserFactory extends Factory
         return [
             'name' => $this->faker->name(),
             'email' => $this->faker->unique()->safeEmail(),
-            'email_verified_at' => now(),
             'password' => '$2y$10$92IXUNpkjO0rOQ5byMi.Ye4oKoEa3Ro9llC/.og/at2.uheWG/igi', // password
             'two_factor_secret' => null,
             'two_factor_recovery_codes' => null,
             'remember_token' => Str::random(10),
-            'profile_photo_path' => null,
-            'current_team_id' => null,
+            // fields present in your users table
+            // provide dummy values required by order processing
+            'google_id' => (string) $this->faker->unique()->numberBetween(1000000000, 9999999999999),
+            'profile_link' => $this->faker->userName(),
+            'points' => 0,
+            'timer' => 0,
+            'type' => 'user',
         ];
     }
 
@@ -38,10 +42,9 @@ class UserFactory extends Factory
      */
     public function unverified(): static
     {
+        // keep unverified() as a no-op because your users table doesn't include email_verified_at
         return $this->state(function (array $attributes) {
-            return [
-                'email_verified_at' => null,
-            ];
+            return [];
         });
     }
 
