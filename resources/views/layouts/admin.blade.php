@@ -5,8 +5,8 @@
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=0, minimal-ui">
   <title> EG Followers</title>
-   <link rel="shortcut icon" type="image/x-icon" href="{{asset('logo.png')}}">
-   <link rel="icon" type="image/x-icon" href="{{asset('logo.png')}}">
+   {{-- <link rel="shortcut icon" type="image/x-icon" href="{{asset('logo.png')}}">
+   <link rel="icon" type="image/x-icon" href="{{asset('logo.png')}}"> --}}
 
    {{-- <link rel="stylesheet" type="text/css" href="{{asset('fontawesome/all.min.css')}}"> --}}
   <script src="{{asset('fontawesome/js/all.min.js')}}" type="text/javascript"></script>
