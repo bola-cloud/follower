@@ -220,7 +220,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
 
   </script>
   <!-- BEGIN PAGE LEVEL JS-->
- <script src="{{asset('app-assets/js/scripts/pages/dashboard-ecommerce.js')}}" type="text/javascript"></script>
+ {{-- <script src="{{asset('app-assets/js/scripts/pages/dashboard-ecommerce.js')}}" type="text/javascript"></script> --}}
 
   <!-- END PAGE LEVEL JS-->
   @stack('scripts')
