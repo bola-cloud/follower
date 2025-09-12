@@ -26,42 +26,43 @@ class BatchDatabaseService
             return 0;
         }
 
-        $chunks = array_chunk($actions, self::MAX_BATCH_SIZE);
-        $totalInserted = 0;
+        return DatabaseConnectionManager::executeBatch(function($connection) use ($actions) {
+            $chunks = array_chunk($actions, self::MAX_BATCH_SIZE);
+            $totalInserted = 0;
 
-        // Use a single transaction for all chunks to minimize connection overhead
-        DB::beginTransaction();
+            // Use the optimized connection for all operations
+            $connection->beginTransaction();
 
-        try {
-            foreach ($chunks as $chunk) {
-                $inserted = $this->insertChunk($chunk);
-                $totalInserted += $inserted;
+            try {
+                foreach ($chunks as $chunk) {
+                    $inserted = $this->insertChunkWithConnection($connection, $chunk);
+                    $totalInserted += $inserted;
 
-                Log::info('Batch actions inserted', [
-                    'chunk_size' => count($chunk),
-                    'inserted' => $inserted,
-                    'total_inserted' => $totalInserted
+                    Log::info('Batch actions inserted', [
+                        'chunk_size' => count($chunk),
+                        'inserted' => $inserted,
+                        'total_inserted' => $totalInserted
+                    ]);
+                }
+
+                $connection->commit();
+                return $totalInserted;
+
+            } catch (\Throwable $e) {
+                $connection->rollBack();
+                Log::error('Batch action insert failed', [
+                    'error' => $e->getMessage(),
+                    'total_actions' => count($actions)
                 ]);
+                throw $e;
             }
-
-            DB::commit();
-
-        } catch (\Throwable $e) {
-            DB::rollBack();
-            Log::error('Batch action insert failed', [
-                'error' => $e->getMessage(),
-                'total_actions' => count($actions)
-            ]);
-            throw $e;
-        }
-
-        return $totalInserted;
+        });
     }
 
     /**
-     * Insert a single chunk with optimized SQL
+     * Insert a single chunk with connection
      */
-    private function insertChunk(array $actions): int
+    private function insertChunkWithConnection($connection, array $actions): int
     {
         // Use raw INSERT with ON DUPLICATE KEY UPDATE for better performance
         $values = [];
@@ -81,7 +82,15 @@ class BatchDatabaseService
 
         $sql = "INSERT IGNORE INTO actions (order_id, user_id, type, status, created_at, updated_at) VALUES " . implode(',', $values);
 
-        return DB::connection()->affectingStatement($sql, $bindings);
+        return $connection->affectingStatement($sql, $bindings);
+    }
+
+    /**
+     * Insert a single chunk with optimized SQL (legacy method for compatibility)
+     */
+    private function insertChunk(array $actions): int
+    {
+        return $this->insertChunkWithConnection(DB::connection(), $actions);
     }
 
     /**

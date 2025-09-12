@@ -35,6 +35,9 @@ class DatabaseConnectionManager
     {
         $config = config('database.connections.mysql');
 
+        // Create unique connection name for batch operations
+        $connectionName = 'batch_' . uniqid();
+
         // Optimize connection for batch operations
         $config['options'] = array_merge($config['options'] ?? [], [
             \PDO::MYSQL_ATTR_USE_BUFFERED_QUERY => true,
@@ -45,7 +48,18 @@ class DatabaseConnectionManager
             \PDO::MYSQL_ATTR_INIT_COMMAND => "SET SESSION sql_mode='STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION', innodb_lock_wait_timeout=10"
         ]);
 
-        return DB::connection('mysql');
+        // Register new connection configuration
+        config(['database.connections.' . $connectionName => $config]);
+
+        // Create and return the new connection
+        $connection = DB::connection($connectionName);
+
+        // Ensure the connection is established
+        $connection->getPdo();
+
+        Log::debug("Created optimized batch connection: {$connectionName}");
+
+        return $connection;
     }
 
     /**
@@ -85,11 +99,13 @@ class DatabaseConnectionManager
      */
     public static function closeConnections(): void
     {
-        foreach (self::$connections as $connection) {
+        foreach (self::$connections as $connectionId => $connection) {
             try {
                 $connection->disconnect();
+                Log::debug("Closed batch connection: {$connectionId}");
             } catch (\Exception $e) {
                 Log::warning('Error closing database connection', [
+                    'connection_id' => $connectionId,
                     'error' => $e->getMessage()
                 ]);
             }
@@ -97,6 +113,7 @@ class DatabaseConnectionManager
 
         self::$connections = [];
         self::$connectionCount = 0;
+        Log::info("All batch connections closed and pool reset");
     }
 
     /**

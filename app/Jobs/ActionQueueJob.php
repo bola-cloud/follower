@@ -17,9 +17,9 @@ class ActionQueueJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $timeout = 120; // Extended for processing up to 5000 actions
-    public $tries = 1; // No retries for maximum speed - handle errors gracefully
-    public $backoff = []; // No backoff delays
-    public $maxExceptions = 3; // Allow some exceptions before failing
+    public $tries = 3; // Allow 3 retries to handle transient issues
+    public $backoff = [10, 30]; // 10 seconds, then 30 seconds between retries
+    public $maxExceptions = 5; // Allow some exceptions before failing
 
     public function __construct()
     {
@@ -28,21 +28,42 @@ class ActionQueueJob implements ShouldQueue
 
     public function handle()
     {
-        Log::info("🔄 ActionQueueJob started - processing batched actions");
+        Log::info("🔄 ActionQueueJob started - processing batched actions", [
+            'attempt' => $this->attempts()
+        ]);
 
         try {
             // Check database connectivity first
             if (!$this->checkDatabaseConnectivity()) {
                 Log::error("❌ Database unavailable, will retry later");
-                throw new \Exception("Database connection failed");
+                $this->release(30); // Release job for 30 seconds instead of failing
+                return;
             }
 
             // Process actions in small batches to prevent overload
             $this->processBatchedActions();
 
+        } catch (\Illuminate\Database\QueryException $e) {
+            // Handle database-specific errors gracefully
+            if (strpos($e->getMessage(), 'Too many connections') !== false) {
+                Log::warning("⚠️ MySQL connection limit reached, will retry", [
+                    'attempt' => $this->attempts(),
+                    'error' => $e->getMessage()
+                ]);
+                $this->release(60); // Wait longer for connection limit issues
+                return;
+            }
+
+            Log::error("❌ Database error in ActionQueueJob: " . $e->getMessage(), [
+                'attempt' => $this->attempts()
+            ]);
+            throw $e;
+
         } catch (\Throwable $e) {
-            Log::error("❌ ActionQueueJob failed: " . $e->getMessage());
-            throw $e; // Re-throw to trigger retry
+            Log::error("❌ ActionQueueJob failed: " . $e->getMessage(), [
+                'attempt' => $this->attempts()
+            ]);
+            throw $e;
         }
     }
 
@@ -300,7 +321,15 @@ class ActionQueueJob implements ShouldQueue
     {
         Log::error("❌ ActionQueueJob failed permanently", [
             'error' => $exception->getMessage(),
-            'attempts' => $this->attempts()
+            'attempts' => $this->attempts(),
+            'trace' => $exception->getTraceAsString()
+        ]);
+
+        // Log the queue state for debugging
+        $redisKey = 'mqtt_actions_queue';
+        $queueLength = Redis::llen($redisKey);
+        Log::error("📊 Queue state on failure", [
+            'pending_actions' => $queueLength
         ]);
     }
 }
