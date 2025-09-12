@@ -8,7 +8,7 @@
    <link rel="shortcut icon" type="image/x-icon" href="{{asset('logo.png')}}">
    <link rel="icon" type="image/x-icon" href="{{asset('logo.png')}}">
 
-   <link rel="stylesheet" type="text/css" href="{{asset('fontawesome/all.min.css')}}">
+   {{-- <link rel="stylesheet" type="text/css" href="{{asset('fontawesome/all.min.css')}}"> --}}
   <script src="{{asset('fontawesome/js/all.min.js')}}" type="text/javascript"></script>
   <link rel="stylesheet" type="text/css" href="{{asset('app-assets/css-rtl/vendors.css')}}">
   <link rel="stylesheet" type="text/css" href="{{asset('app-assets/vendors/css/weather-icons/climacons.min.css')}}">
