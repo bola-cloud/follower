@@ -29,15 +29,15 @@ function parseArgs() {
   const res = {
     jsonPath: args[0],
     broker: process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883',
-    concurrency: 25,  // Reduced from 50 for less aggressive load
-    delay: 50,        // Increased from 20ms for more breathing room
+  concurrency: Number(process.env.SIM_CONCURRENCY) || 25,  // Reduced from 50 for less aggressive load
+  delay: Number(process.env.SIM_DELAY_MS) || 50,        // Increased from 20ms for more breathing room
     log: null,
     fullPayload: false,
     verifyAll: false,
     statusTimeout: 30000,
-    rateLimit: 100,   // Messages per second limit
-    batchSize: 10,    // Process users in batches
-    batchDelay: 100   // Delay between batches in ms
+    rateLimit: Number(process.env.SIM_RATE_LIMIT) || 100,   // Messages per second limit
+    batchSize: Number(process.env.SIM_BATCH_SIZE) || 10,    // Process users in batches
+    batchDelay: Number(process.env.SIM_BATCH_DELAY_MS) || 100   // Delay between batches in ms
   };
 
   args.slice(1).forEach(a => {
@@ -120,8 +120,8 @@ async function createDbPoolIfNeeded() {
   const database = process.env.DB_DATABASE || process.env.MYSQL_DATABASE || '';
   const user = process.env.DB_USERNAME || process.env.MYSQL_USER || '';
   const pass = process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '';
-
-  dbPool = mysql.createPool({ host, port: Number(port), user, password: pass, database, waitForConnections: true, connectionLimit: 10, queueLimit: 0 });
+  const poolLimit = Number(process.env.MYSQL_POOL_LIMIT) || 10;
+  dbPool = mysql.createPool({ host, port: Number(port), user, password: pass, database, waitForConnections: true, connectionLimit: poolLimit, queueLimit: 0 });
   return dbPool;
 }
 
