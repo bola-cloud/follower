@@ -68,31 +68,44 @@ async function main() {
     let inFlight = 0;
 
     function publishForUser(userId) {
-      return new Promise((res) => {
-        // Only publish the user-response topics that your mqtt-handler subscribes to:
-        //  - order/ping/res
-        //  - order/res/{order_id}/{user_id}
+      // Return a promise that resolves only after both publishes receive broker acknowledgement
+      return new Promise((resolve) => {
         const pingResTopic = `order/ping/res`;
         const pingResMessage = JSON.stringify({ order_id: orderId, user_id: userId, status: 'ok', type: doc.type || 'follow' });
 
         const resultTopic = `order/res/${orderId}/${userId}`;
         const resultMessage = JSON.stringify({ order_id: orderId, user_id: userId, status: 'done' });
 
-        // publish ping/res then final result with a small delay
-        client.publish(pingResTopic, pingResMessage, { qos: 1 }, (err) => {
-          const out = { ts: new Date().toISOString(), user_id: userId, topic: pingResTopic, message: JSON.parse(pingResMessage), err: err ? err.message : null };
-          logStream.write(JSON.stringify(out) + '\n');
-        });
-
-        setTimeout(() => {
-          client.publish(resultTopic, resultMessage, { qos: 1 }, (err) => {
-            const out = { ts: new Date().toISOString(), user_id: userId, topic: resultTopic, message: JSON.parse(resultMessage), err: err ? err.message : null };
-            logStream.write(JSON.stringify(out) + '\n');
+        // helper to publish and wait for callback
+        function publishAsync(topic, message, optsPub) {
+          return new Promise((res) => {
+            client.publish(topic, message, optsPub || { qos: 1 }, (err) => {
+              const out = { ts: new Date().toISOString(), user_id: userId, topic: topic, message: JSON.parse(message), err: err ? err.message : null };
+              logStream.write(JSON.stringify(out) + '\n');
+              // resolve regardless of err; caller can inspect the log for details
+              res(err ? false : true);
+            });
           });
-        }, Math.max(1, opts.delay));
+        }
 
-        // resolve after both publishes are expected to be queued (slightly longer than delay)
-        setTimeout(() => res(), Math.max(10, opts.delay + 20));
+        // publish ping, then delay, then publish result, waiting for both acknowledgements
+        publishAsync(pingResTopic, pingResMessage, { qos: 1 })
+          .then(() => {
+            // small delay before final result
+            setTimeout(() => {
+              publishAsync(resultTopic, resultMessage, { qos: 1 })
+                .then(() => resolve())
+                .catch(() => resolve());
+            }, Math.max(1, opts.delay));
+          })
+          .catch(() => {
+            // even if ping publish failed, attempt result publish
+            setTimeout(() => {
+              publishAsync(resultTopic, resultMessage, { qos: 1 })
+                .then(() => resolve())
+                .catch(() => resolve());
+            }, Math.max(1, opts.delay));
+          });
       });
     }
 
@@ -108,7 +121,13 @@ async function main() {
             logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'done', processed: idx }) + '\n');
             logStream.end(() => {
               console.log('All published, exiting');
-              client.end(true, () => process.exit(0));
+              // Gracefully close the client so in-flight acks can finish
+              try {
+                client.end(false, () => process.exit(0));
+              } catch (e) {
+                // fallback to force close if graceful end fails
+                client.end(true, () => process.exit(0));
+              }
             });
           } else {
             // kick more

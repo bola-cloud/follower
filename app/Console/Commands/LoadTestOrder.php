@@ -16,7 +16,7 @@ class LoadTestOrder extends Command
      *
      * --count=1000 number of actions to generate
      */
-    protected $signature = 'load:test-order {--count=1000} {--no-rollback : If set, commit changes instead of rolling back}';
+    protected $signature = 'load:test-order {--count=1000} {--no-rollback : If set, commit changes instead of rolling back} {--persist : alias for --no-rollback (commit changes)}';
 
     /**
      * The console command description.
@@ -171,12 +171,12 @@ class LoadTestOrder extends Command
 
             // Commit or rollback depending on flag
             // Export run metadata and deletion plan to a file for manual cleanup later
+            // Format expected by node simulators: { order_id, user_ids, type }
             $export = [
                 'run_ts' => now()->toDateTimeString(),
                 'order_id' => $order->id,
                 'user_ids' => $userIds,
-                'action_id_sample_start' => null,
-                'action_id_sample_end' => null,
+                'type' => $order->type ?? 'follow',
                 'notes' => 'This file is for manual cleanup. Do not delete automatically.'
             ];
 
