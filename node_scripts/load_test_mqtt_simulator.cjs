@@ -18,7 +18,11 @@
 const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
-const mysql = require('mysql2/promise');
+// mysql2 is optional: we only require it if DB verification is enabled at runtime.
+// This avoids a hard failure when mysql2 isn't installed on hosts where DB
+// verification isn't needed. We will attempt to require it lazily inside
+// createDbPoolIfNeeded().
+let mysql = null;
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -113,14 +117,29 @@ class ConnectionPool {
 let dbPool = null;
 
 async function createDbPoolIfNeeded() {
+  // Allow explicit disabling of DB verification
+  if (process.env.SIM_NO_DB_VERIFY === '1' || process.env.SIM_NO_DB_VERIFY === 'true') return null;
+
   if (!process.env.DB_HOST || !process.env.DB_DATABASE) return null;
   if (dbPool) return dbPool;
+
+  // Try to require mysql2 lazily. If it's not installed, warn and skip DB verification
+  if (!mysql) {
+    try {
+      mysql = require('mysql2/promise');
+    } catch (e) {
+      console.warn('mysql2 not found; DB verification disabled. Install mysql2 if you want DB polling.');
+      return null;
+    }
+  }
+
   const host = process.env.DB_HOST || process.env.MYSQL_HOST || '127.0.0.1';
   const port = process.env.DB_PORT || process.env.MYSQL_PORT || '3306';
   const database = process.env.DB_DATABASE || process.env.MYSQL_DATABASE || '';
   const user = process.env.DB_USERNAME || process.env.MYSQL_USER || '';
   const pass = process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '';
   const poolLimit = Number(process.env.MYSQL_POOL_LIMIT) || 10;
+
   dbPool = mysql.createPool({ host, port: Number(port), user, password: pass, database, waitForConnections: true, connectionLimit: poolLimit, queueLimit: 0 });
   return dbPool;
 }
