@@ -266,22 +266,22 @@ async function main() {
         // Publish result
         await publishAsync(resultTopic, resultMessage, { qos: 1 });
 
-        // Verify in database if configured; return boolean success
+        // Verify in database if configured; return object { published, dbOk }
         if (process.env.DB_HOST && process.env.DB_DATABASE) {
           try {
             const okDb = await waitForActionDone(orderId, userId, opts.statusTimeout);
             if (!okDb) {
               logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
             }
-            return !!okDb;
+            return { published: true, dbOk: !!okDb, userId };
           } catch (e) {
-            // treat DB polling error as failure
-            return false;
+            // treat DB polling error as pending (null) rather than immediate failure
+            return { published: true, dbOk: null, userId };
           }
         }
 
         // If no DB verification configured, consider publish success as success
-        return true;
+        return { published: true, dbOk: null, userId };
       } catch (e) {
         // Handle any publish errors
         console.warn(`Publish failed for user ${userId}:`, e.message);
@@ -335,14 +335,59 @@ async function main() {
       }
 
       const results = await Promise.all(promises);
-      // compute failures
-      const failures = results.filter(r => !r).length;
-      const success = results.filter(r => r).length;
+
+      // results are objects { published:bool, dbOk: bool|null, userId }
+      let publishFailures = 0;
+      let dbFailures = 0;
+      let dbPending = [];
+      let success = 0;
+
+      for (const r of results) {
+        if (!r || !r.published) {
+          publishFailures++;
+        } else {
+          if (r.dbOk === true) {
+            success++;
+          } else if (r.dbOk === false) {
+            dbFailures++;
+            dbPending.push(r.userId);
+          } else if (r.dbOk === null) {
+            // treat null as pending
+            dbPending.push(r.userId);
+          }
+        }
+      }
+
+      // If DB verification is enabled and many are pending, do a re-check after a grace period
+      if (process.env.DB_HOST && process.env.DB_DATABASE && dbPending.length > 0) {
+        const recheckDelay = Number(process.env.SIM_DB_RECHECK_MS) || opts.statusTimeout;
+        logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'db_recheck_scheduled', batch: batchIndex, pending: dbPending.length, delayMs: recheckDelay }) + '\n');
+        await new Promise(resolve => setTimeout(resolve, recheckDelay));
+
+        // re-check statuses for pending users
+        let recheckedFailures = 0;
+        for (const uid of dbPending) {
+          try {
+            const ok = await queryActionStatus(orderId, uid);
+            if (ok && ok.toLowerCase() === 'done') {
+              success++;
+            } else {
+              recheckedFailures++;
+              logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'db_recheck_still_not_done', user_id: uid, order_id: orderId }) + '\n');
+            }
+          } catch (e) {
+            recheckedFailures++;
+          }
+        }
+        dbFailures = recheckedFailures;
+      }
+
+      const failures = publishFailures + dbFailures;
 
       successCount += success;
       timeoutCount += failures;
 
-      // Adaptive throttling: if too many failures, back off
+      // Adaptive throttling: only trigger if publish failures or final DB failures exceed threshold
       if (opts.adaptive) {
         const failPct = batchLen === 0 ? 0 : (failures / batchLen) * 100;
         if (failPct >= opts.adaptiveFailureThresholdPercent) {
