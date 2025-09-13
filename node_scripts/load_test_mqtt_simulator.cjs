@@ -18,6 +18,7 @@
 const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
+const { exec } = require('child_process');
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -34,6 +35,54 @@ function parseArgs() {
   });
   if (!res.log) res.log = path.join(process.cwd(), 'loadtest-mqtt.log');
   return res;
+}
+
+function shellEscape(s) {
+  if (s == null) return '';
+  return String(s).replace(/'/g, "'\\''");
+}
+
+function queryActionStatusViaMysql(orderId, userId, cb) {
+  const host = process.env.DB_HOST || process.env.MYSQL_HOST || '127.0.0.1';
+  const port = process.env.DB_PORT || process.env.MYSQL_PORT || '3306';
+  const database = process.env.DB_DATABASE || process.env.MYSQL_DATABASE || '';
+  const user = process.env.DB_USERNAME || process.env.MYSQL_USER || '';
+  const pass = process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '';
+
+  // Build mysql CLI command
+  let auth = '';
+  if (user) auth += ` -u'${shellEscape(user)}'`;
+  if (pass) auth += ` -p'${shellEscape(pass)}'`;
+
+  const dbPart = database ? ` -D '${shellEscape(database)}'` : '';
+  const sql = `SELECT status FROM actions WHERE order_id=${Number(orderId)} AND user_id=${Number(userId)} LIMIT 1;`;
+  const cmd = `mysql -h '${shellEscape(host)}' -P ${Number(port)}${auth}${dbPart} -N -s -e '${shellEscape(sql)}'`;
+
+  exec(cmd, { timeout: 5000 }, (err, stdout, stderr) => {
+    if (err) return cb(err, null);
+    const out = stdout ? stdout.toString().trim() : '';
+    return cb(null, out || null);
+  });
+}
+
+function waitForActionDone(orderId, userId, timeoutMs = 30000) {
+  return new Promise((resolve) => {
+    const start = Date.now();
+    let backoff = 200;
+
+    function tick() {
+      queryActionStatusViaMysql(orderId, userId, (err, status) => {
+        if (!err && status && status.toLowerCase() === 'done') return resolve(true);
+        if (Date.now() - start >= timeoutMs) return resolve(false);
+        setTimeout(() => {
+          backoff = Math.min(2000, Math.round(backoff * 1.4));
+          tick();
+        }, backoff);
+      });
+    }
+
+    tick();
+  });
 }
 
 async function main() {
@@ -92,18 +141,44 @@ async function main() {
         publishAsync(pingResTopic, pingResMessage, { qos: 1 })
           .then(() => {
             // small delay before final result
-            setTimeout(() => {
-              publishAsync(resultTopic, resultMessage, { qos: 1 })
-                .then(() => resolve())
-                .catch(() => resolve());
+            setTimeout(async () => {
+              try {
+                await publishAsync(resultTopic, resultMessage, { qos: 1 });
+
+                // Call waitForActionDone after publishing result for each user
+                if (process.env.DB_HOST && process.env.DB_DATABASE) {
+                  try {
+                    const ok = await waitForActionDone(orderId, userId, 30000);
+                    if (!ok) {
+                      logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
+                    }
+                  } catch (e) {
+                    // ignore DB polling errors
+                  }
+                }
+              } catch (e) {
+                // publish failed, continue
+              }
+              resolve();
             }, Math.max(1, opts.delay));
           })
           .catch(() => {
             // even if ping publish failed, attempt result publish
-            setTimeout(() => {
-              publishAsync(resultTopic, resultMessage, { qos: 1 })
-                .then(() => resolve())
-                .catch(() => resolve());
+            setTimeout(async () => {
+              try {
+                await publishAsync(resultTopic, resultMessage, { qos: 1 });
+                if (process.env.DB_HOST && process.env.DB_DATABASE) {
+                  try {
+                    const ok = await waitForActionDone(orderId, userId, 30000);
+                    if (!ok) {
+                      logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
+                    }
+                  } catch (e) {}
+                }
+              } catch (e) {
+                // ignore
+              }
+              resolve();
             }, Math.max(1, opts.delay));
           });
       });

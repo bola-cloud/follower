@@ -158,6 +158,16 @@ class SimulateOrderAndResponses extends Command
 
         $this->info('Starting Node simulator (will run until completion)...');
         $process = new Process($cmd);
+        // Pass DB connection env so the Node simulator (running on the same host) can poll the actions table
+        $dbConn = config('database.connections.mysql');
+        $processEnv = [
+            'DB_HOST' => $dbConn['host'] ?? env('DB_HOST'),
+            'DB_PORT' => $dbConn['port'] ?? env('DB_PORT', '3306'),
+            'DB_DATABASE' => $dbConn['database'] ?? env('DB_DATABASE'),
+            'DB_USERNAME' => $dbConn['username'] ?? env('DB_USERNAME'),
+            'DB_PASSWORD' => $dbConn['password'] ?? env('DB_PASSWORD'),
+        ];
+        $process->setEnv(array_merge($process->getEnv(), $processEnv));
         $process->setTimeout(null);
 
         // Run the Node script and stream output to console so we can monitor progress.
