@@ -18,7 +18,7 @@
 const mqtt = require('mqtt');
 const fs = require('fs');
 const path = require('path');
-const { exec } = require('child_process');
+const mysql = require('mysql2/promise');
 
 function parseArgs() {
   const args = process.argv.slice(2);
@@ -26,43 +26,117 @@ function parseArgs() {
     console.error('Missing export JSON path');
     process.exit(2);
   }
-  const res = { jsonPath: args[0], broker: process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883', concurrency: 50, delay: 20, log: null };
+  const res = {
+    jsonPath: args[0],
+    broker: process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883',
+    concurrency: 25,  // Reduced from 50 for less aggressive load
+    delay: 50,        // Increased from 20ms for more breathing room
+    log: null,
+    fullPayload: false,
+    verifyAll: false,
+    statusTimeout: 30000,
+    rateLimit: 100,   // Messages per second limit
+    batchSize: 10,    // Process users in batches
+    batchDelay: 100   // Delay between batches in ms
+  };
+
   args.slice(1).forEach(a => {
     if (a.startsWith('--broker=')) res.broker = a.split('=')[1];
     if (a.startsWith('--concurrency=')) res.concurrency = parseInt(a.split('=')[1], 10);
     if (a.startsWith('--delay=')) res.delay = parseInt(a.split('=')[1], 10);
     if (a.startsWith('--log=')) res.log = a.split('=')[1];
+    if (a === '--full-payload') res.fullPayload = true;
+    if (a === '--verify-all') res.verifyAll = true;
+    if (a.startsWith('--status-timeout=')) res.statusTimeout = parseInt(a.split('=')[1], 10) || 30000;
+    if (a.startsWith('--rate-limit=')) res.rateLimit = parseInt(a.split('=')[1], 10) || 100;
+    if (a.startsWith('--batch-size=')) res.batchSize = parseInt(a.split('=')[1], 10) || 10;
+    if (a.startsWith('--batch-delay=')) res.batchDelay = parseInt(a.split('=')[1], 10) || 100;
   });
+
   if (!res.log) res.log = path.join(process.cwd(), 'loadtest-mqtt.log');
   return res;
 }
 
-function shellEscape(s) {
-  if (s == null) return '';
-  return String(s).replace(/'/g, "'\\''");
+// Add rate limiting and connection throttling
+class RateLimiter {
+  constructor(messagesPerSecond) {
+    this.messagesPerSecond = messagesPerSecond;
+    this.tokens = messagesPerSecond;
+    this.lastRefill = Date.now();
+  }
+
+  async waitForToken() {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefill) / 1000;
+    this.tokens = Math.min(this.messagesPerSecond, this.tokens + elapsed * this.messagesPerSecond);
+    this.lastRefill = now;
+
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return;
+    }
+
+    const waitTime = Math.ceil((1 - this.tokens) / this.messagesPerSecond * 1000);
+    await new Promise(resolve => setTimeout(resolve, waitTime));
+    this.tokens = 0;
+  }
 }
 
-function queryActionStatusViaMysql(orderId, userId, cb) {
+class ConnectionPool {
+  constructor(maxConnections = 5) {
+    this.maxConnections = maxConnections;
+    this.activeConnections = 0;
+    this.waitingQueue = [];
+  }
+
+  async acquire() {
+    if (this.activeConnections < this.maxConnections) {
+      this.activeConnections++;
+      return;
+    }
+
+    return new Promise(resolve => {
+      this.waitingQueue.push(resolve);
+    });
+  }
+
+  release() {
+    this.activeConnections--;
+    if (this.waitingQueue.length > 0) {
+      const next = this.waitingQueue.shift();
+      this.activeConnections++;
+      next();
+    }
+  }
+}
+
+let dbPool = null;
+
+async function createDbPoolIfNeeded() {
+  if (!process.env.DB_HOST || !process.env.DB_DATABASE) return null;
+  if (dbPool) return dbPool;
   const host = process.env.DB_HOST || process.env.MYSQL_HOST || '127.0.0.1';
   const port = process.env.DB_PORT || process.env.MYSQL_PORT || '3306';
   const database = process.env.DB_DATABASE || process.env.MYSQL_DATABASE || '';
   const user = process.env.DB_USERNAME || process.env.MYSQL_USER || '';
   const pass = process.env.DB_PASSWORD || process.env.MYSQL_PASSWORD || '';
 
-  // Build mysql CLI command
-  let auth = '';
-  if (user) auth += ` -u'${shellEscape(user)}'`;
-  if (pass) auth += ` -p'${shellEscape(pass)}'`;
+  dbPool = mysql.createPool({ host, port: Number(port), user, password: pass, database, waitForConnections: true, connectionLimit: 10, queueLimit: 0 });
+  return dbPool;
+}
 
-  const dbPart = database ? ` -D '${shellEscape(database)}'` : '';
-  const sql = `SELECT status FROM actions WHERE order_id=${Number(orderId)} AND user_id=${Number(userId)} LIMIT 1;`;
-  const cmd = `mysql -h '${shellEscape(host)}' -P ${Number(port)}${auth}${dbPart} -N -s -e '${shellEscape(sql)}'`;
-
-  exec(cmd, { timeout: 5000 }, (err, stdout, stderr) => {
-    if (err) return cb(err, null);
-    const out = stdout ? stdout.toString().trim() : '';
-    return cb(null, out || null);
-  });
+async function queryActionStatus(orderId, userId) {
+  if (!process.env.DB_HOST || !process.env.DB_DATABASE) return null;
+  try {
+    const pool = await createDbPoolIfNeeded();
+    const [rows] = await pool.execute('SELECT status FROM actions WHERE order_id = ? AND user_id = ? LIMIT 1', [Number(orderId), Number(userId)]);
+    if (!rows || rows.length === 0) return null;
+    const status = rows[0].status;
+    return status == null ? null : String(status).trim();
+  } catch (e) {
+    // swallow DB errors and return null so caller can retry
+    return null;
+  }
 }
 
 function waitForActionDone(orderId, userId, timeoutMs = 30000) {
@@ -70,15 +144,14 @@ function waitForActionDone(orderId, userId, timeoutMs = 30000) {
     const start = Date.now();
     let backoff = 200;
 
-    function tick() {
-      queryActionStatusViaMysql(orderId, userId, (err, status) => {
-        if (!err && status && status.toLowerCase() === 'done') return resolve(true);
-        if (Date.now() - start >= timeoutMs) return resolve(false);
-        setTimeout(() => {
-          backoff = Math.min(2000, Math.round(backoff * 1.4));
-          tick();
-        }, backoff);
-      });
+    async function tick() {
+      const status = await queryActionStatus(orderId, userId);
+      if (status && status.toLowerCase() === 'done') return resolve(true);
+      if (Date.now() - start >= timeoutMs) return resolve(false);
+      setTimeout(() => {
+        backoff = Math.min(2000, Math.round(backoff * 1.4));
+        tick();
+      }, backoff);
     }
 
     tick();
@@ -112,107 +185,110 @@ async function main() {
     const logStream = fs.createWriteStream(opts.log, { flags: 'a' });
     logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'start', order_id: orderId, count: userIds.length }) + '\n');
 
-    // Simple throttled publisher: run user jobs in parallel with concurrency
+    // Initialize rate limiter and connection pool
+    const rateLimiter = new RateLimiter(opts.rateLimit);
+    const connectionPool = new ConnectionPool(opts.concurrency);
+
+    // Batch processing for better resource management
     let idx = 0;
     let inFlight = 0;
+    let successCount = 0;
+    let timeoutCount = 0;
 
-    function publishForUser(userId) {
-      // Return a promise that resolves only after both publishes receive broker acknowledgement
-      return new Promise((resolve) => {
+    async function publishForUser(userId) {
+      // Acquire connection slot and rate limit token
+      await connectionPool.acquire();
+      await rateLimiter.waitForToken();
+
+      try {
         const pingResTopic = `order/ping/res`;
         const pingResMessage = JSON.stringify({ order_id: orderId, user_id: userId, status: 'ok', type: doc.type || 'follow' });
 
         const resultTopic = `order/res/${orderId}/${userId}`;
-        const resultMessage = JSON.stringify({ order_id: orderId, user_id: userId, status: 'done' });
+        const resultMessage = opts.fullPayload
+          ? JSON.stringify({ order_id: orderId, user_id: userId, status: 'done' })
+          : JSON.stringify({ status: 'done' });
 
-        // helper to publish and wait for callback
+        // Helper to publish and wait for callback
         function publishAsync(topic, message, optsPub) {
           return new Promise((res) => {
             client.publish(topic, message, optsPub || { qos: 1 }, (err) => {
               const out = { ts: new Date().toISOString(), user_id: userId, topic: topic, message: JSON.parse(message), err: err ? err.message : null };
               logStream.write(JSON.stringify(out) + '\n');
-              // resolve regardless of err; caller can inspect the log for details
-              res(err ? false : true);
+              res(err);
             });
           });
         }
 
-        // publish ping, then delay, then publish result, waiting for both acknowledgements
-        publishAsync(pingResTopic, pingResMessage, { qos: 1 })
-          .then(() => {
-            // small delay before final result
-            setTimeout(async () => {
-              try {
-                await publishAsync(resultTopic, resultMessage, { qos: 1 });
+        // Publish ping first
+        await publishAsync(pingResTopic, pingResMessage, { qos: 1 });
 
-                // Call waitForActionDone after publishing result for each user
-                if (process.env.DB_HOST && process.env.DB_DATABASE) {
-                  try {
-                    const ok = await waitForActionDone(orderId, userId, 30000);
-                    if (!ok) {
-                      logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
-                    }
-                  } catch (e) {
-                    // ignore DB polling errors
-                  }
-                }
-              } catch (e) {
-                // publish failed, continue
-              }
-              resolve();
-            }, Math.max(1, opts.delay));
-          })
-          .catch(() => {
-            // even if ping publish failed, attempt result publish
-            setTimeout(async () => {
-              try {
-                await publishAsync(resultTopic, resultMessage, { qos: 1 });
-                if (process.env.DB_HOST && process.env.DB_DATABASE) {
-                  try {
-                    const ok = await waitForActionDone(orderId, userId, 30000);
-                    if (!ok) {
-                      logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
-                    }
-                  } catch (e) {}
-                }
-              } catch (e) {
-                // ignore
-              }
-              resolve();
-            }, Math.max(1, opts.delay));
-          });
-      });
-    }
+        // Small delay before final result
+        await new Promise(resolve => setTimeout(resolve, Math.max(1, opts.delay)));
 
-    // worker loop
-    function kick() {
-      while (inFlight < opts.concurrency && idx < userIds.length) {
-        const uid = userIds[idx++];
-        inFlight++;
-        publishForUser(uid).then(() => {
-          inFlight--;
-          if (idx % 100 === 0) console.log(`progress: ${idx}/${userIds.length}`);
-          if (idx >= userIds.length && inFlight === 0) {
-            logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'done', processed: idx }) + '\n');
-            logStream.end(() => {
-              console.log('All published, exiting');
-              // Gracefully close the client so in-flight acks can finish
-              try {
-                client.end(false, () => process.exit(0));
-              } catch (e) {
-                // fallback to force close if graceful end fails
-                client.end(true, () => process.exit(0));
-              }
-            });
-          } else {
-            // kick more
-            kick();
+        // Publish result
+        await publishAsync(resultTopic, resultMessage, { qos: 1 });
+
+        // Verify in database if configured
+        if (process.env.DB_HOST && process.env.DB_DATABASE) {
+          try {
+            const ok = await waitForActionDone(orderId, userId, opts.statusTimeout);
+            if (!ok) {
+              timeoutCount++;
+              logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
+            } else {
+              successCount++;
+            }
+          } catch (e) {
+            // ignore DB polling errors
           }
-        });
+        }
+      } catch (e) {
+        // Handle any publish errors
+        console.warn(`Publish failed for user ${userId}:`, e.message);
+      } finally {
+        // Always release the connection slot
+        connectionPool.release();
       }
     }
 
-    kick();
+    // Process users in batches to avoid overwhelming the system
+    for (let batchStart = 0; batchStart < userIds.length; batchStart += opts.batchSize) {
+      const batch = userIds.slice(batchStart, batchStart + opts.batchSize);
+      const batchPromises = batch.map(userId => publishForUser(userId));
+
+      // Wait for current batch to complete before starting next batch
+      await Promise.all(batchPromises);
+
+      // Add delay between batches if not the last batch
+      if (batchStart + opts.batchSize < userIds.length) {
+        await new Promise(resolve => setTimeout(resolve, opts.batchDelay));
+        console.log(`Processed batch ${Math.floor(batchStart / opts.batchSize) + 1}/${Math.ceil(userIds.length / opts.batchSize)}`);
+      }
+    }
+
+    // Log completion
+    logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'finished', success: successCount, timeouts: timeoutCount, total: userIds.length }) + '\n');
+    logStream.end();
+
+    console.log(`Load test completed: ${successCount} success, ${timeoutCount} timeouts out of ${userIds.length} total users`);
+
+    // Gracefully close connections
+    try {
+      client.end(false, async () => {
+        try {
+          if (dbPool) await dbPool.end();
+        } catch (e) {}
+        process.exit(timeoutCount > 0 ? 1 : 0);
+      });
+    } catch (e) {
+      client.end(true, async () => {
+        try {
+          if (dbPool) await dbPool.end();
+        } catch (e) {}
+        process.exit(timeoutCount > 0 ? 1 : 0);
+      });
+    }
   });
 }
 
