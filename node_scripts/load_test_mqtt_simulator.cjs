@@ -301,7 +301,7 @@ async function main() {
     }
 
     // Run a batch with burst responders, jitter and adaptive throttling
-    async function runBatch(batchIndex, batch) {
+  async function runBatch(batchIndex, batch) {
       const batchLen = batch.length;
       const burstCount = Math.max(0, Math.min(batchLen, Math.round(batchLen * opts.burstPercent / 100)));
 
@@ -358,26 +358,40 @@ async function main() {
         }
       }
 
-      // If DB verification is enabled and many are pending, do a re-check after a grace period
+      // If DB verification is enabled and some are pending, do multiple re-check attempts with backoff
       if (process.env.DB_HOST && process.env.DB_DATABASE && dbPending.length > 0) {
-        const recheckDelay = Number(process.env.SIM_DB_RECHECK_MS) || opts.statusTimeout;
-        logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'db_recheck_scheduled', batch: batchIndex, pending: dbPending.length, delayMs: recheckDelay }) + '\n');
-        await new Promise(resolve => setTimeout(resolve, recheckDelay));
+        const attempts = Number(process.env.SIM_DB_RECHECK_ATTEMPTS) || 3;
+        const baseBackoff = Number(process.env.SIM_DB_RECHECK_BACKOFF_MS) || 5000; // ms
+        logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'db_recheck_scheduled', batch: batchIndex, pending: dbPending.length, attempts, baseBackoff }) + '\n');
 
-        // re-check statuses for pending users
+        let remaining = [...dbPending];
         let recheckedFailures = 0;
-        for (const uid of dbPending) {
-          try {
-            const ok = await queryActionStatus(orderId, uid);
-            if (ok && ok.toLowerCase() === 'done') {
-              success++;
-            } else {
-              recheckedFailures++;
-              logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'db_recheck_still_not_done', user_id: uid, order_id: orderId }) + '\n');
+        for (let a = 0; a < attempts && remaining.length > 0; a++) {
+          const delay = baseBackoff * Math.pow(1.6, a); // increase backoff each attempt
+          await new Promise(resolve => setTimeout(resolve, delay));
+
+          const stillPending = [];
+          for (const uid of remaining) {
+            try {
+              const ok = await queryActionStatus(orderId, uid);
+              if (ok && ok.toLowerCase() === 'done') {
+                success++;
+              } else {
+                stillPending.push(uid);
+              }
+            } catch (e) {
+              stillPending.push(uid);
             }
-          } catch (e) {
-            recheckedFailures++;
           }
+          // update remaining
+          remaining = stillPending;
+          logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'db_recheck_pass', batch: batchIndex, attempt: a+1, remaining: remaining.length }) + '\n');
+        }
+
+        // after attempts any remaining are considered failures
+        recheckedFailures = remaining.length;
+        for (const uid of remaining) {
+          logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'db_recheck_still_not_done', user_id: uid, order_id: orderId }) + '\n');
         }
         dbFailures = recheckedFailures;
       }
