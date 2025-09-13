@@ -40,8 +40,13 @@ function parseArgs() {
     verifyAll: false,
     statusTimeout: 30000,
     rateLimit: Number(process.env.SIM_RATE_LIMIT) || 100,   // Messages per second limit
-    batchSize: Number(process.env.SIM_BATCH_SIZE) || 10,    // Process users in batches
-    batchDelay: Number(process.env.SIM_BATCH_DELAY_MS) || 100   // Delay between batches in ms
+    batchSize: Number(process.env.SIM_BATCH_SIZE) || 200,    // Process users in batches (default 200)
+    batchDelay: Number(process.env.SIM_BATCH_DELAY_MS) || 200,   // Delay between batches in ms
+    burstPercent: Number(process.env.SIM_BURST_PERCENT) || 30, // percent of batch that can respond as burst (0-100)
+    jitterMs: Number(process.env.SIM_JITTER_MS) || 50, // random jitter added to per-user delay
+    adaptive: (process.env.SIM_ADAPTIVE === '0' || process.env.SIM_ADAPTIVE === 'false') ? false : true,
+    adaptiveFailureThresholdPercent: Number(process.env.SIM_ADAPTIVE_FAIL_PCT) || 10, // percent
+    adaptiveMinRate: Number(process.env.SIM_ADAPTIVE_MIN_RATE) || 10
   };
 
   args.slice(1).forEach(a => {
@@ -84,6 +89,14 @@ class RateLimiter {
     await new Promise(resolve => setTimeout(resolve, waitTime));
     this.tokens = 0;
   }
+
+  // allow adjusting the rate at runtime (used by adaptive throttling)
+  setRate(newRate) {
+    this.messagesPerSecond = Math.max(1, Number(newRate) || 1);
+    // clamp tokens to new rate
+    this.tokens = Math.min(this.tokens, this.messagesPerSecond);
+    this.lastRefill = Date.now();
+  }
 }
 
 class ConnectionPool {
@@ -111,6 +124,11 @@ class ConnectionPool {
       this.activeConnections++;
       next();
     }
+  }
+
+  // adjust max connections at runtime
+  setMaxConnections(n) {
+    this.maxConnections = Math.max(1, Number(n) || 1);
   }
 }
 
@@ -214,7 +232,7 @@ async function main() {
     let successCount = 0;
     let timeoutCount = 0;
 
-    async function publishForUser(userId) {
+  async function publishForUser(userId) {
       // Acquire connection slot and rate limit token
       await connectionPool.acquire();
       await rateLimiter.waitForToken();
@@ -248,41 +266,116 @@ async function main() {
         // Publish result
         await publishAsync(resultTopic, resultMessage, { qos: 1 });
 
-        // Verify in database if configured
+        // Verify in database if configured; return boolean success
         if (process.env.DB_HOST && process.env.DB_DATABASE) {
           try {
-            const ok = await waitForActionDone(orderId, userId, opts.statusTimeout);
-            if (!ok) {
-              timeoutCount++;
+            const okDb = await waitForActionDone(orderId, userId, opts.statusTimeout);
+            if (!okDb) {
               logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
-            } else {
-              successCount++;
             }
+            return !!okDb;
           } catch (e) {
-            // ignore DB polling errors
+            // treat DB polling error as failure
+            return false;
           }
         }
+
+        // If no DB verification configured, consider publish success as success
+        return true;
       } catch (e) {
         // Handle any publish errors
         console.warn(`Publish failed for user ${userId}:`, e.message);
+        return false;
       } finally {
         // Always release the connection slot
         connectionPool.release();
       }
     }
 
-    // Process users in batches to avoid overwhelming the system
-    for (let batchStart = 0; batchStart < userIds.length; batchStart += opts.batchSize) {
-      const batch = userIds.slice(batchStart, batchStart + opts.batchSize);
-      const batchPromises = batch.map(userId => publishForUser(userId));
+    // Helper: shuffle array in-place
+    function shuffle(array) {
+      for (let i = array.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [array[i], array[j]] = [array[j], array[i]];
+      }
+    }
 
-      // Wait for current batch to complete before starting next batch
-      await Promise.all(batchPromises);
+    // Run a batch with burst responders, jitter and adaptive throttling
+    async function runBatch(batchIndex, batch) {
+      const batchLen = batch.length;
+      const burstCount = Math.max(0, Math.min(batchLen, Math.round(batchLen * opts.burstPercent / 100)));
+
+      // decide burst indices
+      const indices = Array.from({ length: batchLen }, (_, i) => i);
+      shuffle(indices);
+      const burstSet = new Set(indices.slice(0, burstCount));
+
+      const promises = [];
+      for (let i = 0; i < batchLen; i++) {
+        const userId = batch[i];
+        if (burstSet.has(i)) {
+          // start immediately (burst)
+          promises.push(publishForUser(userId));
+        } else {
+          // staggered start with jitter
+          const jitter = Math.floor(Math.random() * opts.jitterMs);
+          const startDelay = Math.max(0, opts.delay + jitter);
+          const p = new Promise((resolve) => {
+            setTimeout(async () => {
+              try {
+                const ok = await publishForUser(userId);
+                resolve(ok);
+              } catch (e) {
+                resolve(false);
+              }
+            }, startDelay);
+          });
+          promises.push(p);
+        }
+      }
+
+      const results = await Promise.all(promises);
+      // compute failures
+      const failures = results.filter(r => !r).length;
+      const success = results.filter(r => r).length;
+
+      successCount += success;
+      timeoutCount += failures;
+
+      // Adaptive throttling: if too many failures, back off
+      if (opts.adaptive) {
+        const failPct = batchLen === 0 ? 0 : (failures / batchLen) * 100;
+        if (failPct >= opts.adaptiveFailureThresholdPercent) {
+          // back off: reduce rate and concurrency, increase batchDelay
+          const currentRate = rateLimiter.messagesPerSecond || opts.rateLimit;
+          const newRate = Math.max(opts.adaptiveMinRate, Math.floor(currentRate * 0.6));
+          rateLimiter.setRate(newRate);
+
+          const currentMaxCon = connectionPool.maxConnections || opts.concurrency;
+          const newCon = Math.max(1, Math.floor(currentMaxCon * 0.7));
+          connectionPool.setMaxConnections(newCon);
+
+          opts.batchDelay = Math.min(60000, Math.floor(opts.batchDelay * 1.5));
+
+          logStream.write(JSON.stringify({ ts: new Date().toISOString(), event: 'adaptive_backoff', batch: batchIndex, failPct: Math.round(failPct), newRate, newCon, newBatchDelay: opts.batchDelay }) + '\n');
+          console.warn(`Adaptive backoff applied after batch ${batchIndex}: failPct=${Math.round(failPct)}%, newRate=${newRate}, newCon=${newCon}, batchDelay=${opts.batchDelay}`);
+          // small cooldown to let backend recover
+          await new Promise(resolve => setTimeout(resolve, Math.min(10000, opts.batchDelay)));
+        }
+      }
+
+      return { success, failures };
+    }
+
+    // Process users in batches to avoid overwhelming the system
+    for (let batchStart = 0, batchIndex = 1; batchStart < userIds.length; batchStart += opts.batchSize, batchIndex++) {
+      const batch = userIds.slice(batchStart, batchStart + opts.batchSize);
+      const { success, failures } = await runBatch(batchIndex, batch);
+      console.log(`Batch ${batchIndex}: processed=${batch.length}, success=${success}, failures=${failures}`);
 
       // Add delay between batches if not the last batch
       if (batchStart + opts.batchSize < userIds.length) {
         await new Promise(resolve => setTimeout(resolve, opts.batchDelay));
-        console.log(`Processed batch ${Math.floor(batchStart / opts.batchSize) + 1}/${Math.ceil(userIds.length / opts.batchSize)}`);
       }
     }
 
