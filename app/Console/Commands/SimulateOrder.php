@@ -10,116 +10,116 @@ use Illuminate\Support\Facades\Queue;
 
 class SimulateOrder extends Command
 {
-    // protected $signature = 'simulate:order
-    //                         {--count=100 : Number of users to simulate}
-    //                         {--type=follow : Order type}
-    //                         {--batch-size=500 : Batch size for processing}
-    //                         {--monitor : Monitor system during simulation}';
+    protected $signature = 'simulate:orders
+                            {--count=100 : Number of users to simulate}
+                            {--type=follow : Order type}
+                            {--batch-size=500 : Batch size for processing}
+                            {--monitor : Monitor system during simulation}';
 
-    // protected $description = 'Simulate order processing to test batch system performance';
+    protected $description = 'Simulate order processing to test batch system performance';
 
-    // public function handle()
-    // {
-    //     $count = (int) $this->option('count');
-    //     $type = $this->option('type');
-    //     $batchSize = (int) $this->option('batch-size');
-    //     $monitor = $this->option('monitor');
+    public function handle()
+    {
+        $count = (int) $this->option('count');
+        $type = $this->option('type');
+        $batchSize = (int) $this->option('batch-size');
+        $monitor = $this->option('monitor');
 
-    //     $this->info("🚀 Simulating order processing for {$count} users");
-    //     $this->line('═══════════════════════════════════════════');
+        $this->info("🚀 Simulating order processing for {$count} users");
+        $this->line('═══════════════════════════════════════════');
 
-    //     $startTime = microtime(true);
-    //     $initialConnections = $this->getCurrentConnections();
+        $startTime = microtime(true);
+        $initialConnections = $this->getCurrentConnections();
 
-    //     // Create test order
-    //     $order = DB::table('orders')->insertGetId([
-    //         'user_id' => 1,
-    //         'type' => $type,
-    //         'target_url' => 'https://test-simulation-' . time() . '.com',
-    //         'total_count' => $count,
-    //         'done_count' => 0,
-    //         'status' => 'active',
-    //         'created_at' => now(),
-    //         'updated_at' => now()
-    //     ]);
+        // Create test order
+        $order = DB::table('orders')->insertGetId([
+            'user_id' => 1,
+            'type' => $type,
+            'target_url' => 'https://test-simulation-' . time() . '.com',
+            'total_count' => $count,
+            'done_count' => 0,
+            'status' => 'active',
+            'created_at' => now(),
+            'updated_at' => now()
+        ]);
 
-    //     $this->info("📝 Created test order ID: {$order}");
+        $this->info("📝 Created test order ID: {$order}");
 
-    //     // Generate test user IDs
-    //     $userIds = range(1, $count);
-    //     $this->info("👥 Generated {$count} user IDs");
+        // Generate test user IDs
+        $userIds = range(1, $count);
+        $this->info("👥 Generated {$count} user IDs");
 
-    //     // Start monitoring if requested
-    //     if ($monitor) {
-    //         $this->startMonitoring();
-    //     }
+        // Start monitoring if requested
+        if ($monitor) {
+            $this->startMonitoring();
+        }
 
-    //     // Process in batches using optimized service
-    //     $batchService = app(BatchDatabaseService::class);
-    //     $batches = array_chunk($userIds, $batchSize);
-    //     $totalProcessed = 0;
+        // Process in batches using optimized service
+        $batchService = app(BatchDatabaseService::class);
+        $batches = array_chunk($userIds, $batchSize);
+        $totalProcessed = 0;
 
-    //     $this->info("📦 Processing {$count} users in " . count($batches) . " batches of {$batchSize}");
+        $this->info("📦 Processing {$count} users in " . count($batches) . " batches of {$batchSize}");
 
-    //     foreach ($batches as $index => $batchUserIds) {
-    //         $batchStart = microtime(true);
+        foreach ($batches as $index => $batchUserIds) {
+            $batchStart = microtime(true);
 
-    //         try {
-    //             // Create actions using batch service
-    //             $inserted = $batchService->createOrderActions(
-    //                 (object)['id' => $order, 'type' => $type],
-    //                 $batchUserIds
-    //             );
+            try {
+                // Create actions using batch service
+                $inserted = $batchService->createOrderActions(
+                    (object)['id' => $order, 'type' => $type],
+                    $batchUserIds
+                );
 
-    //             $totalProcessed += $inserted;
-    //             $batchTime = round((microtime(true) - $batchStart) * 1000, 2);
+                $totalProcessed += $inserted;
+                $batchTime = round((microtime(true) - $batchStart) * 1000, 2);
 
-    //             $this->line("  Batch " . ($index + 1) . ": {$inserted} actions created in {$batchTime}ms");
+                $this->line("  Batch " . ($index + 1) . ": {$inserted} actions created in {$batchTime}ms");
 
-    //             // Queue batch job for processing
-    //             OptimizedActionBatchJob::dispatch($order, $batchUserIds, [
-    //                 'batch_id' => $index + 1,
-    //                 'simulation' => true
-    //             ])->onQueue('optimized-actions');
+                // Queue batch job for processing
+                OptimizedActionBatchJob::dispatch($order, $batchUserIds, [
+                    'batch_id' => $index + 1,
+                    'simulation' => true
+                ])->onQueue('optimized-actions');
 
-    //         } catch (\Exception $e) {
-    //             $this->error("❌ Batch " . ($index + 1) . " failed: " . $e->getMessage());
-    //         }
+            } catch (\Exception $e) {
+                $this->error("❌ Batch " . ($index + 1) . " failed: " . $e->getMessage());
+            }
 
-    //         // Small delay to prevent overwhelming the system
-    //         if ($count > 1000) {
-    //             usleep(100000); // 100ms delay for large simulations
-    //         }
-    //     }
+            // Small delay to prevent overwhelming the system
+            if ($count > 1000) {
+                usleep(100000); // 100ms delay for large simulations
+            }
+        }
 
-    //     $totalTime = round((microtime(true) - $startTime) * 1000, 2);
-    //     $finalConnections = $this->getCurrentConnections();
-    //     $connectionDiff = $finalConnections - $initialConnections;
+        $totalTime = round((microtime(true) - $startTime) * 1000, 2);
+        $finalConnections = $this->getCurrentConnections();
+        $connectionDiff = $finalConnections - $initialConnections;
 
-    //     // Display results
-    //     $this->displayResults([
-    //         'order_id' => $order,
-    //         'total_users' => $count,
-    //         'batches_created' => count($batches),
-    //         'actions_created' => $totalProcessed,
-    //         'total_time_ms' => $totalTime,
-    //         'avg_time_per_batch' => round($totalTime / count($batches), 2),
-    //         'actions_per_second' => round($totalProcessed / ($totalTime / 1000), 2),
-    //         'initial_connections' => $initialConnections,
-    //         'final_connections' => $finalConnections,
-    //         'connection_diff' => $connectionDiff
-    //     ]);
+        // Display results
+        $this->displayResults([
+            'order_id' => $order,
+            'total_users' => $count,
+            'batches_created' => count($batches),
+            'actions_created' => $totalProcessed,
+            'total_time_ms' => $totalTime,
+            'avg_time_per_batch' => round($totalTime / count($batches), 2),
+            'actions_per_second' => round($totalProcessed / ($totalTime / 1000), 2),
+            'initial_connections' => $initialConnections,
+            'final_connections' => $finalConnections,
+            'connection_diff' => $connectionDiff
+        ]);
 
-    //     // Monitor queue processing
-    //     if ($monitor) {
-    //         $this->monitorQueueProcessing($order);
-    //     }
+        // Monitor queue processing
+        if ($monitor) {
+            $this->monitorQueueProcessing($order);
+        }
 
-    //     // Cleanup option
-    //     if ($this->confirm('Delete test order and actions?', true)) {
-    //         $this->cleanup($order);
-    //     }
-    // }
+        // Cleanup option
+        if ($this->confirm('Delete test order and actions?', true)) {
+            $this->cleanup($order);
+        }
+    }
 
     private function getCurrentConnections()
     {
