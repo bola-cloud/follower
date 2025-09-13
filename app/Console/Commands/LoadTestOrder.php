@@ -57,7 +57,8 @@ class LoadTestOrder extends Command
                 'done_count' => 0,
                 'cost' => 0,
                 'status' => 'active',
-                'target_url' => 'https://loadtest.example/item/' . uniqid(),
+                'target_url' => $targetUrl = 'https://loadtest.example/item/' . uniqid(),
+                'target_url_hash' => sha1($targetUrl),
                 'user_id' => $owner->id,
             ]);
 
