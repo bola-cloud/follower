@@ -2,6 +2,16 @@ const mqtt = require('mqtt');
 const axios = require('axios');
 const https = require('https');
 
+// Only run subscriber if explicitly enabled to avoid duplication with mqtt_handler.cjs
+const SUBSCRIBER_ENABLED = process.env.MQTT_SUBSCRIBER_ENABLED === 'true';
+
+if (!SUBSCRIBER_ENABLED) {
+  console.log('🔒 MQTT Subscriber is disabled by default to prevent duplication.');
+  console.log('   Set MQTT_SUBSCRIBER_ENABLED=true to enable this standalone subscriber.');
+  console.log('   Note: mqtt_handler.cjs under PM2 is the primary MQTT processor.');
+  process.exit(0);
+}
+
 const broker = 'mqtt://109.199.112.65:1883';
 const client = mqtt.connect(broker);
 

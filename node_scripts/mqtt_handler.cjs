@@ -26,18 +26,91 @@ const HEALTH_CHECK_INTERVAL = parseInt(process.env.MQTT_HEALTH_CHECK_INTERVAL ||
 let systemHealth = { status: 'unknown', lastCheck: 0, circuitOpen: false };
 const pendingActions = []; // For batching action responses
 
+// Message processing locks to prevent race conditions
+const PROCESSING_LOCKS = new Map(); // topic-key -> processing timestamp
+const PROCESSING_TIMEOUT = parseInt(process.env.MQTT_PROCESSING_TIMEOUT || '10000', 10); // 10s
+
+// Check if message is currently being processed
+function isMessageBeingProcessed(topic, payload) {
+  const key = generateDedupeKey(topic, payload);
+  const now = Date.now();
+
+  if (PROCESSING_LOCKS.has(key)) {
+    const processingStart = PROCESSING_LOCKS.get(key);
+    if (now - processingStart < PROCESSING_TIMEOUT) {
+      return true; // Still being processed
+    }
+    // Stale lock, remove it
+    PROCESSING_LOCKS.delete(key);
+  }
+
+  PROCESSING_LOCKS.set(key, now);
+  return false;
+}
+
+// Release processing lock
+function releaseProcessingLock(topic, payload) {
+  const key = generateDedupeKey(topic, payload);
+  PROCESSING_LOCKS.delete(key);
+}
+
+// Cleanup stale processing locks
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of PROCESSING_LOCKS) {
+    if (now - timestamp > PROCESSING_TIMEOUT) {
+      PROCESSING_LOCKS.delete(key);
+    }
+  }
+}, Math.max(5000, Math.floor(PROCESSING_TIMEOUT / 2)));
+
+// Deduplication cache for MQTT messages
+const MESSAGE_CACHE = new Map(); // topic-hash -> timestamp
+const MESSAGE_TTL = parseInt(process.env.MQTT_DEDUP_TTL_MS || '30000', 10); // 30s default
+
+// Periodic cleanup of deduplication cache
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of MESSAGE_CACHE) {
+    if (now - ts > MESSAGE_TTL) MESSAGE_CACHE.delete(key);
+  }
+}, Math.max(10_000, Math.floor(MESSAGE_TTL / 3)));
+
+// Generate deduplication key from topic and payload
+function generateDedupeKey(topic, payload) {
+  const payloadStr = JSON.stringify(payload);
+  return `${topic}::${Buffer.from(payloadStr).toString('base64').slice(0, 32)}`;
+}
+
+// Check if message was recently processed
+function isDuplicateMessage(topic, payload) {
+  const key = generateDedupeKey(topic, payload);
+  const now = Date.now();
+
+  if (MESSAGE_CACHE.has(key)) {
+    const lastSeen = MESSAGE_CACHE.get(key);
+    if (now - lastSeen < MESSAGE_TTL) {
+      return true; // Duplicate within TTL
+    }
+  }
+
+  MESSAGE_CACHE.set(key, now);
+  return false;
+}
+
 // --- Known orders cache --------------------------------------------------
 // Track order_ids observed via `orders/+` messages so we can detect when
-// devices reference an order (on order/ping/res) that wasn't announced to
-// users via `orders/{user_id}`. This is intentionally lightweight and
-// in-memory — it's only for detection/alerting, not a source of truth.
-const KNOWN_ORDERS = new Map(); // order_id -> timestamp(ms)
+// devices reference an order (on order/ping/res) that was announced to
+// users via `orders/{user_id}`. Store both userId and timestamp so we can
+// recover a missing user_id coming from device ping responses.
+const KNOWN_ORDERS = new Map(); // order_id -> { userId: number, ts: timestamp(ms) }
 const ORDER_TTL = parseInt(process.env.KNOWN_ORDER_TTL_MS || String(1000 * 60 * 10), 10); // 10m default
 
 // Periodic cleanup to avoid unbounded memory growth
 setInterval(() => {
   const now = Date.now();
-  for (const [orderId, ts] of KNOWN_ORDERS) {
+  for (const [orderId, info] of KNOWN_ORDERS) {
+    const ts = info?.ts || 0;
     if (now - ts > ORDER_TTL) KNOWN_ORDERS.delete(orderId);
   }
 }, Math.max(60_000, Math.floor(ORDER_TTL / 10)));
@@ -250,9 +323,32 @@ client.on('message', async (topic, message) => {
     return;
   }
 
-  if (DEBUG) console.log(`🔔 MQTT recv -> topic: ${topic} | payload: ${JSON.stringify(payload)}`);
+  // Deduplication check - skip if we processed this message recently
+  if (isDuplicateMessage(topic, payload)) {
+    if (DEBUG) console.log(`🔄 Skipping duplicate message: ${topic}`);
+    return;
+  }
 
-  // ...existing code...
+  // Processing lock check - skip if message is currently being processed
+  if (isMessageBeingProcessed(topic, payload)) {
+    if (DEBUG) console.log(`� Skipping message already being processed: ${topic}`);
+    return;
+  }
+
+  if (DEBUG) console.log(`�🔔 MQTT recv -> topic: ${topic} | payload: ${JSON.stringify(payload)}`);
+
+  try {
+    // Process the message...
+    await processMessage(topic, payload);
+  } catch (err) {
+    console.error('❌ Error processing MQTT message:', err.message);
+  } finally {
+    // Always release the processing lock
+    releaseProcessingLock(topic, payload);
+  }
+});
+
+async function processMessage(topic, payload) {
 
   // order/ping/res — devices report they received a ping (activation)
   if (topic === 'order/ping/res') {
@@ -285,12 +381,19 @@ client.on('message', async (topic, message) => {
         else mappedType = 'create';
       }
 
-      // If the device didn't provide a user_id, skip calling trigger-order because
-      // the Laravel endpoint requires a numeric user_id (required|integer).
-      if (userId === null) {
-        console.warn('⚠️ Ping response missing user_id, skipping trigger-order:', payload);
-        return;
-      }
+        // If the device didn't provide a user_id, try to recover it from KNOWN_ORDERS
+        if (userId === null) {
+          const known = KNOWN_ORDERS.get(orderId);
+          if (known && known.userId) {
+            if (DEBUG) console.log(`🔁 Recovered user_id=${known.userId} for order ${orderId} from KNOWN_ORDERS`);
+            userId = known.userId;
+          }
+        }
+
+        if (userId === null) {
+          console.warn('⚠️ Ping response missing user_id and not recoverable, skipping trigger-order:', payload);
+          return;
+        }
 
       const messageId = randomUUID();
       const postBody = {
@@ -345,8 +448,8 @@ client.on('message', async (topic, message) => {
     // detect later if devices report pings for orders that were never
     // announced to users via `orders/{user_id}`.
     try {
-      const id = Number(order_id);
-      if (!Number.isNaN(id)) KNOWN_ORDERS.set(id, Date.now());
+        const id = Number(order_id);
+        if (!Number.isNaN(id)) KNOWN_ORDERS.set(id, { userId, ts: Date.now() });
     } catch (err) {
       if (DEBUG) console.warn('Failed to record known order:', err.message);
     }
@@ -406,7 +509,7 @@ client.on('message', async (topic, message) => {
   }
 
   if (DEBUG) console.warn('⚠️ Unrecognized topic:', topic);
-});
+}
 
 process.on('SIGINT', () => {
   console.log('📡 MQTT handler shutting down...');
