@@ -94,9 +94,9 @@ class HighVolumeProcessingService
             if ($status === 'done') {
                 // Use safe increment that doesn't exceed total_count
                 $connection->statement("
-                    UPDATE orders 
+                    UPDATE orders
                     SET done_count = LEAST(done_count + 1, total_count),
-                        updated_at = NOW() 
+                        updated_at = NOW()
                     WHERE id = ? AND done_count < total_count
                 ", [$orderId]);
 

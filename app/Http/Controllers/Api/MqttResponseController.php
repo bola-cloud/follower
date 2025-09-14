@@ -150,9 +150,9 @@ class MqttResponseController extends Controller
             // Use safe increment that doesn't exceed total_count to prevent over-counting
             if (($updated > 0 || $created) && $status === 'done') {
                 DB::statement("
-                    UPDATE orders 
+                    UPDATE orders
                     SET done_count = LEAST(done_count + 1, total_count),
-                        updated_at = NOW() 
+                        updated_at = NOW()
                     WHERE id = ? AND done_count < total_count
                 ", [$orderId]);
 
@@ -673,9 +673,9 @@ class MqttResponseController extends Controller
 
             if ($updated > 0 && $status === 'done') {
                 DB::statement("
-                    UPDATE orders 
+                    UPDATE orders
                     SET done_count = LEAST(done_count + 1, total_count),
-                        updated_at = NOW() 
+                        updated_at = NOW()
                     WHERE id = ? AND done_count < total_count
                 ", [$orderId]);
             }
