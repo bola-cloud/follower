@@ -92,6 +92,30 @@ class OrderService
                 'inserted' => $inserted
             ]);
 
+            // Dispatch per-user MQTT announcement jobs so each user receives `orders/{user_id}`
+            // This ensures the MQTT handler records known orders and devices can respond to pings.
+            if (!empty($userIds)) {
+                // Dispatch in small chunks to avoid overwhelming the queue
+                $chunks = array_chunk($userIds, 200);
+                foreach ($chunks as $chunk) {
+                    foreach ($chunk as $uid) {
+                        try {
+                            dispatch(new \App\Jobs\SendMqttToUserJob($uid, $order->id, $order->type, $order->target_url));
+                        } catch (\Throwable $je) {
+                            Log::warning('[OrderService] Failed to dispatch SendMqttToUserJob', [
+                                'order_id' => $order->id,
+                                'user_id' => $uid,
+                                'error' => $je->getMessage()
+                            ]);
+                        }
+                    }
+                }
+                Log::info('[OrderService] Dispatched SendMqttToUserJob for pending users', [
+                    'order_id' => $order->id,
+                    'dispatched_count' => count($userIds)
+                ]);
+            }
+
         } catch (\Throwable $e) {
             Log::error('[OrderService] Failed to create batch pending actions', [
                 'order_id' => $order->id,
