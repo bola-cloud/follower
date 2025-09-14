@@ -183,11 +183,14 @@ class OrderService
         $pingData = [
             'type' => $order->type ?? 'create',
             'order_id' => $order->id,
-            'activation' => true
+            'activation' => true,
+            // Add metadata so devices can include necessary fields in responses
+            'creator_user_id' => $order->user_id,
+            'ping_request_id' => uniqid('ping_', true),
+            'published_at' => now()->toDateTimeString()
         ];
 
         $this->publishToMqtt('order/ping/req', $pingData);
-
         // Log::info("[OrderService] Sent ping for order {$order->id} to `order/ping/req` via MQTT");
     }
 
