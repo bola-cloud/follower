@@ -11,10 +11,12 @@ let finished = false;
 try {
   const data = JSON.parse(rawInput);
 
-  if (!['follow', 'like'].includes(data.type)) {
-    throw new Error(`Invalid order type: ${data.type}`);
-  }
-
+  // Accept any order type coming from the API. Older versions limited
+  // types to specific device actions (follow/like) which caused
+  // announcements to fail when higher-level types (create/resume)
+  // were used. Publish the payload as-is so the MQTT handler and
+  // devices receive the announcement. Device-side handlers should
+  // be tolerant of the `type` string.
   const topic = `orders/${data.user_id}`;
   const message = JSON.stringify({
     url: data.url,
