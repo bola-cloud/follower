@@ -95,8 +95,26 @@ class OrderService
             // Dispatch per-user MQTT announcement jobs so each user receives `orders/{user_id}`
             // This ensures the MQTT handler records known orders and devices can respond to pings.
             if (!empty($userIds)) {
-                // Dispatch in small chunks to avoid overwhelming the queue
-                $chunks = array_chunk($userIds, 200);
+                // First, synchronously announce to a small chunk so the MQTT
+                // handler can record KNOWN_ORDERS before we send the ping.
+                // This mirrors ResumeOrderService which publishes before pinging.
+                $syncChunk = array_slice($userIds, 0, 50);
+                foreach ($syncChunk as $uid) {
+                    try {
+                        // Publish directly and wait (use the same synchronous publisher)
+                        $this->publishOrderAnnouncement($uid, $order->id, $order->type, $order->target_url);
+                    } catch (\Throwable $je) {
+                        Log::warning('[OrderService] Failed to publish synchronous order announcement', [
+                            'order_id' => $order->id,
+                            'user_id' => $uid,
+                            'error' => $je->getMessage()
+                        ]);
+                    }
+                }
+
+                // Dispatch the rest asynchronously to the high-priority queue
+                $remaining = array_slice($userIds, count($syncChunk));
+                $chunks = array_chunk($remaining, 200);
                 foreach ($chunks as $chunk) {
                     foreach ($chunk as $uid) {
                         try {
@@ -110,9 +128,11 @@ class OrderService
                         }
                     }
                 }
-                Log::info('[OrderService] Dispatched SendMqttToUserJob for pending users', [
+
+                Log::info('[OrderService] Synchronously announced to first chunk and dispatched SendMqttToUserJob for remaining users', [
                     'order_id' => $order->id,
-                    'dispatched_count' => count($userIds)
+                    'sync_announced' => count($syncChunk),
+                    'dispatched_count' => count($remaining)
                 ]);
             }
 
