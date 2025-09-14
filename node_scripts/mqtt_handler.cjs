@@ -358,7 +358,7 @@ async function processMessage(topic, payload) {
     const type = payload.type;
 
     const orderId = rawActivation == null ? NaN : parseInt(rawActivation, 10);
-    const userId = rawUser == null ? null : parseInt(rawUser, 10);
+    let userId = rawUser == null ? null : parseInt(rawUser, 10);  // Use 'let' so we can reassign
 
     if (!type || Number.isNaN(orderId)) {
       console.error('❌ Invalid ping response payload:', {
@@ -381,12 +381,25 @@ async function processMessage(topic, payload) {
         else mappedType = 'create';
       }
 
-        // If the device didn't provide a user_id, try to recover it from KNOWN_ORDERS
+        // If the device didn't provide a user_id, try to recover it from multiple sources
         if (userId === null) {
-          const known = KNOWN_ORDERS.get(orderId);
-          if (known && known.userId) {
-            if (DEBUG) console.log(`🔁 Recovered user_id=${known.userId} for order ${orderId} from KNOWN_ORDERS`);
-            userId = known.userId;
+          // First, try creator_user_id from ping metadata
+          const creatorUserId = payload.creator_user_id;
+          if (creatorUserId != null) {
+            const parsedCreatorId = parseInt(creatorUserId, 10);
+            if (!Number.isNaN(parsedCreatorId)) {
+              if (DEBUG) console.log(`🔁 Recovered user_id=${parsedCreatorId} for order ${orderId} from creator_user_id`);
+              userId = parsedCreatorId;
+            }
+          }
+
+          // If still null, try KNOWN_ORDERS cache
+          if (userId === null) {
+            const known = KNOWN_ORDERS.get(orderId);
+            if (known && known.userId) {
+              if (DEBUG) console.log(`🔁 Recovered user_id=${known.userId} for order ${orderId} from KNOWN_ORDERS`);
+              userId = known.userId;  // This assignment now works because userId is 'let'
+            }
           }
         }
 

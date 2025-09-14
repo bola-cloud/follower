@@ -297,9 +297,8 @@ class OrderService
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
-                // Re-publish order announcement
-                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                return ['message' => 'Pending action re-dispatched for this user.'];
+                // Don't re-publish - user already has pending announcement from batch creation
+                return ['message' => 'Pending action already exists for this user.'];
             }
             // Block if status is done or external
             if (in_array($existingAction->status, ['done', 'external'])) {
@@ -326,9 +325,8 @@ class OrderService
         }
 
         try {
-            // 🔄 SYNCHRONOUS ORDER ANNOUNCEMENT: Publish order to users BEFORE ping
-            // This ensures MQTT handler knows about the order before devices respond
-            $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+            // Skip individual announcement - users are already announced in batch during createPendingActions
+            // This eliminates duplicate MQTT messages that were causing 3x+ duplication
 
             $inserted = DB::table('actions')->insertOrIgnore([
                 'order_id' => $order->id,
@@ -349,8 +347,7 @@ class OrderService
 
                 if ($existingAction) {
                     if ($existingAction->status === 'pending') {
-                        $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                        return ['message' => 'Pending action re-dispatched for this user.'];
+                        return ['message' => 'Pending action already exists for this user.'];
                     }
                     if (in_array($existingAction->status, ['done', 'external'])) {
                         return ['error' => 'User already completed or has external action for this order.'];
@@ -385,9 +382,7 @@ class OrderService
 
                 if ($existingAction) {
                     if ($existingAction->status === 'pending') {
-                        // Re-publish order announcement and return success
-                        $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                        return ['message' => 'Pending action re-dispatched for this user.'];
+                        return ['message' => 'Pending action already exists for this user.'];
                     }
                     if (in_array($existingAction->status, ['done', 'external'])) {
                         return ['error' => 'User already completed or has external action for this order.'];
