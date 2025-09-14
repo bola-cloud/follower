@@ -112,7 +112,8 @@ module.exports = {
 
       env: {
         NODE_ENV: 'production',
-        API_BASE: 'https://egfollow.com',
+        // Use local HTTP for internal health checks to avoid external HTTPS/hostname issues
+        API_BASE: 'http://127.0.0.1',
         MONITOR_INTERVAL: '60000', // Check every minute
         ALERT_THRESHOLD_QUEUE_SIZE: '500',
         ALERT_THRESHOLD_ERROR_RATE: '0.05' // 5% error rate threshold
