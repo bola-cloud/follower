@@ -43,13 +43,13 @@ function log(level, message, data = {}) {
         ...data
     };
 
+    // Write to console (non-blocking)
     console.log(`[${timestamp}] ${level.toUpperCase()}: ${message}`);
 
-    try {
-        fs.appendFileSync(LOG_FILE, JSON.stringify(logEntry) + '\n');
-    } catch (err) {
-        console.error('Failed to write to log file:', err.message);
-    }
+    // Use asynchronous append to avoid blocking the event loop under load
+    fs.appendFile(LOG_FILE, JSON.stringify(logEntry) + '\n', (err) => {
+        if (err) console.error('Failed to write to log file:', err.message);
+    });
 }
 
 async function checkSystemHealth() {
@@ -168,11 +168,10 @@ function analyzeMetrics() {
 }
 
 function saveMetrics() {
-    try {
-        fs.writeFileSync(METRICS_FILE, JSON.stringify(metrics, null, 2));
-    } catch (err) {
-        log('error', 'Failed to save metrics', { error: err.message });
-    }
+    // Use asynchronous write to avoid blocking the event loop
+    fs.writeFile(METRICS_FILE, JSON.stringify(metrics, null, 2), (err) => {
+        if (err) log('error', 'Failed to save metrics', { error: err.message });
+    });
 }
 
 async function performHealthCheck() {
@@ -231,11 +230,29 @@ async function performHealthCheck() {
     }
 }
 
-// Initial health check
-performHealthCheck();
+// Helper sleep for scheduling
+function sleep(ms) {
+    return new Promise((res) => setTimeout(res, ms));
+}
 
-// Schedule regular health checks
-setInterval(performHealthCheck, MONITOR_INTERVAL);
+// Self-scheduling loop to avoid overlapping checks when a check takes longer
+// than the configured interval. This prevents multiple concurrent performHealthCheck
+// executions piling up and consuming CPU.
+async function monitorLoop() {
+    while (true) {
+        try {
+            await performHealthCheck();
+        } catch (err) {
+            log('error', 'Unhandled error in monitor loop', { error: err?.message || err });
+        }
+        await sleep(MONITOR_INTERVAL);
+    }
+}
+
+// Start the monitor loop
+monitorLoop().catch((e) => {
+    log('error', 'Monitor loop crashed', { error: e?.message || e });
+});
 
 // Graceful shutdown
 process.on('SIGINT', () => {
