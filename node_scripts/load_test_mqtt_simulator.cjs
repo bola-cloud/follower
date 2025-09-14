@@ -1,10 +1,17 @@
 #!/usr/bin/env node
 /*
   Usage:
-    node load_test_mqtt_simulator.cjs <export_json_path> [--broker=mqtt://host:1883] [--concurrency=50] [--delay=20] [--log=path]
+    node load_test_mqtt_simulator.cjs <export_json_path> [--broker=mqtt://host:1883] [--concurrency=50] [--delay=20] [--log=path] [--no-db-verify]
 
   Example:
     node node_scripts/load_test_mqtt_simulator.cjs storage/logs/loadtest-169xxx.json --broker=mqtt://109.199.112.65:1883 --concurrency=100 --delay=5 --log=storage/logs/loadtest-mqtt.log
+
+  High-volume testing examples:
+    # Publish-only mode (no DB verification) - fastest for broker testing
+    node node_scripts/load_test_mqtt_simulator.cjs storage/logs/loadtest-xxx.json --no-db-verify --concurrency=200 --delay=5
+
+    # Conservative settings for backend testing
+    SIM_BATCH_SIZE=100 SIM_RATE_LIMIT=300 node node_scripts/load_test_mqtt_simulator.cjs storage/logs/loadtest-xxx.json
 
   The script reads the exported JSON produced by the PHP command, then publishes for each user a small sequence of MQTT messages that mimic production topics:
     - orders/{user_id}  (order announcement)
@@ -13,6 +20,13 @@
     - order/res/{order_id}/{user_id}  (final device result)
 
   The script records every publish to the provided log file.
+
+  Options:
+    --no-db-verify: Skip database verification (publish-only mode)
+    --concurrency=N: Number of concurrent users to simulate
+    --rate-limit=N: Messages per second limit
+    --batch-size=N: Users per batch (default: 200)
+    --batch-delay=N: Delay between batches in milliseconds
 */
 
 const mqtt = require('mqtt');
@@ -56,6 +70,7 @@ function parseArgs() {
     if (a.startsWith('--log=')) res.log = a.split('=')[1];
     if (a === '--full-payload') res.fullPayload = true;
     if (a === '--verify-all') res.verifyAll = true;
+    if (a === '--no-db-verify') res.noDbVerify = true; // NEW: CLI flag for DB verification disable
     if (a.startsWith('--status-timeout=')) res.statusTimeout = parseInt(a.split('=')[1], 10) || 30000;
     if (a.startsWith('--rate-limit=')) res.rateLimit = parseInt(a.split('=')[1], 10) || 100;
     if (a.startsWith('--batch-size=')) res.batchSize = parseInt(a.split('=')[1], 10) || 10;
@@ -134,9 +149,9 @@ class ConnectionPool {
 
 let dbPool = null;
 
-async function createDbPoolIfNeeded() {
-  // Allow explicit disabling of DB verification
-  if (process.env.SIM_NO_DB_VERIFY === '1' || process.env.SIM_NO_DB_VERIFY === 'true') return null;
+async function createDbPoolIfNeeded(opts = {}) {
+  // Allow explicit disabling of DB verification via CLI flag or environment variable
+  if (opts.noDbVerify || process.env.SIM_NO_DB_VERIFY === '1' || process.env.SIM_NO_DB_VERIFY === 'true') return null;
 
   if (!process.env.DB_HOST || !process.env.DB_DATABASE) return null;
   if (dbPool) return dbPool;
@@ -162,10 +177,11 @@ async function createDbPoolIfNeeded() {
   return dbPool;
 }
 
-async function queryActionStatus(orderId, userId) {
+async function queryActionStatus(orderId, userId, opts = {}) {
   if (!process.env.DB_HOST || !process.env.DB_DATABASE) return null;
   try {
-    const pool = await createDbPoolIfNeeded();
+    const pool = await createDbPoolIfNeeded(opts);
+    if (!pool) return null; // DB verification disabled
     const [rows] = await pool.execute('SELECT status FROM actions WHERE order_id = ? AND user_id = ? LIMIT 1', [Number(orderId), Number(userId)]);
     if (!rows || rows.length === 0) return null;
     const status = rows[0].status;
@@ -176,13 +192,13 @@ async function queryActionStatus(orderId, userId) {
   }
 }
 
-function waitForActionDone(orderId, userId, timeoutMs = 30000) {
+function waitForActionDone(orderId, userId, timeoutMs = 30000, opts = {}) {
   return new Promise((resolve) => {
     const start = Date.now();
     let backoff = 200;
 
     async function tick() {
-      const status = await queryActionStatus(orderId, userId);
+      const status = await queryActionStatus(orderId, userId, opts);
       if (status && status.toLowerCase() === 'done') return resolve(true);
       if (Date.now() - start >= timeoutMs) return resolve(false);
       setTimeout(() => {
@@ -267,9 +283,9 @@ async function main() {
         await publishAsync(resultTopic, resultMessage, { qos: 1 });
 
         // Verify in database if configured; return object { published, dbOk }
-        if (process.env.DB_HOST && process.env.DB_DATABASE) {
+        if (!opts.noDbVerify && process.env.DB_HOST && process.env.DB_DATABASE) {
           try {
-            const okDb = await waitForActionDone(orderId, userId, opts.statusTimeout);
+            const okDb = await waitForActionDone(orderId, userId, opts.statusTimeout, opts);
             if (!okDb) {
               logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'action_not_done_timeout', user_id: userId, order_id: orderId }) + '\n');
             }
@@ -373,7 +389,7 @@ async function main() {
           const stillPending = [];
           for (const uid of remaining) {
             try {
-              const ok = await queryActionStatus(orderId, uid);
+              const ok = await queryActionStatus(orderId, uid, opts);
               if (ok && ok.toLowerCase() === 'done') {
                 success++;
               } else {

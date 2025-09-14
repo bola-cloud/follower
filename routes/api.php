@@ -52,6 +52,7 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/disconnect-account', [AuthController::class, 'disconnectAccount']);
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
+Route::post('/mqtt/response-batch', [\App\Http\Controllers\Api\MqttResponseController::class, 'handleBatch']);
 Route::post('/mqtt/recalculate-orders', [\App\Http\Controllers\Api\MqttResponseController::class, 'recalculateAllOrders']);
 Route::post('/mqtt/trigger-order', [\App\Http\Controllers\Api\MqttResponseController::class, 'triggerOrder']);
 Route::post('/mqtt/cleanup-stale-actions', [\App\Http\Controllers\Api\MqttResponseController::class, 'cleanupStaleActions']);
@@ -70,6 +71,26 @@ Route::get('/test/process-active-orders/{userId}', [OrderController::class, 'tes
 Route::get('/settings', [SettingController::class, 'index']);
 Route::get('/chart/users', [Dashboard::class, 'users']);
 Route::get('/chart/actions', [Dashboard::class, 'actions']);
+
+// Comprehensive health endpoints for high-volume processing monitoring
+Route::get('/health/system', function () {
+    $healthService = app(\App\Services\SystemHealthService::class);
+    return response()->json($healthService->getHealthStatus());
+});
+
+Route::get('/health/metrics-history', function () {
+    $healthService = app(\App\Services\SystemHealthService::class);
+    return response()->json([
+        'history' => $healthService->getHealthMetricsHistory(),
+        'can_handle_load' => $healthService->canHandleAdditionalLoad(),
+        'recommended_batch_size' => $healthService->getRecommendedBatchSize()
+    ]);
+});
+
+Route::get('/health/processing-stats', function () {
+    $highVolumeService = app(\App\Services\HighVolumeProcessingService::class);
+    return response()->json($highVolumeService->getStats());
+});
 
 // Lightweight health endpoint: DB connectivity + queued actions size + last bulk run
 Route::get('/health/queue-db', function () {

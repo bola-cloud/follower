@@ -16,6 +16,16 @@ const HTTP_TIMEOUT = parseInt(process.env.MQTT_HTTP_TIMEOUT || '20000', 10); // 
 let inflightRequests = 0;
 const MAX_INFLIGHT = parseInt(process.env.MQTT_MAX_INFLIGHT || '50', 10);
 
+// High-volume processing support
+const BATCH_ENABLED = process.env.MQTT_BATCH_ENABLED !== 'false';
+const BATCH_SIZE = parseInt(process.env.MQTT_BATCH_SIZE || '10', 10);
+const BATCH_TIMEOUT = parseInt(process.env.MQTT_BATCH_TIMEOUT || '2000', 10); // ms
+const HEALTH_CHECK_INTERVAL = parseInt(process.env.MQTT_HEALTH_CHECK_INTERVAL || '30000', 10); // 30s
+
+// System health tracking
+let systemHealth = { status: 'unknown', lastCheck: 0, circuitOpen: false };
+const pendingActions = []; // For batching action responses
+
 // --- Known orders cache --------------------------------------------------
 // Track order_ids observed via `orders/+` messages so we can detect when
 // devices reference an order (on order/ping/res) that wasn't announced to
@@ -45,7 +55,115 @@ function sleep(ms) {
   return new Promise((res) => setTimeout(res, ms));
 }
 
+// Health check system
+async function checkSystemHealth() {
+  try {
+    const response = await axios.get(`${API_BASE}/api/health/system`, {
+      timeout: 5000,
+      headers: { 'Accept': 'application/json' }
+    });
+
+    const health = response.data;
+    systemHealth = {
+      status: health.status || 'unknown',
+      lastCheck: Date.now(),
+      circuitOpen: health.circuit_breaker?.status === 'open' || false,
+      load: health.system?.load || 'unknown'
+    };
+
+    if (DEBUG && health.status !== 'healthy') {
+      console.warn('⚠️ System health check:', health);
+    }
+
+    return health;
+  } catch (err) {
+    systemHealth = {
+      status: 'error',
+      lastCheck: Date.now(),
+      circuitOpen: true, // Assume circuit open if health check fails
+      error: err.message
+    };
+
+    if (DEBUG) console.error('❌ Health check failed:', err.message);
+    return null;
+  }
+}
+
+// Initialize health checking
+checkSystemHealth();
+setInterval(checkSystemHealth, HEALTH_CHECK_INTERVAL);
+
+// Batch processing for action responses
+function processBatchedActions() {
+  if (pendingActions.length === 0) return;
+
+  const batch = pendingActions.splice(0, BATCH_SIZE);
+  if (batch.length === 0) return;
+
+  // Process batch - if batching fails, fall back to individual processing
+  processBatch(batch).catch(async (err) => {
+    if (DEBUG) console.warn('⚠️ Batch processing failed, falling back to individual:', err.message);
+
+    // Process each action individually
+    for (const action of batch) {
+      try {
+        await throttledPost(`${API_BASE}/api/mqtt/response`, action);
+      } catch (individualErr) {
+        console.error('❌ Individual action failed:', individualErr.message, action);
+      }
+    }
+  });
+}
+
+async function processBatch(actions) {
+  if (!BATCH_ENABLED || actions.length <= 1) {
+    // Process individually
+    for (const action of actions) {
+      await throttledPost(`${API_BASE}/api/mqtt/response`, action);
+    }
+    return;
+  }
+
+  try {
+    // Use batch endpoint if available
+    const response = await throttledPost(`${API_BASE}/api/mqtt/response-batch`, {
+      actions: actions,
+      batch_id: randomUUID(),
+      timestamp: Date.now()
+    });
+
+    if (DEBUG) console.log(`✅ Batch processed: ${actions.length} actions`);
+    return response;
+  } catch (err) {
+    // If batch endpoint not available, fall back to individual
+    if (err.response?.status === 404) {
+      for (const action of actions) {
+        await throttledPost(`${API_BASE}/api/mqtt/response`, action);
+      }
+      return;
+    }
+    throw err;
+  }
+}
+
+// Start batch processing timer
+if (BATCH_ENABLED) {
+  setInterval(processBatchedActions, BATCH_TIMEOUT);
+}
+
 async function postWithRetries(url, data, retries = 4, backoff = 300) {
+  // Check system health before making requests
+  const now = Date.now();
+  if (now - systemHealth.lastCheck > HEALTH_CHECK_INTERVAL * 2) {
+    await checkSystemHealth();
+  }
+
+  // If circuit breaker is open, use longer backoff
+  if (systemHealth.circuitOpen) {
+    backoff = Math.max(backoff, 1000); // Minimum 1s backoff when circuit is open
+    retries = Math.max(retries, 6); // More retries when system is degraded
+  }
+
   let lastErr;
   for (let i = 0; i <= retries; i++) {
     try {
@@ -56,9 +174,10 @@ async function postWithRetries(url, data, retries = 4, backoff = 300) {
       const status = err.response?.status;
       const isServerError = status >= 500 && status < 600;
       const isConflict = status === 409;
+      const isTooManyRequests = status === 429;
 
-      // Decide whether to retry: network errors, 5xx, or 409 (DB busy)
-      const shouldRetry = !err.response || isServerError || isConflict;
+      // Decide whether to retry: network errors, 5xx, 409 (DB busy), or 429 (rate limited)
+      const shouldRetry = !err.response || isServerError || isConflict || isTooManyRequests;
 
       if (!shouldRetry) {
         // Not retriable (eg. validation error) — rethrow immediately
@@ -66,9 +185,15 @@ async function postWithRetries(url, data, retries = 4, backoff = 300) {
       }
 
       if (i < retries) {
-        // exponential backoff with jitter
-        const delay = Math.round(backoff * Math.pow(2, i) + (Math.random() * backoff));
-        if (DEBUG) console.warn(`⚠️ HTTP retry ${i + 1}/${retries} for ${url} (status=${status || 'network'}, delay=${delay}ms)`);
+        // Enhanced backoff with system health awareness
+        let delay = Math.round(backoff * Math.pow(2, i) + (Math.random() * backoff));
+
+        // Extra delay for 429 (rate limiting) or when circuit is open
+        if (isTooManyRequests || systemHealth.circuitOpen) {
+          delay *= 2;
+        }
+
+        if (DEBUG) console.warn(`⚠️ HTTP retry ${i + 1}/${retries} for ${url} (status=${status || 'network'}, delay=${delay}ms, circuit=${systemHealth.circuitOpen ? 'open' : 'closed'})`);
         await sleep(delay);
         continue;
       }
@@ -79,13 +204,21 @@ async function postWithRetries(url, data, retries = 4, backoff = 300) {
 }
 
 async function throttledPost(url, data) {
-  while (inflightRequests >= MAX_INFLIGHT) {
-    await sleep(10);
+  // Dynamic concurrency control based on system health
+  let maxConcurrent = MAX_INFLIGHT;
+  if (systemHealth.circuitOpen) {
+    maxConcurrent = Math.floor(MAX_INFLIGHT * 0.3); // Reduce to 30% when circuit is open
+  } else if (systemHealth.load === 'high') {
+    maxConcurrent = Math.floor(MAX_INFLIGHT * 0.6); // Reduce to 60% when load is high
+  }
+
+  while (inflightRequests >= maxConcurrent) {
+    await sleep(systemHealth.circuitOpen ? 50 : 10); // Longer wait when system is degraded
   }
 
   inflightRequests++;
   try {
-    return await postWithRetries(url, data, 2, 150);
+    return await postWithRetries(url, data, systemHealth.circuitOpen ? 6 : 2, systemHealth.circuitOpen ? 500 : 150);
   } finally {
     inflightRequests--;
   }
@@ -234,13 +367,24 @@ client.on('message', async (topic, message) => {
       return;
     }
 
-    try {
-      const res = await throttledPost(`${API_BASE}/api/mqtt/response`, {
-        order_id,
-        user_id,
-        status
-      });
+    const actionData = { order_id, user_id, status };
 
+    // Use batching if enabled and system is healthy
+    if (BATCH_ENABLED && !systemHealth.circuitOpen && systemHealth.status === 'healthy') {
+      pendingActions.push(actionData);
+
+      // Process immediately if batch is full
+      if (pendingActions.length >= BATCH_SIZE) {
+        processBatchedActions();
+      }
+
+      if (DEBUG) console.log(`📦 Action queued for batch: ${pendingActions.length}/${BATCH_SIZE}`);
+      return;
+    }
+
+    // Process immediately (non-batched or system degraded)
+    try {
+      const res = await throttledPost(`${API_BASE}/api/mqtt/response`, actionData);
       if (DEBUG) console.log('✅ Action updated:', res.data || res.status);
     } catch (err) {
       console.error('❌ Failed to update action:', err.response?.data || err.message);
@@ -266,8 +410,35 @@ client.on('message', async (topic, message) => {
 
 process.on('SIGINT', () => {
   console.log('📡 MQTT handler shutting down...');
-  client.end();
-  process.exit(0);
+
+  // Process any remaining batched actions before shutdown
+  if (pendingActions.length > 0) {
+    console.log(`🔄 Processing ${pendingActions.length} remaining actions...`);
+    processBatchedActions();
+
+    // Wait a moment for processing
+    setTimeout(() => {
+      client.end();
+      process.exit(0);
+    }, 1000);
+  } else {
+    client.end();
+    process.exit(0);
+  }
+});
+
+// Graceful handling of uncaught errors
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  // Process remaining actions and exit
+  if (pendingActions.length > 0) {
+    processBatchedActions();
+  }
+  setTimeout(() => process.exit(1), 2000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
 

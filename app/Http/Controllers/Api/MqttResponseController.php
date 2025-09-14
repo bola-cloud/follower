@@ -20,13 +20,6 @@ class MqttResponseController extends Controller
             return response()->json(['error' => 'Database temporarily unavailable'], 503);
         }
 
-        // 🚀 DEBUG: Log every incoming request
-        // \Log::info("[MQTT_API] Request received", [
-        //     'payload' => $request->all(),
-        //     'ip' => $request->ip(),
-        //     'timestamp' => now()->toDateTimeString()
-        // ]);
-
         try {
             $validated = $request->validate([
                 'order_id' => 'required|integer',
@@ -61,17 +54,31 @@ class MqttResponseController extends Controller
             ], 202);
         }
 
-        // \Log::info("[MQTT_API] Processing", [
-        //     'order_id' => $orderId,
-        //     'user_id' => $userId,
-        //     'status' => $status
-        // ]);
+        // 🚀 HIGH-VOLUME PROCESSING: Use the new service for scalable processing
+        try {
+            $highVolumeService = app(\App\Services\HighVolumeProcessingService::class);
+            $result = $highVolumeService->processAction($orderId, $userId, $status);
 
-        // 🚀 QUEUE ACTIONS: Store actions for batch processing to prevent database overload
-        if (env('MQTT_USE_QUEUE', true)) {
-            return $this->queueActionForProcessing($orderId, $userId, $status, $request);
+            return response()->json($result);
+
+        } catch (\Exception $e) {
+            \Log::error("[MQTT_API] High-volume processing failed", [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'status' => $status,
+                'error' => $e->getMessage()
+            ]);
+
+            // Fallback to legacy processing if high-volume service fails
+            return $this->legacyProcessAction($orderId, $userId, $status);
         }
+    }
 
+    /**
+     * Legacy processing method (fallback)
+     */
+    private function legacyProcessAction(int $orderId, int $userId, string $status)
+    {
         try {
             // 🚀 OPTIMIZED: Use UPDATE with WHERE conditions to handle race conditions
             // This avoids locks but prevents duplicate updates and lost increments
@@ -117,14 +124,6 @@ class MqttResponseController extends Controller
                 }
             }
 
-            // \Log::info("[MQTT_API] Update result", [
-            //     'order_id' => $orderId,
-            //     'user_id' => $userId,
-            //     'status' => $status,
-            //     'rows_updated' => $updated,
-            //     'created' => $created
-            // ]);
-
             if ($updated === 0 && !$created) {
                 // verify whether action exists to give a helpful response
                 $action = DB::table('actions')
@@ -133,11 +132,6 @@ class MqttResponseController extends Controller
                     ->first();
 
                 if (!$action) {
-                    // \Log::warning("[MQTT_API] Action not found", [
-                    //     'order_id' => $orderId,
-                    //     'user_id' => $userId
-                    // ]);
-
                     return response()->json([
                         'success' => false,
                         'message' => 'Action record not found'
@@ -145,13 +139,6 @@ class MqttResponseController extends Controller
                 }
 
                 // Action exists but wasn't updated (likely already done)
-                // \Log::info("[MQTT_API] Action exists but not updated", [
-                //     'order_id' => $orderId,
-                //     'user_id' => $userId,
-                //     'current_status' => $action->status,
-                //     'requested_status' => $status
-                // ]);
-
                 return response()->json([
                     'success' => true,
                     'message' => 'Action already processed',
@@ -166,8 +153,6 @@ class MqttResponseController extends Controller
                     ->where('id', $orderId)
                     ->increment('done_count');
 
-                // \Log::info("[MQTT_API] Incremented done_count for order", ['order_id' => $orderId]);
-
                 // Check if order should be marked as completed (use fresh data)
                 $order = DB::table('orders')
                     ->where('id', $orderId)
@@ -178,24 +163,13 @@ class MqttResponseController extends Controller
                         ->where('id', $orderId)
                         ->where('status', '!=', 'completed') // Prevent race condition
                         ->update(['status' => 'completed']);
-
-                    // \Log::info("[MQTT_API] Order marked as completed", [
-                    //     'order_id' => $orderId,
-                    //     'done_count' => $order->done_count,
-                    //     'total_count' => $order->total_count
-                    // ]);
                 }
             }
 
-            // \Log::info("[MQTT_API] Success", [
-            //     'order_id' => $orderId,
-            //     'user_id' => $userId,
-            //     'status' => $status
-            // ]);
-
             return response()->json([
                 'success' => true,
-                'message' => 'Action status updated successfully'
+                'message' => 'Action status updated successfully (legacy fallback)',
+                'fallback' => true
             ]);
 
         } catch (\Illuminate\Database\QueryException $ex) {
@@ -237,6 +211,178 @@ class MqttResponseController extends Controller
             ], 500);
         }
     }
+
+    /**
+     * Handle batch processing of multiple MQTT responses
+     */
+    public function handleBatch(Request $request)
+    {
+        // Check database connectivity first
+        if (!$this->checkDatabaseConnectivity()) {
+            \Log::error("[MQTT_API_BATCH] Database connection failed, rejecting batch request");
+            return response()->json(['error' => 'Database temporarily unavailable'], 503);
+        }
+
+        try {
+            $validated = $request->validate([
+                'actions' => 'required|array|min:1|max:50', // Limit batch size
+                'actions.*.order_id' => 'required|integer',
+                'actions.*.user_id' => 'required|integer',
+                'actions.*.status' => 'required|in:done,external',
+                'batch_id' => 'sometimes|string',
+                'timestamp' => 'sometimes|integer',
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            \Log::warning("[MQTT_API_BATCH] Validation failed", [
+                'payload' => $request->all(),
+                'errors' => $e->errors()
+            ]);
+            return response()->json(['error' => 'Invalid batch request data'], 422);
+        }
+
+        $actions = $validated['actions'];
+        $batchId = $validated['batch_id'] ?? 'batch_' . time();
+        $processed = 0;
+        $failed = 0;
+        $results = [];
+
+        \Log::info("[MQTT_API_BATCH] Processing batch", [
+            'batch_id' => $batchId,
+            'action_count' => count($actions),
+        ]);
+
+        // Use high-volume processing service for batch operations
+        try {
+            $highVolumeService = app(\App\Services\HighVolumeProcessingService::class);
+
+            foreach ($actions as $index => $actionData) {
+                try {
+                    $orderId = $actionData['order_id'];
+                    $userId = $actionData['user_id'];
+                    $rawStatus = $actionData['status'];
+
+                    // Normalize status
+                    $status = $this->normalizeStatus($rawStatus);
+
+                    // Skip busy status
+                    if ($rawStatus === 'busy') {
+                        $results[] = [
+                            'index' => $index,
+                            'success' => true,
+                            'message' => 'Device busy - status ignored',
+                            'skipped' => true
+                        ];
+                        continue;
+                    }
+
+                    // Process through high-volume service
+                    $result = $highVolumeService->processAction($orderId, $userId, $status);
+                    $results[] = [
+                        'index' => $index,
+                        'success' => true,
+                        'result' => $result
+                    ];
+                    $processed++;
+
+                } catch (\Exception $e) {
+                    $results[] = [
+                        'index' => $index,
+                        'success' => false,
+                        'error' => $e->getMessage()
+                    ];
+                    $failed++;
+
+                    \Log::error("[MQTT_API_BATCH] Action failed in batch", [
+                        'batch_id' => $batchId,
+                        'action_index' => $index,
+                        'action' => $actionData,
+                        'error' => $e->getMessage()
+                    ]);
+                }
+            }
+
+            \Log::info("[MQTT_API_BATCH] Batch completed", [
+                'batch_id' => $batchId,
+                'processed' => $processed,
+                'failed' => $failed,
+                'total' => count($actions)
+            ]);
+
+            return response()->json([
+                'success' => true,
+                'batch_id' => $batchId,
+                'processed' => $processed,
+                'failed' => $failed,
+                'total' => count($actions),
+                'results' => $results
+            ]);
+
+        } catch (\Exception $e) {
+            \Log::error("[MQTT_API_BATCH] High-volume batch processing failed", [
+                'batch_id' => $batchId,
+                'error' => $e->getMessage(),
+                'action_count' => count($actions)
+            ]);
+
+            // Fallback to legacy individual processing
+            return $this->legacyBatchProcessing($actions, $batchId);
+        }
+    }
+
+    /**
+     * Fallback batch processing using legacy methods
+     */
+    private function legacyBatchProcessing(array $actions, string $batchId)
+    {
+        $processed = 0;
+        $failed = 0;
+        $results = [];
+
+        foreach ($actions as $index => $actionData) {
+            try {
+                $orderId = $actionData['order_id'];
+                $userId = $actionData['user_id'];
+                $status = $this->normalizeStatus($actionData['status']);
+
+                if ($actionData['status'] === 'busy') {
+                    $results[] = [
+                        'index' => $index,
+                        'success' => true,
+                        'message' => 'Device busy - status ignored',
+                        'skipped' => true
+                    ];
+                    continue;
+                }
+
+                $response = $this->legacyProcessAction($orderId, $userId, $status);
+                $results[] = [
+                    'index' => $index,
+                    'success' => $response->getStatusCode() < 300,
+                    'response' => json_decode($response->getContent(), true)
+                ];
+                $processed++;
+
+            } catch (\Exception $e) {
+                $results[] = [
+                    'index' => $index,
+                    'success' => false,
+                    'error' => $e->getMessage()
+                ];
+                $failed++;
+            }
+        }
+
+        return response()->json([
+            'success' => true,
+            'batch_id' => $batchId,
+            'processed' => $processed,
+            'failed' => $failed,
+            'total' => count($actions),
+            'results' => $results,
+            'fallback' => 'legacy_batch_processing'
+        ]);
+    }
+
     public function recalculateAllOrders(Request $request)
     {
         $updatedCount = 0;

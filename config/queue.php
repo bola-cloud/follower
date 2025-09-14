@@ -71,6 +71,16 @@ return [
             'after_commit' => false,
         ],
 
+        // High-volume processing queue with optimized settings for 500-1000 concurrent users
+        'high-volume' => [
+            'driver' => 'redis',
+            'connection' => env('REDIS_QUEUE_CONNECTION', 'queue'),
+            'queue' => 'high-volume',
+            'retry_after' => 180, // Longer timeout for batch processing
+            'block_for' => 2,
+            'after_commit' => false,
+        ],
+
         // Optimized action processing queue with connection pooling
         'optimized-actions' => [
             'driver' => 'redis',
