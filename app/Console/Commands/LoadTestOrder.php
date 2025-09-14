@@ -132,7 +132,10 @@ class LoadTestOrder extends Command
                 if ($updated > 0) {
                     $processed++;
                     if ($status === 'done') {
-                        DB::table('orders')->where('id', $orderId)->increment('done_count');
+                        DB::statement(
+                            "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                            [$orderId]
+                        );
 
                         // Check completion
                         $orderRow = DB::table('orders')->where('id', $orderId)->first(['done_count', 'total_count', 'status']);

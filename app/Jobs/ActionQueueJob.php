@@ -246,9 +246,10 @@ class ActionQueueJob implements ShouldQueue
 
             // Increment order done_count if action was successful and status is 'done'
             if ($status === 'done') {
-                DB::table('orders')
-                    ->where('id', $orderId)
-                    ->increment('done_count');
+                DB::statement(
+                    "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                    [$orderId]
+                );
 
                 // Check if order should be completed
                 $this->checkOrderCompletion($orderId);

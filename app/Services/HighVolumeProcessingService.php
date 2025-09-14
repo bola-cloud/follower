@@ -90,11 +90,15 @@ class HighVolumeProcessingService
                 ];
             }
 
-            // Update order done_count if status is done
+            // Update order done_count if status is done (safely prevent exceeding total_count)
             if ($status === 'done') {
-                $connection->table('orders')
-                    ->where('id', $orderId)
-                    ->increment('done_count');
+                // Use safe increment that doesn't exceed total_count
+                $connection->statement("
+                    UPDATE orders 
+                    SET done_count = LEAST(done_count + 1, total_count),
+                        updated_at = NOW() 
+                    WHERE id = ? AND done_count < total_count
+                ", [$orderId]);
 
                 // Check for order completion (lightweight check)
                 $this->checkOrderCompletion($orderId, $connection);
@@ -280,7 +284,7 @@ class HighVolumeProcessingService
                 ->where('status', '!=', 'completed')
                 ->update([
                     'status' => 'completed',
-                    'completed_at' => now()
+                    'updated_at' => now()
                 ]);
 
             Log::info('Order auto-completed', [

@@ -147,11 +147,14 @@ class MqttResponseController extends Controller
             }
 
             // If we updated a row or created one and the incoming status is 'done', increment order.done_count
-            // Use increment() which is atomic and handles concurrent updates safely
+            // Use safe increment that doesn't exceed total_count to prevent over-counting
             if (($updated > 0 || $created) && $status === 'done') {
-                DB::table('orders')
-                    ->where('id', $orderId)
-                    ->increment('done_count');
+                DB::statement("
+                    UPDATE orders 
+                    SET done_count = LEAST(done_count + 1, total_count),
+                        updated_at = NOW() 
+                    WHERE id = ? AND done_count < total_count
+                ", [$orderId]);
 
                 // Check if order should be marked as completed (use fresh data)
                 $order = DB::table('orders')
@@ -669,9 +672,12 @@ class MqttResponseController extends Controller
                 ]);
 
             if ($updated > 0 && $status === 'done') {
-                DB::table('orders')
-                    ->where('id', $orderId)
-                    ->increment('done_count');
+                DB::statement("
+                    UPDATE orders 
+                    SET done_count = LEAST(done_count + 1, total_count),
+                        updated_at = NOW() 
+                    WHERE id = ? AND done_count < total_count
+                ", [$orderId]);
             }
 
             return response()->json([

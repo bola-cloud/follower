@@ -29,17 +29,19 @@ class HandleActionResponse
                     'performed_at' => now(),
                 ]);
 
-            // If action was updated and status is 'done', increment done_count
+            // If action was updated and status is 'done', increment done_count safely
             if ($updated && $payload['status'] === 'success') {
+                // Atomic update to prevent race conditions and capping at total_count
+                DB::statement(
+                    "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                    [$payload['order_id']]
+                );
+
+                // Check if order is complete and fire event if it was completed by this operation
                 $order = \App\Models\Order::find($payload['order_id']);
-                if ($order) {
-                    $order->increment('done_count');
-                    // Check if order is complete
-                    if ($order->done_count >= $order->total_count) {
-                        $order->update(['status' => 'completed']);
-                        // Broadcast completion to order creator
-                        event(new \App\Events\OrderCompleted($order));
-                    }
+                if ($order && $order->done_count >= $order->total_count && $order->status !== 'completed') {
+                    $order->update(['status' => 'completed']);
+                    event(new \App\Events\OrderCompleted($order));
                 }
             }
 

@@ -179,9 +179,10 @@ class OptimizedActionBatchJob implements ShouldQueue
     private function batchUpdateOrderCounts(array $orderIncrements): void
     {
         foreach ($orderIncrements as $orderId => $increment) {
-            DB::table('orders')
-                ->where('id', $orderId)
-                ->increment('done_count', $increment);
+            DB::statement(
+                "UPDATE orders SET done_count = LEAST(done_count + ?, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                [$increment, $orderId]
+            );
         }
 
         Log::info('Order counts updated', [

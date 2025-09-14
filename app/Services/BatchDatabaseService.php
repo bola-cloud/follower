@@ -252,9 +252,11 @@ class BatchDatabaseService
             }));
 
             if ($doneCount > 0) {
-                DB::table('orders')
-                    ->where('id', $orderId)
-                    ->increment('done_count', $doneCount);
+                // Use atomic update to add the batch increment while capping at total_count
+                DB::statement(
+                    "UPDATE orders SET done_count = LEAST(done_count + ?, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                    [$doneCount, $orderId]
+                );
 
                 // Check if order should be completed
                 $this->checkAndCompleteOrder($orderId);
