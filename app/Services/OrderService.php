@@ -227,32 +227,11 @@ class OrderService
         $pingData = [
             'type' => $order->type ?? 'create',
             'order_id' => $order->id,
-            'activation' => true,
-            // Add metadata so devices can include necessary fields in responses
-            'creator_user_id' => $order->user_id,
-            'ping_request_id' => uniqid('ping_', true),
-            'published_at' => now()->toDateTimeString()
+            'activation' => true
         ];
 
         $this->publishToMqtt('order/ping/req', $pingData);
         // Log::info("[OrderService] Sent ping for order {$order->id} to `order/ping/req` via MQTT");
-    }
-
-    /**
-     * Send MQTT ping for individual user processing (like resume flow does)
-     */
-    private function sendMqttPingForUser(Order $order)
-    {
-        $pingData = [
-            'type' => 'create',
-            'order_id' => $order->id,
-            'activation' => true,
-            'creator_user_id' => $order->user_id,
-            'published_at' => now()->toDateTimeString()
-        ];
-
-        $this->publishToMqtt('order/ping/req', $pingData);
-        // Log::info("[OrderService] Sent user-specific ping for order {$order->id} to `order/ping/req` via MQTT");
     }
 
     private function publishToMqtt($topic, $data)
@@ -358,9 +337,6 @@ class OrderService
                 // If no existing action found after an ignored insert, fall through to a generic response
                 return ['error' => 'Failed to create action due to concurrent activity.'];
             }
-
-            // Send follow-up ping to trigger device activation like resume flow does
-            $this->sendMqttPingForUser($order);
 
             return ['message' => 'User processed successfully.'];
         } catch (\Illuminate\Database\QueryException $e) {
