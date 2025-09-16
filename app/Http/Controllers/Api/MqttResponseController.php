@@ -119,8 +119,12 @@ class MqttResponseController extends Controller
                         'updated_at' => now(),
                     ]);
                 } elseif ($existingAction && $existingAction->status === 'done') {
-                    // Action already completed, this is fine
-                    $updated = 1; // Treat as successful update to proceed with done_count increment
+                    // Action already completed - don't increment done_count again
+                    return response()->json([
+                        'success' => true,
+                        'message' => 'Action already completed',
+                        'current_status' => $existingAction->status
+                    ]);
                 }
             }
 
