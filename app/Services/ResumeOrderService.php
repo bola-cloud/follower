@@ -88,70 +88,14 @@ class ResumeOrderService
             $maxRetries = 3;
             $inserted = 0;
 
-            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                try {
-                    // Use shorter lock timeout for action inserts to fail faster
-                    DB::statement('SET SESSION innodb_lock_wait_timeout = 5');
-
-                    $inserted = DB::table('actions')->insertOrIgnore([
-                        'order_id' => $order->id,
-                        'user_id' => $user->id,
-                        'type' => $order->type,
-                        'status' => 'pending',
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
-
-                    // Restore default timeout
-                    DB::statement('SET SESSION innodb_lock_wait_timeout = 50');
-                    break; // Success, exit retry loop
-
-                } catch (\Illuminate\Database\QueryException $e) {
-                    // Check if it's a lock timeout error (1205)
-                    if ($e->getCode() === 'HY000' && strpos($e->getMessage(), '1205') !== false) {
-                        if ($attempt < $maxRetries) {
-                            $delay = pow(2, $attempt - 1) * 100000; // 100ms, 200ms, 400ms (microseconds)
-                            Log::warning('[ResumeOrderService] Lock timeout, retrying', [
-                                'attempt' => $attempt,
-                                'delay_ms' => $delay / 1000,
-                                'order_id' => $order->id,
-                                'user_id' => $user->id
-                            ]);
-                            usleep($delay);
-                            continue;
-                        }
-                        // Max retries exceeded, log and rethrow
-                        Log::error('[ResumeOrderService] Lock timeout after max retries', [
-                            'order_id' => $order->id,
-                            'user_id' => $user->id,
-                            'attempts' => $maxRetries
-                        ]);
-                    }
-                    throw $e; // Re-throw non-timeout errors or after max retries
-                }
-            }
-
-            if ($inserted === 0) {
-                // Likely inserted concurrently by another worker. Fetch and handle existing action.
-                $existingAction = DB::table('actions')
-                    ->select('status')
-                    ->where('order_id', $order->id)
-                    ->where('user_id', $user->id)
-                    ->first();
-
-                if ($existingAction) {
-                    if ($existingAction->status === 'pending') {
-                        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
-                        return ['message' => 'Pending action re-dispatched for this user.'];
-                    }
-                    if (in_array($existingAction->status, ['done', 'external'])) {
-                        return ['error' => 'User already completed or has external action for this order.'];
-                    }
-                    return ['message' => 'Action already exists for this user and order.'];
-                }
-
-                return ['error' => 'Failed to create action due to concurrent activity.'];
-            }
+            DB::table('actions')->insertOrIgnore([
+                'order_id' => $order->id,
+                'user_id' => $user->id,
+                'type' => $order->type,
+                'status' => 'pending',
+                'created_at' => now(),
+                'updated_at' => now(),
+            ]);
 
             return ['message' => 'User processed successfully.'];
         } catch (\Illuminate\Database\QueryException $e) {
