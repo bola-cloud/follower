@@ -69,7 +69,7 @@ class ResumeOrderService
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
                 // Dispatch queued MQTT publish job instead of synchronous publish
-                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
                 return ['message' => 'Pending action re-dispatched for this user.'];
             }
             // Block if status is done or external
@@ -85,7 +85,7 @@ class ResumeOrderService
 
             if ($result['inserted'] > 0) {
                 // Dispatch queued MQTT publish job after successful insertion
-                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
                 return ['message' => 'User processed successfully.'];
             } else {
                 return ['message' => 'Action already exists or was handled concurrently.'];
@@ -137,6 +137,17 @@ class ResumeOrderService
     }
 
     // performBatchInsert moved to BatchActionService
+
+    private function checkUserEligibility(Order $order, User $user): bool
+    {
+        $eligibleUsers = $this->getEligibleUsers($order);
+
+        // Use a more efficient lookup by creating an array of eligible user IDs
+        $eligibleUserIds = $eligibleUsers->pluck('id')->toArray();
+
+        // Check if the user ID exists in the eligible user IDs
+        return in_array($user->id, $eligibleUserIds);
+    }
 
     private function getEligibleUsers(Order $order)
     {
