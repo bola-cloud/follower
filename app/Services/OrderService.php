@@ -255,7 +255,7 @@ class OrderService
     public function handle(Order $order, User $user): array
     {
         // Clear, focused logging for create operation
-        Log::info('[OrderService] handle start', [
+        \Log::info('[OrderService] handle start', [
             'user_id' => $user->id,
             'order_id' => $order->id,
             'order_type' => $order->type
@@ -304,10 +304,9 @@ class OrderService
         }
 
         try {
-            // Skip individual announcement - users are already announced in batch during createPendingActions
-            // This eliminates duplicate MQTT messages that were causing 3x+ duplication
-            $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-
+            // Create action without individual announcement to prevent MQTT duplication
+            // Actions should be announced in batch during order creation, not per user
+            
             $inserted = DB::table('actions')->insertOrIgnore([
                 'order_id' => $order->id,
                 'user_id' => $user->id,

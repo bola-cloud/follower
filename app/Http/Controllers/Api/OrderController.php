@@ -97,6 +97,19 @@ class OrderController extends Controller
                 return response()->json(['error' => 'Failed to create order.'], 500);
             }
 
+            // Create pending actions in batch and send announcements
+            try {
+                $orderService = app(\App\Services\OrderService::class);
+                $orderService->handleOrderCreated($order);
+                Log::info('[OrderController] Batch actions created for new order', ['order_id' => $order->id]);
+            } catch (\Throwable $e) {
+                Log::error('[OrderController] Failed to create batch actions', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage()
+                ]);
+                // Don't fail the order creation, but log the issue
+            }
+
             if ($user->points === 0) {
                 if (!$user->timer || now()->greaterThan($user->timer)) {
                     \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));

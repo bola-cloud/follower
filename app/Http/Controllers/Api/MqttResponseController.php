@@ -82,7 +82,7 @@ class MqttResponseController extends Controller
         try {
             // 🚀 OPTIMIZED: Use UPDATE with WHERE conditions to handle race conditions
             // This avoids locks but prevents duplicate updates and lost increments
-            $autoCreate = env('MQTT_AUTO_CREATE_MISSING', false);
+            $autoCreate = true; // Always auto-create missing actions to handle race conditions
             $updated = 0;
             $created = false;
 
