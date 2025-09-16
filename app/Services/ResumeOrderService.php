@@ -13,8 +13,8 @@ class ResumeOrderService
 {
     public function handle(Order $order, User $user): array
     {
-        // Focused debug logging for resume processing
-        Log::debug('[ResumeOrderService] resume start', [
+        // Focused info logging for resume processing
+        Log::info('[ResumeOrderService] resume start', [
             'user_id' => $user->id,
             'order_id' => $order->id,
             'order_type' => $order->type
@@ -33,14 +33,14 @@ class ResumeOrderService
             ->where('user_id', $user->id)
             ->first();
 
-        if ($existingAction) {
-            if ($existingAction->status === 'pending') {
-                // Re-publish order announcement immediately
-                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                return ['message' => 'Pending action re-dispatched for this user.'];
-            }
-            return ['error' => 'Action already exists for this user.'];
-        }
+        // if ($existingAction) {
+        //     if ($existingAction->status === 'pending') {
+        //         // Re-publish order announcement immediately
+        //         $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+        //         return ['message' => 'Pending action re-dispatched for this user.'];
+        //     }
+        //     return ['error' => 'Action already exists for this user.'];
+        // }
 
         // Create the action - no lock needed since triggerOrder already validated slots
         // Add a final safety check to prevent exceeding total_count (count done + recent pending only)
@@ -60,11 +60,11 @@ class ResumeOrderService
         }
 
         // Check if action already exists for this user-order combination
-        $existingAction = DB::table('actions')
-            ->select('status')
-            ->where('user_id', $user->id)
-            ->where('order_id', $order->id)
-            ->first();
+        // $existingAction = DB::table('actions')
+        //     ->select('status')
+        //     ->where('user_id', $user->id)
+        //     ->where('order_id', $order->id)
+        //     ->first();
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {

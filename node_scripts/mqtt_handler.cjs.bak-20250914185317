@@ -1,0 +1,560 @@
+// Robust mqtt_handler.cjs
+// Accepts both { activation_order_id } and { order_id } payload shapes
+// Adds retries and configurable concurrency for API calls
+
+const mqtt = require('mqtt');
+const axios = require('axios');
+const { randomUUID } = require('crypto');
+const fs = require('fs');
+
+const DEBUG = process.env.NODE_ENV !== 'production';
+const broker = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
+const API_BASE = process.env.API_BASE || 'https://egfollow.com';
+const HTTP_TIMEOUT = parseInt(process.env.MQTT_HTTP_TIMEOUT || '20000', 10); // ms
+
+// Concurrency control
+let inflightRequests = 0;
+const MAX_INFLIGHT = parseInt(process.env.MQTT_MAX_INFLIGHT || '50', 10);
+
+// High-volume processing support
+const BATCH_ENABLED = process.env.MQTT_BATCH_ENABLED !== 'false';
+const BATCH_SIZE = parseInt(process.env.MQTT_BATCH_SIZE || '10', 10);
+const BATCH_TIMEOUT = parseInt(process.env.MQTT_BATCH_TIMEOUT || '2000', 10); // ms
+const HEALTH_CHECK_INTERVAL = parseInt(process.env.MQTT_HEALTH_CHECK_INTERVAL || '30000', 10); // 30s
+
+// System health tracking
+let systemHealth = { status: 'unknown', lastCheck: 0, circuitOpen: false };
+const pendingActions = []; // For batching action responses
+
+// Message processing locks to prevent race conditions
+const PROCESSING_LOCKS = new Map(); // topic-key -> processing timestamp
+const PROCESSING_TIMEOUT = parseInt(process.env.MQTT_PROCESSING_TIMEOUT || '10000', 10); // 10s
+
+// Check if message is currently being processed
+function isMessageBeingProcessed(topic, payload) {
+  const key = generateDedupeKey(topic, payload);
+  const now = Date.now();
+
+  if (PROCESSING_LOCKS.has(key)) {
+    const processingStart = PROCESSING_LOCKS.get(key);
+    if (now - processingStart < PROCESSING_TIMEOUT) {
+      return true; // Still being processed
+    }
+    // Stale lock, remove it
+    PROCESSING_LOCKS.delete(key);
+  }
+
+  PROCESSING_LOCKS.set(key, now);
+  return false;
+}
+
+// Release processing lock
+function releaseProcessingLock(topic, payload) {
+  const key = generateDedupeKey(topic, payload);
+  PROCESSING_LOCKS.delete(key);
+}
+
+// Cleanup stale processing locks
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, timestamp] of PROCESSING_LOCKS) {
+    if (now - timestamp > PROCESSING_TIMEOUT) {
+      PROCESSING_LOCKS.delete(key);
+    }
+  }
+}, Math.max(5000, Math.floor(PROCESSING_TIMEOUT / 2)));
+
+// Deduplication cache for MQTT messages
+const MESSAGE_CACHE = new Map(); // topic-hash -> timestamp
+const MESSAGE_TTL = parseInt(process.env.MQTT_DEDUP_TTL_MS || '30000', 10); // 30s default
+
+// Periodic cleanup of deduplication cache
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, ts] of MESSAGE_CACHE) {
+    if (now - ts > MESSAGE_TTL) MESSAGE_CACHE.delete(key);
+  }
+}, Math.max(10_000, Math.floor(MESSAGE_TTL / 3)));
+
+// Generate deduplication key from topic and payload
+function generateDedupeKey(topic, payload) {
+  const payloadStr = JSON.stringify(payload);
+  return `${topic}::${Buffer.from(payloadStr).toString('base64').slice(0, 32)}`;
+}
+
+// Check if message was recently processed
+function isDuplicateMessage(topic, payload) {
+  const key = generateDedupeKey(topic, payload);
+  const now = Date.now();
+
+  if (MESSAGE_CACHE.has(key)) {
+    const lastSeen = MESSAGE_CACHE.get(key);
+    if (now - lastSeen < MESSAGE_TTL) {
+      return true; // Duplicate within TTL
+    }
+  }
+
+  MESSAGE_CACHE.set(key, now);
+  return false;
+}
+
+// --- Known orders cache --------------------------------------------------
+// Track order_ids observed via `orders/+` messages so we can detect when
+// devices reference an order (on order/ping/res) that was announced to
+// users via `orders/{user_id}`. Store both userId and timestamp so we can
+// recover a missing user_id coming from device ping responses.
+const KNOWN_ORDERS = new Map(); // order_id -> { userId: number, ts: timestamp(ms) }
+const ORDER_TTL = parseInt(process.env.KNOWN_ORDER_TTL_MS || String(1000 * 60 * 10), 10); // 10m default
+
+// Periodic cleanup to avoid unbounded memory growth
+setInterval(() => {
+  const now = Date.now();
+  for (const [orderId, info] of KNOWN_ORDERS) {
+    const ts = info?.ts || 0;
+    if (now - ts > ORDER_TTL) KNOWN_ORDERS.delete(orderId);
+  }
+}, Math.max(60_000, Math.floor(ORDER_TTL / 10)));
+
+function recordMissingOrder(orderId, payload, topic) {
+  try {
+    const line = JSON.stringify({ ts: new Date().toISOString(), orderId, topic, payload }) + '\n';
+    fs.appendFileSync('missing_orders.log', line, { encoding: 'utf8' });
+  } catch (err) {
+    if (DEBUG) console.error('Failed to write missing_orders.log:', err.message);
+  }
+}
+
+function sleep(ms) {
+  return new Promise((res) => setTimeout(res, ms));
+}
+
+// Health check system
+async function checkSystemHealth() {
+  try {
+    const response = await axios.get(`${API_BASE}/api/health/system`, {
+      timeout: 5000,
+      headers: { 'Accept': 'application/json' }
+    });
+
+    const health = response.data;
+    systemHealth = {
+      status: health.status || 'unknown',
+      lastCheck: Date.now(),
+      circuitOpen: health.circuit_breaker?.status === 'open' || false,
+      load: health.system?.load || 'unknown'
+    };
+
+    if (DEBUG && health.status !== 'healthy') {
+      console.warn('⚠️ System health check:', health);
+    }
+
+    return health;
+  } catch (err) {
+    systemHealth = {
+      status: 'error',
+      lastCheck: Date.now(),
+      circuitOpen: true, // Assume circuit open if health check fails
+      error: err.message
+    };
+
+    if (DEBUG) console.error('❌ Health check failed:', err.message);
+    return null;
+  }
+}
+
+// Initialize health checking
+checkSystemHealth();
+setInterval(checkSystemHealth, HEALTH_CHECK_INTERVAL);
+
+// Batch processing for action responses
+function processBatchedActions() {
+  if (pendingActions.length === 0) return;
+
+  const batch = pendingActions.splice(0, BATCH_SIZE);
+  if (batch.length === 0) return;
+
+  // Process batch - if batching fails, fall back to individual processing
+  processBatch(batch).catch(async (err) => {
+    if (DEBUG) console.warn('⚠️ Batch processing failed, falling back to individual:', err.message);
+
+    // Process each action individually
+    for (const action of batch) {
+      try {
+        await throttledPost(`${API_BASE}/api/mqtt/response`, action);
+      } catch (individualErr) {
+        console.error('❌ Individual action failed:', individualErr.message, action);
+      }
+    }
+  });
+}
+
+async function processBatch(actions) {
+  if (!BATCH_ENABLED || actions.length <= 1) {
+    // Process individually
+    for (const action of actions) {
+      await throttledPost(`${API_BASE}/api/mqtt/response`, action);
+    }
+    return;
+  }
+
+  try {
+    // Use batch endpoint if available
+    const response = await throttledPost(`${API_BASE}/api/mqtt/response-batch`, {
+      actions: actions,
+      batch_id: randomUUID(),
+      timestamp: Date.now()
+    });
+
+    if (DEBUG) console.log(`✅ Batch processed: ${actions.length} actions`);
+    return response;
+  } catch (err) {
+    // If batch endpoint not available, fall back to individual
+    if (err.response?.status === 404) {
+      for (const action of actions) {
+        await throttledPost(`${API_BASE}/api/mqtt/response`, action);
+      }
+      return;
+    }
+    throw err;
+  }
+}
+
+// Start batch processing timer
+if (BATCH_ENABLED) {
+  setInterval(processBatchedActions, BATCH_TIMEOUT);
+}
+
+async function postWithRetries(url, data, retries = 4, backoff = 300) {
+  // Check system health before making requests
+  const now = Date.now();
+  if (now - systemHealth.lastCheck > HEALTH_CHECK_INTERVAL * 2) {
+    await checkSystemHealth();
+  }
+
+  // If circuit breaker is open, use longer backoff
+  if (systemHealth.circuitOpen) {
+    backoff = Math.max(backoff, 1000); // Minimum 1s backoff when circuit is open
+    retries = Math.max(retries, 6); // More retries when system is degraded
+  }
+
+  let lastErr;
+  for (let i = 0; i <= retries; i++) {
+    try {
+      return await axios.post(url, data, { timeout: HTTP_TIMEOUT });
+    } catch (err) {
+      lastErr = err;
+
+      const status = err.response?.status;
+      const isServerError = status >= 500 && status < 600;
+      const isConflict = status === 409;
+      const isTooManyRequests = status === 429;
+
+      // Decide whether to retry: network errors, 5xx, 409 (DB busy), or 429 (rate limited)
+      const shouldRetry = !err.response || isServerError || isConflict || isTooManyRequests;
+
+      if (!shouldRetry) {
+        // Not retriable (eg. validation error) — rethrow immediately
+        throw err;
+      }
+
+      if (i < retries) {
+        // Enhanced backoff with system health awareness
+        let delay = Math.round(backoff * Math.pow(2, i) + (Math.random() * backoff));
+
+        // Extra delay for 429 (rate limiting) or when circuit is open
+        if (isTooManyRequests || systemHealth.circuitOpen) {
+          delay *= 2;
+        }
+
+        if (DEBUG) console.warn(`⚠️ HTTP retry ${i + 1}/${retries} for ${url} (status=${status || 'network'}, delay=${delay}ms, circuit=${systemHealth.circuitOpen ? 'open' : 'closed'})`);
+        await sleep(delay);
+        continue;
+      }
+      // final failure after retries
+    }
+  }
+  throw lastErr;
+}
+
+async function throttledPost(url, data) {
+  // Dynamic concurrency control based on system health
+  let maxConcurrent = MAX_INFLIGHT;
+  if (systemHealth.circuitOpen) {
+    maxConcurrent = Math.floor(MAX_INFLIGHT * 0.3); // Reduce to 30% when circuit is open
+  } else if (systemHealth.load === 'high') {
+    maxConcurrent = Math.floor(MAX_INFLIGHT * 0.6); // Reduce to 60% when load is high
+  }
+
+  while (inflightRequests >= maxConcurrent) {
+    await sleep(systemHealth.circuitOpen ? 50 : 10); // Longer wait when system is degraded
+  }
+
+  inflightRequests++;
+  try {
+    return await postWithRetries(url, data, systemHealth.circuitOpen ? 6 : 2, systemHealth.circuitOpen ? 500 : 150);
+  } finally {
+    inflightRequests--;
+  }
+}
+
+const client = mqtt.connect(broker);
+
+client.on('connect', () => {
+  console.log('✅ Connected to MQTT broker');
+  client.subscribe([
+    'devices/activation/req',
+    'devices/activation/v2/res',
+    'order/ping/res',
+    'order/res/+/+',
+    'orders/+',
+    'user/ping/+'
+  ], (err) => {
+    if (err) console.error('❌ Subscription error:', err.message);
+    else console.log('✅ Subscribed to topics');
+  });
+});
+
+client.on('message', async (topic, message) => {
+  let payload;
+  try {
+    payload = JSON.parse(message.toString());
+  } catch (err) {
+    console.error('❌ Failed to parse JSON message:', err.message);
+    return;
+  }
+
+  // Deduplication check - skip if we processed this message recently
+  if (isDuplicateMessage(topic, payload)) {
+    if (DEBUG) console.log(`🔄 Skipping duplicate message: ${topic}`);
+    return;
+  }
+
+  // Processing lock check - skip if message is currently being processed
+  if (isMessageBeingProcessed(topic, payload)) {
+    if (DEBUG) console.log(`� Skipping message already being processed: ${topic}`);
+    return;
+  }
+
+  if (DEBUG) console.log(`�🔔 MQTT recv -> topic: ${topic} | payload: ${JSON.stringify(payload)}`);
+
+  try {
+    // Process the message...
+    await processMessage(topic, payload);
+  } catch (err) {
+    console.error('❌ Error processing MQTT message:', err.message);
+  } finally {
+    // Always release the processing lock
+    releaseProcessingLock(topic, payload);
+  }
+});
+
+async function processMessage(topic, payload) {
+
+  // order/ping/res — devices report they received a ping (activation)
+  if (topic === 'order/ping/res') {
+    // Support both shapes: activation_order_id or order_id
+    const rawActivation = payload.activation_order_id ?? payload.order_id ?? payload.activationOrderId ?? payload.activationOrder_id;
+    const rawUser = payload.user_id ?? payload.userId ?? payload.user;
+    const type = payload.type;
+
+    const orderId = rawActivation == null ? NaN : parseInt(rawActivation, 10);
+    let userId = rawUser == null ? null : parseInt(rawUser, 10);  // Use 'let' so we can reassign
+
+    if (!type || Number.isNaN(orderId)) {
+      console.error('❌ Invalid ping response payload:', {
+        type,
+        activation_order_id: Number.isNaN(orderId) ? rawActivation : orderId,
+        user_id: userId,
+        raw_user_id: rawUser,
+        raw_activation_order_id: rawActivation,
+        original: payload
+      });
+      return;
+    }
+
+    try {
+      // Map device-level types (follow/like/...) to API-allowed types (create/resume)
+      let mappedType = 'create';
+      if (typeof type === 'string') {
+        const t = type.toLowerCase();
+        if (t === 'resume') mappedType = 'resume';
+        else mappedType = 'create';
+      }
+
+        // If the device didn't provide a user_id, try to recover it from multiple sources
+        if (userId === null) {
+          // First, try creator_user_id from ping metadata
+          const creatorUserId = payload.creator_user_id;
+          if (creatorUserId != null) {
+            const parsedCreatorId = parseInt(creatorUserId, 10);
+            if (!Number.isNaN(parsedCreatorId)) {
+              if (DEBUG) console.log(`🔁 Recovered user_id=${parsedCreatorId} for order ${orderId} from creator_user_id`);
+              userId = parsedCreatorId;
+            }
+          }
+
+          // If still null, try KNOWN_ORDERS cache
+          if (userId === null) {
+            const known = KNOWN_ORDERS.get(orderId);
+            if (known && known.userId) {
+              if (DEBUG) console.log(`🔁 Recovered user_id=${known.userId} for order ${orderId} from KNOWN_ORDERS`);
+              userId = known.userId;  // This assignment now works because userId is 'let'
+            }
+          }
+        }
+
+        if (userId === null) {
+          console.warn('⚠️ Ping response missing user_id and not recoverable, skipping trigger-order:', payload);
+          return;
+        }
+
+      const messageId = randomUUID();
+      const postBody = {
+        message_id: messageId,
+        order_id: orderId,
+        user_id: userId,
+        type: mappedType,
+        activation: true
+      };
+
+      // Detect if this order_id was previously announced via orders/+
+      if (!KNOWN_ORDERS.has(orderId)) {
+        const msg = `⚠️ Received ping response for unknown order ${orderId} (user ${userId})`;
+        console.warn(msg, { original: payload });
+        // append to local log for later inspection
+        recordMissingOrder(orderId, payload, topic);
+      }
+
+      const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
+
+      if (DEBUG) console.log('✅ Triggered API:', res.data || res.status, 'message_id=', messageId);
+    } catch (err) {
+      console.error('❌ Failed to trigger API for ping response:', err.response?.data || err.message);
+    }
+
+    return;
+  }
+
+  // user ping
+  const pingMatch = topic.match(/^user\/ping\/(\d+)$/);
+  if (pingMatch) {
+    const userId = parseInt(pingMatch[1], 10);
+    const { order_id, request } = payload;
+    if (request === 'ping') {
+      const response = { order_id: order_id, status: 'online' };
+      client.publish(`user/ping/response/${userId}`, JSON.stringify(response), { qos: 1 });
+      if (DEBUG) console.log(`🏓 Ping response sent for user ${userId}`);
+    }
+    return;
+  }
+
+  // orders/{user_id} notifications
+  const ordersMatch = topic.match(/^orders\/(\d+)$/);
+  if (ordersMatch) {
+    const userId = parseInt(ordersMatch[1], 10);
+    const { url, order_id, type } = payload;
+    if (!url || !order_id || !type || Number.isNaN(userId)) {
+      console.warn('⚠️ Missing fields in orders message:', payload);
+      return;
+    }
+    // Record the announced order_id in our known-orders cache so we can
+    // detect later if devices report pings for orders that were never
+    // announced to users via `orders/{user_id}`.
+    try {
+        const id = Number(order_id);
+        if (!Number.isNaN(id)) KNOWN_ORDERS.set(id, { userId, ts: Date.now() });
+    } catch (err) {
+      if (DEBUG) console.warn('Failed to record known order:', err.message);
+    }
+
+    if (DEBUG) console.log(`� Order notification for user ${userId}: order ${order_id}`);
+    return;
+  }
+
+  // order/res/{order_id}/{user_id} — final device response (task done/external)
+  const respMatch = topic.match(/^order\/res\/(\d+)\/(\d+)$/);
+  if (respMatch) {
+    const order_id = parseInt(respMatch[1], 10);
+    const user_id = parseInt(respMatch[2], 10);
+    const { status } = payload;
+
+    if (!status || Number.isNaN(order_id) || Number.isNaN(user_id)) {
+      console.warn('⚠️ Missing fields in order response payload:', { topic, payload });
+      return;
+    }
+
+    const actionData = { order_id, user_id, status };
+
+    // Use batching if enabled and system is healthy
+    if (BATCH_ENABLED && !systemHealth.circuitOpen && systemHealth.status === 'healthy') {
+      pendingActions.push(actionData);
+
+      // Process immediately if batch is full
+      if (pendingActions.length >= BATCH_SIZE) {
+        processBatchedActions();
+      }
+
+      if (DEBUG) console.log(`📦 Action queued for batch: ${pendingActions.length}/${BATCH_SIZE}`);
+      return;
+    }
+
+    // Process immediately (non-batched or system degraded)
+    try {
+      const res = await throttledPost(`${API_BASE}/api/mqtt/response`, actionData);
+      if (DEBUG) console.log('✅ Action updated:', res.data || res.status);
+    } catch (err) {
+      console.error('❌ Failed to update action:', err.response?.data || err.message);
+    }
+
+    return;
+  }
+
+  // device activation v2
+  if (topic === 'devices/activation/v2/res') {
+    const { device_id, status } = payload;
+    if (!device_id || !status) return console.warn('⚠️ Missing device_id or status:', payload);
+    try {
+      await axios.post(`${API_BASE}/api/mqtt/device-activation`, { device_id, status });
+    } catch (err) {
+      console.error('❌ Failed to store activation:', err.response?.data || err.message);
+    }
+    return;
+  }
+
+  if (DEBUG) console.warn('⚠️ Unrecognized topic:', topic);
+}
+
+process.on('SIGINT', () => {
+  console.log('📡 MQTT handler shutting down...');
+
+  // Process any remaining batched actions before shutdown
+  if (pendingActions.length > 0) {
+    console.log(`🔄 Processing ${pendingActions.length} remaining actions...`);
+    processBatchedActions();
+
+    // Wait a moment for processing
+    setTimeout(() => {
+      client.end();
+      process.exit(0);
+    }, 1000);
+  } else {
+    client.end();
+    process.exit(0);
+  }
+});
+
+// Graceful handling of uncaught errors
+process.on('uncaughtException', (err) => {
+  console.error('❌ Uncaught Exception:', err);
+  // Process remaining actions and exit
+  if (pendingActions.length > 0) {
+    processBatchedActions();
+  }
+  setTimeout(() => process.exit(1), 2000);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+});
+
+
