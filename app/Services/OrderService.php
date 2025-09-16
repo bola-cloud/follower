@@ -76,74 +76,74 @@ class OrderService
 
     private function createPendingActions(Order $order, $eligibleUsers)
     {
-        // Use optimized batch service for better connection management
-        $batchService = app(\App\Services\BatchDatabaseService::class);
+        // // Use optimized batch service for better connection management
+        // $batchService = app(\App\Services\BatchDatabaseService::class);
 
-        try {
-            $now = now();
-            $userIds = $eligibleUsers->pluck('id')->toArray();
+        // try {
+        //     $now = now();
+        //     $userIds = $eligibleUsers->pluck('id')->toArray();
 
-            // Use batch service for optimized insertion
-            $inserted = $batchService->createOrderActions($order, $userIds);
+        //     // Use batch service for optimized insertion
+        //     $inserted = $batchService->createOrderActions($order, $userIds);
 
-            Log::info('[OrderService] Batch pending actions created', [
-                'order_id' => $order->id,
-                'eligible_users_count' => count($userIds),
-                'inserted' => $inserted
-            ]);
+        //     Log::info('[OrderService] Batch pending actions created', [
+        //         'order_id' => $order->id,
+        //         'eligible_users_count' => count($userIds),
+        //         'inserted' => $inserted
+        //     ]);
 
-            // Dispatch per-user MQTT announcement jobs so each user receives `orders/{user_id}`
-            // This ensures the MQTT handler records known orders and devices can respond to pings.
-            if (!empty($userIds)) {
-                // First, synchronously announce to a small chunk so the MQTT
-                // handler can record KNOWN_ORDERS before we send the ping.
-                // This mirrors ResumeOrderService which publishes before pinging.
-                $syncChunk = array_slice($userIds, 0, 50);
-                foreach ($syncChunk as $uid) {
-                    try {
-                        // Publish directly and wait (use the same synchronous publisher)
-                        $this->publishOrderAnnouncement($uid, $order->id, $order->type, $order->target_url);
-                    } catch (\Throwable $je) {
-                        Log::warning('[OrderService] Failed to publish synchronous order announcement', [
-                            'order_id' => $order->id,
-                            'user_id' => $uid,
-                            'error' => $je->getMessage()
-                        ]);
-                    }
-                }
+        //     // Dispatch per-user MQTT announcement jobs so each user receives `orders/{user_id}`
+        //     // This ensures the MQTT handler records known orders and devices can respond to pings.
+        //     if (!empty($userIds)) {
+        //         // First, synchronously announce to a small chunk so the MQTT
+        //         // handler can record KNOWN_ORDERS before we send the ping.
+        //         // This mirrors ResumeOrderService which publishes before pinging.
+        //         $syncChunk = array_slice($userIds, 0, 50);
+        //         foreach ($syncChunk as $uid) {
+        //             try {
+        //                 // Publish directly and wait (use the same synchronous publisher)
+        //                 $this->publishOrderAnnouncement($uid, $order->id, $order->type, $order->target_url);
+        //             } catch (\Throwable $je) {
+        //                 Log::warning('[OrderService] Failed to publish synchronous order announcement', [
+        //                     'order_id' => $order->id,
+        //                     'user_id' => $uid,
+        //                     'error' => $je->getMessage()
+        //                 ]);
+        //             }
+        //         }
 
-                // Dispatch the rest asynchronously to the high-priority queue
-                $remaining = array_slice($userIds, count($syncChunk));
-                $chunks = array_chunk($remaining, 200);
-                foreach ($chunks as $chunk) {
-                    foreach ($chunk as $uid) {
-                        try {
-                            dispatch(new \App\Jobs\SendMqttToUserJob($uid, $order->id, $order->type, $order->target_url));
-                        } catch (\Throwable $je) {
-                            Log::warning('[OrderService] Failed to dispatch SendMqttToUserJob', [
-                                'order_id' => $order->id,
-                                'user_id' => $uid,
-                                'error' => $je->getMessage()
-                            ]);
-                        }
-                    }
-                }
+        //         // Dispatch the rest asynchronously to the high-priority queue
+        //         $remaining = array_slice($userIds, count($syncChunk));
+        //         $chunks = array_chunk($remaining, 200);
+        //         foreach ($chunks as $chunk) {
+        //             foreach ($chunk as $uid) {
+        //                 try {
+        //                     dispatch(new \App\Jobs\SendMqttToUserJob($uid, $order->id, $order->type, $order->target_url));
+        //                 } catch (\Throwable $je) {
+        //                     Log::warning('[OrderService] Failed to dispatch SendMqttToUserJob', [
+        //                         'order_id' => $order->id,
+        //                         'user_id' => $uid,
+        //                         'error' => $je->getMessage()
+        //                     ]);
+        //                 }
+        //             }
+        //         }
 
-                Log::info('[OrderService] Synchronously announced to first chunk and dispatched SendMqttToUserJob for remaining users', [
-                    'order_id' => $order->id,
-                    'sync_announced' => count($syncChunk),
-                    'dispatched_count' => count($remaining)
-                ]);
-            }
+        //         Log::info('[OrderService] Synchronously announced to first chunk and dispatched SendMqttToUserJob for remaining users', [
+        //             'order_id' => $order->id,
+        //             'sync_announced' => count($syncChunk),
+        //             'dispatched_count' => count($remaining)
+        //         ]);
+        //     }
 
-        } catch (\Throwable $e) {
-            Log::error('[OrderService] Failed to create batch pending actions', [
-                'order_id' => $order->id,
-                'error' => $e->getMessage(),
-                'eligible_users_count' => $eligibleUsers->count(),
-            ]);
-            throw $e;
-        }
+        // } catch (\Throwable $e) {
+        //     Log::error('[OrderService] Failed to create batch pending actions', [
+        //         'order_id' => $order->id,
+        //         'error' => $e->getMessage(),
+        //         'eligible_users_count' => $eligibleUsers->count(),
+        //     ]);
+        //     throw $e;
+        // }
     }
 
     /**
