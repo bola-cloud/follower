@@ -68,8 +68,8 @@ class ResumeOrderService
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
-                // Re-publish order announcement immediately
-                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+                // Dispatch queued MQTT publish job instead of synchronous publish
+                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
                 return ['message' => 'Pending action re-dispatched for this user.'];
             }
             // Block if status is done or external
@@ -84,8 +84,8 @@ class ResumeOrderService
             $result = $this->batchInsertPendingAction($order, [$user->id]);
 
             if ($result['inserted'] > 0) {
-                // Publish order announcement after successful insertion
-                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+                // Dispatch queued MQTT publish job after successful insertion
+                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
                 return ['message' => 'User processed successfully.'];
             } else {
                 return ['message' => 'Action already exists or was handled concurrently.'];
