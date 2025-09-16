@@ -306,7 +306,7 @@ class OrderService
         try {
             // Create action without individual announcement to prevent MQTT duplication
             // Actions should be announced in batch during order creation, not per user
-            
+
             $inserted = DB::table('actions')->insertOrIgnore([
                 'order_id' => $order->id,
                 'user_id' => $user->id,
