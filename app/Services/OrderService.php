@@ -307,14 +307,52 @@ class OrderService
             // Create action without individual announcement to prevent MQTT duplication
             // Actions should be announced in batch during order creation, not per user
 
-            $inserted = DB::table('actions')->insertOrIgnore([
-                'order_id' => $order->id,
-                'user_id' => $user->id,
-                'type' => $order->type,
-                'status' => 'pending',
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
+            // Retry logic for lock timeouts with exponential backoff
+            $maxRetries = 3;
+            $inserted = 0;
+
+            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                try {
+                    // Use shorter lock timeout for action inserts to fail faster
+                    DB::statement('SET SESSION innodb_lock_wait_timeout = 5');
+
+                    $inserted = DB::table('actions')->insertOrIgnore([
+                        'order_id' => $order->id,
+                        'user_id' => $user->id,
+                        'type' => $order->type,
+                        'status' => 'pending',
+                        'created_at' => now(),
+                        'updated_at' => now(),
+                    ]);
+
+                    // Restore default timeout
+                    DB::statement('SET SESSION innodb_lock_wait_timeout = 50');
+                    break; // Success, exit retry loop
+
+                } catch (\Illuminate\Database\QueryException $e) {
+                    // Check if it's a lock timeout error (1205)
+                    if ($e->getCode() === 'HY000' && strpos($e->getMessage(), '1205') !== false) {
+                        if ($attempt < $maxRetries) {
+                            $delay = pow(2, $attempt - 1) * 100000; // 100ms, 200ms, 400ms (microseconds)
+                            \Log::warning('[OrderService] Lock timeout, retrying', [
+                                'attempt' => $attempt,
+                                'delay_ms' => $delay / 1000,
+                                'order_id' => $order->id,
+                                'user_id' => $user->id
+                            ]);
+                            usleep($delay);
+                            continue;
+                        }
+                        // Max retries exceeded, log and rethrow
+                        \Log::error('[OrderService] Lock timeout after max retries', [
+                            'order_id' => $order->id,
+                            'user_id' => $user->id,
+                            'attempts' => $maxRetries
+                        ]);
+                    }
+                    throw $e; // Re-throw non-timeout errors or after max retries
+                }
+            }
 
             if ($inserted === 0) {
                 // Another worker likely inserted the same action concurrently. Fetch and respond accordingly.

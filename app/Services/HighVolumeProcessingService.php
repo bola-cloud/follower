@@ -82,11 +82,109 @@ class HighVolumeProcessingService
             $updated = $connection->affectingStatement($sql, [$status, $orderId, $userId]);
 
             if ($updated === 0) {
-                // Action not found or already processed
+                // Action not found, not pending, or already processed
+                // Check if action exists and try to create it if missing
+                $existingAction = $connection->table('actions')
+                    ->where('order_id', $orderId)
+                    ->where('user_id', $userId)
+                    ->first(['status']);
+
+                if (!$existingAction) {
+                    // Action doesn't exist - try to create it
+                    Log::warning('Action not found during MQTT update, attempting to create', [
+                        'order_id' => $orderId,
+                        'user_id' => $userId,
+                        'status' => $status
+                    ]);
+
+                    // Get order type for action creation
+                    $orderType = $connection->table('orders')
+                        ->where('id', $orderId)
+                        ->value('type') ?? 'create';
+
+                    // Retry logic for lock timeouts with exponential backoff
+                    $maxRetries = 3;
+                    $created = false;
+
+                    for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                        try {
+                            $created = $connection->table('actions')->insertOrIgnore([
+                                'order_id' => $orderId,
+                                'user_id' => $userId,
+                                'type' => $orderType,
+                                'status' => $status,
+                                'performed_at' => now(),
+                                'created_at' => now(),
+                                'updated_at' => now(),
+                            ]);
+                            break; // Success, exit retry loop
+
+                        } catch (\Illuminate\Database\QueryException $e) {
+                            // Check if it's a lock timeout error (1205)
+                            if ($e->getCode() === 'HY000' && strpos($e->getMessage(), '1205') !== false) {
+                                if ($attempt < $maxRetries) {
+                                    $delay = pow(2, $attempt - 1) * 50000; // 50ms, 100ms, 200ms (microseconds)
+                                    Log::warning('[HighVolumeProcessingService] Lock timeout during action creation, retrying', [
+                                        'attempt' => $attempt,
+                                        'delay_ms' => $delay / 1000,
+                                        'order_id' => $orderId,
+                                        'user_id' => $userId
+                                    ]);
+                                    usleep($delay);
+                                    continue;
+                                }
+                            }
+                            throw $e; // Re-throw non-timeout errors or after max retries
+                        }
+                    }
+
+                    if ($created) {
+                        Log::info('Action created during MQTT update', [
+                            'order_id' => $orderId,
+                            'user_id' => $userId,
+                            'status' => $status
+                        ]);
+
+                        // Update order done_count if status is done
+                        if ($status === 'done') {
+                            $connection->statement("
+                                UPDATE orders
+                                SET done_count = LEAST(done_count + 1, total_count),
+                                    updated_at = NOW()
+                                WHERE id = ? AND done_count < total_count
+                            ", [$orderId]);
+
+                            $this->checkOrderCompletion($orderId, $connection);
+                        }
+
+                        return [
+                            'success' => true,
+                            'message' => 'Action created and processed immediately',
+                            'immediate' => true,
+                            'created' => true
+                        ];
+                    } else {
+                        Log::warning('Failed to create missing action during MQTT update', [
+                            'order_id' => $orderId,
+                            'user_id' => $userId,
+                            'status' => $status
+                        ]);
+                    }
+                } else {
+                    // Action exists but wasn't updated (likely already processed)
+                    Log::info('Action exists but not updated during MQTT response', [
+                        'order_id' => $orderId,
+                        'user_id' => $userId,
+                        'existing_status' => $existingAction->status,
+                        'requested_status' => $status
+                    ]);
+                }
+
                 return [
                     'success' => true,
-                    'message' => 'Action already processed or not found',
-                    'immediate' => true
+                    'message' => 'Action already processed or not updatable',
+                    'immediate' => true,
+                    'existing_status' => $existingAction->status ?? null
                 ];
             }
 

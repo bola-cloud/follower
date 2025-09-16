@@ -109,6 +109,13 @@ class MqttResponseController extends Controller
                     $orderRow = DB::table('orders')->where('id', $orderId)->first();
                     $actionType = $orderRow->type ?? 'create';
 
+                    \Log::info('[MQTT_API] Creating missing action during legacy processing', [
+                        'order_id' => $orderId,
+                        'user_id' => $userId,
+                        'status' => $status,
+                        'action_type' => $actionType
+                    ]);
+
                     $created = DB::table('actions')->insertOrIgnore([
                         'order_id' => $orderId,
                         'user_id' => $userId,
@@ -118,6 +125,20 @@ class MqttResponseController extends Controller
                         'created_at' => now(),
                         'updated_at' => now(),
                     ]);
+
+                    if ($created) {
+                        \Log::info('[MQTT_API] Successfully created missing action', [
+                            'order_id' => $orderId,
+                            'user_id' => $userId,
+                            'status' => $status
+                        ]);
+                    } else {
+                        \Log::warning('[MQTT_API] Failed to create missing action (race condition)', [
+                            'order_id' => $orderId,
+                            'user_id' => $userId,
+                            'status' => $status
+                        ]);
+                    }
                 } elseif ($existingAction && $existingAction->status === 'done') {
                     // Action already completed - don't increment done_count again
                     return response()->json([
