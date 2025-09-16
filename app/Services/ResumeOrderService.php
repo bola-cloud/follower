@@ -239,10 +239,10 @@ class ResumeOrderService
 
                 $affected = DB::affectingStatement($sql, $values);
 
-                // Restore normal settings
+                // Restore normal settings (removed NO_AUTO_CREATE_USER for MySQL 8.0+ compatibility)
                 DB::statement("SET SESSION unique_checks = 1");
                 DB::statement("SET SESSION foreign_key_checks = 1");
-                DB::statement("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_AUTO_CREATE_USER,NO_ENGINE_SUBSTITUTION'");
+                DB::statement("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
 
                 return $affected;
             });
