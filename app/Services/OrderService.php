@@ -260,153 +260,153 @@ class OrderService
             'order_id' => $order->id,
             'order_type' => $order->type
         ]);
-        // No transaction or lock needed here - triggerOrder already validated slots and eligibility
-        // Just check basic eligibility and create the action
+    //     // No transaction or lock needed here - triggerOrder already validated slots and eligibility
+    //     // Just check basic eligibility and create the action
 
-        if (!$this->checkUserEligibility($order, $user)) {
-            return ['error' => 'User is not eligible for this order.'];
-        }
+    //     if (!$this->checkUserEligibility($order, $user)) {
+    //         return ['error' => 'User is not eligible for this order.'];
+    //     }
 
-        // Check if action already exists for this user (select only status)
-        $existingAction = DB::table('actions')
-            ->select('status')
-            ->where('order_id', $order->id)
-            ->where('user_id', $user->id)
-            ->first();
+    //     // Check if action already exists for this user (select only status)
+    //     $existingAction = DB::table('actions')
+    //         ->select('status')
+    //         ->where('order_id', $order->id)
+    //         ->where('user_id', $user->id)
+    //         ->first();
 
-        if ($existingAction) {
-            if ($existingAction->status === 'pending') {
-                // Don't re-publish - user already has pending announcement from batch creation
-                return ['message' => 'Pending action already exists for this user.'];
-            }
-            // Block if status is done or external
-            if (in_array($existingAction->status, ['done', 'external'])) {
-                return ['error' => 'User already completed or has external action for this order.'];
-            }
-            return ['error' => 'Action already exists for this user.'];
-        }
+    //     if ($existingAction) {
+    //         if ($existingAction->status === 'pending') {
+    //             // Don't re-publish - user already has pending announcement from batch creation
+    //             return ['message' => 'Pending action already exists for this user.'];
+    //         }
+    //         // Block if status is done or external
+    //         if (in_array($existingAction->status, ['done', 'external'])) {
+    //             return ['error' => 'User already completed or has external action for this order.'];
+    //         }
+    //         return ['error' => 'Action already exists for this user.'];
+    //     }
 
-        // Create the action - no lock needed since triggerOrder already validated slots
-        // Add a final safety check to prevent exceeding total_count (count done + recent pending only)
-        $currentActionCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where(function($query) {
-                $query->where('status', 'done')
-                      ->orWhere(function($subQuery) {
-                          $subQuery->where('status', 'pending')
-                                   ->where('created_at', '>=', now()->subMinutes(15));
-                      });
-            })
-            ->count();
+    //     // Create the action - no lock needed since triggerOrder already validated slots
+    //     // Add a final safety check to prevent exceeding total_count (count done + recent pending only)
+    //     $currentActionCount = DB::table('actions')
+    //         ->where('order_id', $order->id)
+    //         ->where(function($query) {
+    //             $query->where('status', 'done')
+    //                   ->orWhere(function($subQuery) {
+    //                       $subQuery->where('status', 'pending')
+    //                                ->where('created_at', '>=', now()->subMinutes(15));
+    //                   });
+    //         })
+    //         ->count();
 
-        if ($currentActionCount >= $order->total_count) {
-            return ['error' => 'Order capacity reached.'];
-        }
+    //     if ($currentActionCount >= $order->total_count) {
+    //         return ['error' => 'Order capacity reached.'];
+    //     }
 
-        try {
-            // Create action without individual announcement to prevent MQTT duplication
-            // Actions should be announced in batch during order creation, not per user
+    //     try {
+    //         // Create action without individual announcement to prevent MQTT duplication
+    //         // Actions should be announced in batch during order creation, not per user
 
-            // Retry logic for lock timeouts with exponential backoff
-            $maxRetries = 3;
-            $inserted = 0;
+    //         // Retry logic for lock timeouts with exponential backoff
+    //         $maxRetries = 3;
+    //         $inserted = 0;
 
-            for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                try {
-                    // Use shorter lock timeout for action inserts to fail faster
-                    DB::statement('SET SESSION innodb_lock_wait_timeout = 5');
+    //         for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+    //             try {
+    //                 // Use shorter lock timeout for action inserts to fail faster
+    //                 DB::statement('SET SESSION innodb_lock_wait_timeout = 5');
 
-                    $inserted = DB::table('actions')->insertOrIgnore([
-                        'order_id' => $order->id,
-                        'user_id' => $user->id,
-                        'type' => $order->type,
-                        'status' => 'pending',
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ]);
+    //                 $inserted = DB::table('actions')->insertOrIgnore([
+    //                     'order_id' => $order->id,
+    //                     'user_id' => $user->id,
+    //                     'type' => $order->type,
+    //                     'status' => 'pending',
+    //                     'created_at' => now(),
+    //                     'updated_at' => now(),
+    //                 ]);
 
-                    // Restore default timeout
-                    DB::statement('SET SESSION innodb_lock_wait_timeout = 50');
-                    break; // Success, exit retry loop
+    //                 // Restore default timeout
+    //                 DB::statement('SET SESSION innodb_lock_wait_timeout = 50');
+    //                 break; // Success, exit retry loop
 
-                } catch (\Illuminate\Database\QueryException $e) {
-                    // Check if it's a lock timeout error (1205)
-                    if ($e->getCode() === 'HY000' && strpos($e->getMessage(), '1205') !== false) {
-                        if ($attempt < $maxRetries) {
-                            $delay = pow(2, $attempt - 1) * 100000; // 100ms, 200ms, 400ms (microseconds)
-                            \Log::warning('[OrderService] Lock timeout, retrying', [
-                                'attempt' => $attempt,
-                                'delay_ms' => $delay / 1000,
-                                'order_id' => $order->id,
-                                'user_id' => $user->id
-                            ]);
-                            usleep($delay);
-                            continue;
-                        }
-                        // Max retries exceeded, log and rethrow
-                        \Log::error('[OrderService] Lock timeout after max retries', [
-                            'order_id' => $order->id,
-                            'user_id' => $user->id,
-                            'attempts' => $maxRetries
-                        ]);
-                    }
-                    throw $e; // Re-throw non-timeout errors or after max retries
-                }
-            }
+    //             } catch (\Illuminate\Database\QueryException $e) {
+    //                 // Check if it's a lock timeout error (1205)
+    //                 if ($e->getCode() === 'HY000' && strpos($e->getMessage(), '1205') !== false) {
+    //                     if ($attempt < $maxRetries) {
+    //                         $delay = pow(2, $attempt - 1) * 100000; // 100ms, 200ms, 400ms (microseconds)
+    //                         \Log::warning('[OrderService] Lock timeout, retrying', [
+    //                             'attempt' => $attempt,
+    //                             'delay_ms' => $delay / 1000,
+    //                             'order_id' => $order->id,
+    //                             'user_id' => $user->id
+    //                         ]);
+    //                         usleep($delay);
+    //                         continue;
+    //                     }
+    //                     // Max retries exceeded, log and rethrow
+    //                     \Log::error('[OrderService] Lock timeout after max retries', [
+    //                         'order_id' => $order->id,
+    //                         'user_id' => $user->id,
+    //                         'attempts' => $maxRetries
+    //                     ]);
+    //                 }
+    //                 throw $e; // Re-throw non-timeout errors or after max retries
+    //             }
+    //         }
 
-            if ($inserted === 0) {
-                // Another worker likely inserted the same action concurrently. Fetch and respond accordingly.
-                $existingAction = DB::table('actions')
-                    ->select('status')
-                    ->where('order_id', $order->id)
-                    ->where('user_id', $user->id)
-                    ->first();
+    //         if ($inserted === 0) {
+    //             // Another worker likely inserted the same action concurrently. Fetch and respond accordingly.
+    //             $existingAction = DB::table('actions')
+    //                 ->select('status')
+    //                 ->where('order_id', $order->id)
+    //                 ->where('user_id', $user->id)
+    //                 ->first();
 
-                if ($existingAction) {
-                    if ($existingAction->status === 'pending') {
-                        return ['message' => 'Pending action already exists for this user.'];
-                    }
-                    if (in_array($existingAction->status, ['done', 'external'])) {
-                        return ['error' => 'User already completed or has external action for this order.'];
-                    }
-                    return ['error' => 'Action already exists for this user.'];
-                }
+    //             if ($existingAction) {
+    //                 if ($existingAction->status === 'pending') {
+    //                     return ['message' => 'Pending action already exists for this user.'];
+    //                 }
+    //                 if (in_array($existingAction->status, ['done', 'external'])) {
+    //                     return ['error' => 'User already completed or has external action for this order.'];
+    //                 }
+    //                 return ['error' => 'Action already exists for this user.'];
+    //             }
 
-                // If no existing action found after an ignored insert, fall through to a generic response
-                return ['error' => 'Failed to create action due to concurrent activity.'];
-            }
+    //             // If no existing action found after an ignored insert, fall through to a generic response
+    //             return ['error' => 'Failed to create action due to concurrent activity.'];
+    //         }
 
-            return ['message' => 'User processed successfully.'];
-        } catch (\Illuminate\Database\QueryException $e) {
-            // Duplicate entry error code from MySQL is 1062 (SQLSTATE 23000)
-            if ($e->getCode() === '23000' && strpos($e->getMessage(), '1062') !== false) {
-                // Log the race condition for debugging
-                \Log::warning('[OrderService] Race condition detected - duplicate action inserted concurrently', [
-                    'order_id' => $order->id,
-                    'user_id' => $user->id,
-                    'error' => $e->getMessage()
-                ]);
+    //         return ['message' => 'User processed successfully.'];
+    //     } catch (\Illuminate\Database\QueryException $e) {
+    //         // Duplicate entry error code from MySQL is 1062 (SQLSTATE 23000)
+    //         if ($e->getCode() === '23000' && strpos($e->getMessage(), '1062') !== false) {
+    //             // Log the race condition for debugging
+    //             \Log::warning('[OrderService] Race condition detected - duplicate action inserted concurrently', [
+    //                 'order_id' => $order->id,
+    //                 'user_id' => $user->id,
+    //                 'error' => $e->getMessage()
+    //             ]);
 
-                // Race: someone else inserted the action concurrently. Fetch it and apply the same decision logic.
-                $existingAction = DB::table('actions')
-                    ->select('status')
-                    ->where('order_id', $order->id)
-                    ->where('user_id', $user->id)
-                    ->first();
+    //             // Race: someone else inserted the action concurrently. Fetch it and apply the same decision logic.
+    //             $existingAction = DB::table('actions')
+    //                 ->select('status')
+    //                 ->where('order_id', $order->id)
+    //                 ->where('user_id', $user->id)
+    //                 ->first();
 
-                if ($existingAction) {
-                    if ($existingAction->status === 'pending') {
-                        return ['message' => 'Pending action already exists for this user.'];
-                    }
-                    if (in_array($existingAction->status, ['done', 'external'])) {
-                        return ['error' => 'User already completed or has external action for this order.'];
-                    }
-                    return ['error' => 'Action already exists for this user.'];
-                }
-            }
+    //             if ($existingAction) {
+    //                 if ($existingAction->status === 'pending') {
+    //                     return ['message' => 'Pending action already exists for this user.'];
+    //                 }
+    //                 if (in_array($existingAction->status, ['done', 'external'])) {
+    //                     return ['error' => 'User already completed or has external action for this order.'];
+    //                 }
+    //                 return ['error' => 'Action already exists for this user.'];
+    //             }
+    //         }
 
-            // Not a duplicate or unexpected: rethrow so triggerOrder can log and handle
-            throw $e;
-        }
+    //         // Not a duplicate or unexpected: rethrow so triggerOrder can log and handle
+    //         throw $e;
+    //     }
     }
 }
