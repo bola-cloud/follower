@@ -206,10 +206,7 @@ class ResumeOrderService
             })
             // ->limit($remaining)
             ->get();
-            Log::info('[ResumeOrderService] Eligible users computed', [
-                'order_id' => $order->id,
-                'eligible_user_ids' => $eligibleUsers->pluck('id')->toArray(),
-            ]);
+            
         // Debugging: Log eligible users fetched (order + eligible user ids)
         try {
             Log::info('[ResumeOrderService] Eligible users computed', [

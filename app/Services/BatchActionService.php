@@ -5,6 +5,8 @@ namespace App\Services;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Str;
 
 class BatchActionService
 {
@@ -48,6 +50,52 @@ class BatchActionService
         try {
             foreach ($chunks as $chunkIndex => $chunk) {
                 try {
+                // Rate limiter: ensure we don't exceed configured inserts per minute
+                $chunkCount = count($chunk);
+                $maxPerMinute = (int) env('BATCH_ACTION_MAX_PER_MIN', 5000);
+                $nowMinute = gmdate('YmdHi');
+                $globalKey = 'batch_action_rate_global:' . $nowMinute;
+
+                try {
+                    $current = Redis::incrby($globalKey, $chunkCount);
+                    Redis::expire($globalKey, 70);
+                } catch (\Throwable $e) {
+                    Log::warning('[BatchActionService] Redis unavailable for rate limiting, proceeding', ['error' => $e->getMessage(), 'order_id' => $order->id]);
+                    $current = $chunkCount;
+                }
+
+                if ($current > $maxPerMinute) {
+                    // Exceeded per-minute limit: back off and attempt to retry a few times
+                    Log::warning('[BatchActionService] Rate limit reached, delaying chunk', ['order_id' => $order->id, 'chunk_size' => $chunkCount, 'max_per_minute' => $maxPerMinute, 'current_minute_total' => $current]);
+                    try { Redis::decrby($globalKey, $chunkCount); } catch (\Throwable $__e) {}
+
+                    $backoffAttempts = 0;
+                    $backoffMax = 6;
+                    $backoffBaseMs = 50;
+                    $delayed = false;
+                    while ($backoffAttempts < $backoffMax) {
+                        $backoffAttempts++;
+                        usleep(($backoffBaseMs * (int) pow(2, $backoffAttempts - 1)) * 1000);
+                        try {
+                            $current = Redis::get($globalKey);
+                            $current = $current ? intval($current) : 0;
+                        } catch (\Throwable $e) {
+                            $current = 0;
+                        }
+                        if ($current + $chunkCount <= $maxPerMinute) {
+                            try { Redis::incrby($globalKey, $chunkCount); Redis::expire($globalKey, 70); } catch (\Throwable $e) {}
+                            $delayed = true;
+                            break;
+                        }
+                    }
+
+                    if (!$delayed) {
+                        Log::warning('[BatchActionService] Skipping chunk due to sustained rate limit', ['order_id' => $order->id, 'chunk_size' => $chunkCount]);
+                        $totalSkipped += $chunkCount;
+                        continue;
+                    }
+                }
+
                 // Prepare batch data for this chunk
                 $batchData = [];
                 foreach ($chunk as $userId) {
