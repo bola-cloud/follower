@@ -79,6 +79,11 @@ class OrderService
                 'order_id' => $order->id,
                 'eligible_user_ids' => $result->pluck('id')->toArray(),
             ]);
+            // Duplicate at WARNING level so it shows in environments that filter out INFO
+            Log::warning('[OrderService] Eligible users fetched (warning-level duplicate)', [
+                'order_id' => $order->id,
+                'eligible_user_ids' => $result->pluck('id')->toArray(),
+            ]);
         } catch (\Throwable $e) {
             Log::warning('[OrderService] Failed to log eligible users', ['error' => $e->getMessage(), 'order_id' => $order->id]);
         }

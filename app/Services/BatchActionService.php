@@ -18,8 +18,14 @@ class BatchActionService
             return ['inserted' => 0, 'skipped' => 0];
         }
 
-        // Reduce chunk size to reduce lock contention; 200 is a safer default under high concurrency
-        $chunkSize = 200;
+        // Chunk size can be controlled via env for tuning. Default 200 to reduce lock contention.
+        $chunkSize = (int) env('BATCH_ACTION_CHUNK_SIZE', 200);
+        $totalUsers = count($userIds);
+
+        // Optional fast mode: if enabled and there are many users, allow larger chunks for throughput
+        if ($totalUsers > 2000 && env('BATCH_ACTION_FAST_MODE', false)) {
+            $chunkSize = min(1000, max($chunkSize, intval($totalUsers / max(2, ceil($totalUsers / 1000)))));
+        }
         $totalInserted = 0;
         $totalSkipped = 0;
         $now = now();
@@ -27,8 +33,21 @@ class BatchActionService
         // Process in chunks to prevent memory/connection issues
         $chunks = array_chunk($userIds, $chunkSize);
 
-        foreach ($chunks as $chunkIndex => $chunk) {
-            try {
+        // Apply lightweight session optimizations once for the whole batch to reduce round-trips.
+        $sessionOptimized = false;
+        try {
+            DB::statement("SET SESSION sql_mode = ''");
+            DB::statement("SET SESSION unique_checks = 0");
+            DB::statement("SET SESSION foreign_key_checks = 0");
+            $sessionOptimized = true;
+        } catch (\Throwable $e) {
+            // If we fail to set session options, proceed without session optimizations.
+            Log::warning('[BatchActionService] Failed to apply session optimizations', ['error' => $e->getMessage(), 'order_id' => $order->id]);
+        }
+
+        try {
+            foreach ($chunks as $chunkIndex => $chunk) {
+                try {
                 // Prepare batch data for this chunk
                 $batchData = [];
                 foreach ($chunk as $userId) {
@@ -43,7 +62,8 @@ class BatchActionService
                 }
 
                 // Use raw SQL for maximum performance with proper escaping
-                $inserted = $this->performBatchInsert($batchData, $order->id);
+                    // Skip session optimization inside performBatchInsert when already applied above.
+                    $inserted = $this->performBatchInsert($batchData, $order->id, !$sessionOptimized);
                 $totalInserted += $inserted;
                 $totalSkipped += (count($chunk) - $inserted);
 
@@ -59,7 +79,7 @@ class BatchActionService
                     'total_inserted' => $totalInserted
                 ]);
 
-            } catch (\Throwable $e) {
+                } catch (\Throwable $e) {
                 Log::error('[BatchActionService] Batch chunk failed', [
                     'chunk' => $chunkIndex + 1,
                     'error' => $e->getMessage(),
@@ -68,7 +88,19 @@ class BatchActionService
 
                 // Continue with other chunks even if one fails
                 $totalSkipped += count($chunk);
-                continue;
+                    continue;
+            }
+            }
+        } finally {
+            // Restore session settings if we applied them
+            if (!empty($sessionOptimized)) {
+                try {
+                    DB::statement("SET SESSION unique_checks = 1");
+                    DB::statement("SET SESSION foreign_key_checks = 1");
+                    DB::statement("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+                } catch (\Throwable $e) {
+                    Log::warning('[BatchActionService] Failed to restore session settings', ['error' => $e->getMessage(), 'order_id' => $order->id]);
+                }
             }
         }
 
@@ -96,7 +128,13 @@ class BatchActionService
      * @param int|null $orderId
      * @return int
      */
-    private function performBatchInsert(array $batchData, ?int $orderId = null): int
+    /**
+     * @param array $batchData
+     * @param int|null $orderId
+     * @param bool $applySession Whether to apply session-level optimizations inside this call
+     * @return int
+     */
+    private function performBatchInsert(array $batchData, ?int $orderId = null, bool $applySession = true): int
     {
         if (empty($batchData)) {
             return 0;
@@ -129,7 +167,7 @@ class BatchActionService
                 $attempt++;
 
                 try {
-                    return DB::connection()->transaction(function () use ($sql, $values, $orderId) {
+                    return DB::connection()->transaction(function () use ($sql, $values, $orderId, $applySession) {
                         // Optional: obtain a lightweight advisory lock per order to serialize inserts for the same order.
                         $gotLock = false;
                         if ($orderId !== null) {
@@ -144,17 +182,21 @@ class BatchActionService
                             }
                         }
 
-                        // Temporarily optimize connection for batch operations
-                        DB::statement("SET SESSION sql_mode = ''");
-                        DB::statement("SET SESSION unique_checks = 0");
-                        DB::statement("SET SESSION foreign_key_checks = 0");
+                        // Optionally apply session-level optimizations if requested for this call
+                        if (!empty($applySession)) {
+                            DB::statement("SET SESSION sql_mode = ''");
+                            DB::statement("SET SESSION unique_checks = 0");
+                            DB::statement("SET SESSION foreign_key_checks = 0");
+                        }
 
                         $affected = DB::affectingStatement($sql, $values);
 
-                        // Restore normal settings (removed NO_AUTO_CREATE_USER for MySQL 8.0+ compatibility)
-                        DB::statement("SET SESSION unique_checks = 1");
-                        DB::statement("SET SESSION foreign_key_checks = 1");
-                        DB::statement("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+                        // Only restore if we applied session optimizations here
+                        if (!empty($applySession)) {
+                            DB::statement("SET SESSION unique_checks = 1");
+                            DB::statement("SET SESSION foreign_key_checks = 1");
+                            DB::statement("SET SESSION sql_mode = 'STRICT_TRANS_TABLES,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION'");
+                        }
 
                         // Release advisory lock if held
                         if (!empty($gotLock) && $orderId !== null) {

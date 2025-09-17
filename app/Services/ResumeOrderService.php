@@ -206,10 +206,18 @@ class ResumeOrderService
             })
             // ->limit($remaining)
             ->get();
-
+            Log::info('[ResumeOrderService] Eligible users computed', [
+                'order_id' => $order->id,
+                'eligible_user_ids' => $eligibleUsers->pluck('id')->toArray(),
+            ]);
         // Debugging: Log eligible users fetched (order + eligible user ids)
         try {
             Log::info('[ResumeOrderService] Eligible users computed', [
+                'order_id' => $order->id,
+                'eligible_user_ids' => $eligibleUsers->pluck('id')->toArray(),
+            ]);
+            // Duplicate at WARNING level so it shows in environments that filter out INFO
+            Log::warning('[ResumeOrderService] Eligible users computed (warning-level duplicate)', [
                 'order_id' => $order->id,
                 'eligible_user_ids' => $eligibleUsers->pluck('id')->toArray(),
             ]);
@@ -225,6 +233,11 @@ class ResumeOrderService
         // Log combined (pending + new) users for visibility
         try {
             Log::info('[ResumeOrderService] Combined eligible users', [
+                'order_id' => $order->id,
+                'combined_user_ids' => $combinedUsers->pluck('id')->toArray(),
+            ]);
+            // Duplicate at WARNING level so it shows in environments that filter out INFO
+            Log::warning('[ResumeOrderService] Combined eligible users (warning-level duplicate)', [
                 'order_id' => $order->id,
                 'combined_user_ids' => $combinedUsers->pluck('id')->toArray(),
             ]);
