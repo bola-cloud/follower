@@ -207,21 +207,30 @@ class ResumeOrderService
             // ->limit($remaining)
             ->get();
 
-        // // Debugging: Log eligible users fetched
-        // Log::info('[ResumeOrderService] New eligible users fetched', [
-        //     'order_id' => $order->id,
-        //     'eligible_users' => $eligibleUsers->pluck('id')->toArray(),
-        // ]);
+        // Debugging: Log eligible users fetched (order + eligible user ids)
+        try {
+            Log::info('[ResumeOrderService] Eligible users computed', [
+                'order_id' => $order->id,
+                'eligible_user_ids' => $eligibleUsers->pluck('id')->toArray(),
+            ]);
+        } catch (\Throwable $e) {
+            // swallow logging errors to avoid affecting main flow
+            Log::warning('[ResumeOrderService] Failed to log eligible users', ['error' => $e->getMessage(), 'order_id' => $order->id]);
+        }
 
         // Combine pending and new eligible users
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
         $combinedUsers = $pendingUsers->merge($eligibleUsers);
 
-        // // Debugging: Log combined users
-        // Log::info('[ResumeOrderService] Combined eligible users', [
-        //     'order_id' => $order->id,
-        //     'combined_users' => $combinedUsers->pluck('id')->toArray(),
-        // ]);
+        // Log combined (pending + new) users for visibility
+        try {
+            Log::info('[ResumeOrderService] Combined eligible users', [
+                'order_id' => $order->id,
+                'combined_user_ids' => $combinedUsers->pluck('id')->toArray(),
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[ResumeOrderService] Failed to log combined eligible users', ['error' => $e->getMessage(), 'order_id' => $order->id]);
+        }
 
         return $combinedUsers;
     }
