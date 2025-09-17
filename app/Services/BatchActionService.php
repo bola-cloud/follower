@@ -35,6 +35,34 @@ class BatchActionService
         // Process in chunks to prevent memory/connection issues
         $chunks = array_chunk($userIds, $chunkSize);
 
+        // If configured, enqueue all chunks into Redis for asynchronous processing
+        $enqueueAll = filter_var(env('BATCH_ACTION_ENQUEUE_ALL', false), FILTER_VALIDATE_BOOLEAN);
+        $totalQueued = 0;
+
+        if ($enqueueAll) {
+            foreach ($chunks as $chunk) {
+                try {
+                    $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
+                    Redis::rpush($queueKey, json_encode(['order_id' => $order->id, 'user_ids' => $chunk]));
+                    $nowMinute = gmdate('YmdHi');
+                    $queuedKey = 'batch_action_queued:' . $nowMinute;
+                    Redis::incr($queuedKey);
+                    Redis::expire($queuedKey, 3600);
+                    $totalQueued += count($chunk);
+                } catch (\Throwable $e) {
+                    Log::warning('[BatchActionService] Failed to enqueue chunk in enqueue-all mode', ['error' => $e->getMessage(), 'order_id' => $order->id]);
+                }
+            }
+
+            Log::info('[BatchActionService] Enqueued all chunks for later processing', [
+                'order_id' => $order->id,
+                'total_users' => count($userIds),
+                'total_queued' => $totalQueued
+            ]);
+
+            return ['inserted' => 0, 'skipped' => 0, 'queued' => $totalQueued];
+        }
+
         // Apply lightweight session optimizations once for the whole batch to reduce round-trips.
         $sessionOptimized = false;
         try {
@@ -90,8 +118,22 @@ class BatchActionService
                     }
 
                     if (!$delayed) {
-                        Log::warning('[BatchActionService] Skipping chunk due to sustained rate limit', ['order_id' => $order->id, 'chunk_size' => $chunkCount]);
+                        Log::warning('[BatchActionService] Skipping chunk due to sustained rate limit; enqueuing for later', ['order_id' => $order->id, 'chunk_size' => $chunkCount]);
                         $totalSkipped += $chunkCount;
+
+                        // Enqueue the chunk into Redis for later processing by a worker.
+                        try {
+                            $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
+                            // Store the chunk as JSON payload with order_id and user_ids
+                            Redis::rpush($queueKey, json_encode(['order_id' => $order->id, 'user_ids' => $chunk]));
+                            // Increment a per-minute queued counter for observability
+                            $queuedKey = 'batch_action_queued:' . $nowMinute;
+                            Redis::incr($queuedKey);
+                            Redis::expire($queuedKey, 3600);
+                        } catch (\Throwable $__e) {
+                            Log::warning('[BatchActionService] Failed to enqueue skipped chunk to Redis', ['error' => $__e->getMessage(), 'order_id' => $order->id]);
+                        }
+
                         continue;
                     }
                 }
@@ -135,8 +177,20 @@ class BatchActionService
                 ]);
 
                 // Continue with other chunks even if one fails
-                $totalSkipped += count($chunk);
-                    continue;
+                    $totalSkipped += count($chunk);
+
+                    // Enqueue failed chunk for retry by a worker so we don't lose users
+                    try {
+                        $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
+                        Redis::rpush($queueKey, json_encode(['order_id' => $order->id, 'user_ids' => $chunk, 'error' => $e->getMessage()]));
+                        $queuedKey = 'batch_action_queued:' . $nowMinute;
+                        Redis::incr($queuedKey);
+                        Redis::expire($queuedKey, 3600);
+                    } catch (\Throwable $__e) {
+                        Log::warning('[BatchActionService] Failed to enqueue failed chunk to Redis', ['error' => $__e->getMessage(), 'order_id' => $order->id]);
+                    }
+
+                        continue;
             }
             }
         } finally {
