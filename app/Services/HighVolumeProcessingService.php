@@ -102,11 +102,22 @@ class HighVolumeProcessingService
                         ->where('id', $orderId)
                         ->value('type') ?? 'create';
 
-                    // Retry logic for lock timeouts with exponential backoff
-                    $maxRetries = 3;
+                    // Retry logic with advisory lock per-order to reduce deadlocks under high concurrency
+                    $maxRetries = 4;
                     $created = false;
+                    $lockName = 'hv_action_order_' . intval($orderId);
 
                     for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
+                        $gotLock = false;
+                        try {
+                            // attempt to acquire lightweight advisory lock for this order (0.1s)
+                            $res = $connection->selectOne('SELECT GET_LOCK(?, 0.1) as got', [$lockName]);
+                            $gotLock = ($res && isset($res->got) && intval($res->got) === 1);
+                        } catch (\Throwable $le) {
+                            // ignore lock acquisition errors and proceed without lock
+                            $gotLock = false;
+                        }
+
                         try {
                             $created = $connection->table('actions')->insertOrIgnore([
                                 'order_id' => $orderId,
@@ -117,24 +128,39 @@ class HighVolumeProcessingService
                                 'created_at' => now(),
                                 'updated_at' => now(),
                             ]);
-                            break; // Success, exit retry loop
+
+                            // release advisory lock if acquired
+                            if ($gotLock) {
+                                try { $connection->selectOne('SELECT RELEASE_LOCK(?)', [$lockName]); } catch (\Throwable $__) {}
+                            }
+
+                            break; // success
 
                         } catch (\Illuminate\Database\QueryException $e) {
-                            // Check if it's a lock timeout error (1205)
-                            if ($e->getCode() === 'HY000' && strpos($e->getMessage(), '1205') !== false) {
-                                if ($attempt < $maxRetries) {
-                                    $delay = pow(2, $attempt - 1) * 50000; // 50ms, 100ms, 200ms (microseconds)
-                                    Log::warning('[HighVolumeProcessingService] Lock timeout during action creation, retrying', [
-                                        'attempt' => $attempt,
-                                        'delay_ms' => $delay / 1000,
-                                        'order_id' => $orderId,
-                                        'user_id' => $userId
-                                    ]);
-                                    usleep($delay);
-                                    continue;
-                                }
+                            $msg = $e->getMessage();
+                            $isDeadlock = (strpos($msg, 'SQLSTATE[40001]') !== false || strpos($msg, 'Deadlock found') !== false);
+                            $isLockTimeout = (strpos($msg, '1205') !== false || strpos($msg, 'Lock wait timeout') !== false);
+
+                            if (($isDeadlock || $isLockTimeout) && $attempt < $maxRetries) {
+                                $delay = (int) (pow(2, $attempt - 1) * 50000); // 50ms,100ms,200ms...
+                                Log::warning('[HighVolumeProcessingService] Lock/deadlock during action creation, retrying', [
+                                    'attempt' => $attempt,
+                                    'delay_ms' => $delay / 1000,
+                                    'order_id' => $orderId,
+                                    'user_id' => $userId,
+                                    'error' => $e->getMessage()
+                                ]);
+
+                                // release lock if held
+                                if (!empty($gotLock)) { try { $connection->selectOne('SELECT RELEASE_LOCK(?)', [$lockName]); } catch (\Throwable $__) {} }
+
+                                usleep($delay);
+                                continue; // retry
                             }
-                            throw $e; // Re-throw non-timeout errors or after max retries
+
+                            // otherwise rethrow after ensuring lock released
+                            if (!empty($gotLock)) { try { $connection->selectOne('SELECT RELEASE_LOCK(?)', [$lockName]); } catch (\Throwable $__) {} }
+                            throw $e;
                         }
                     }
 
