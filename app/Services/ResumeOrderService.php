@@ -138,7 +138,7 @@ class ResumeOrderService
 
     // performBatchInsert moved to BatchActionService
 
-    private function checkUserEligibility(Order $order, User $user): bool
+    public function checkUserEligibility(Order $order, User $user): bool
     {
         $eligibleUsers = $this->getEligibleUsers($order);
 
@@ -149,7 +149,7 @@ class ResumeOrderService
         return in_array($user->id, $eligibleUserIds);
     }
 
-    private function getEligibleUsers(Order $order)
+    public function getEligibleUsers(Order $order)
     {
         // // Debugging: Log order details
         // Log::info('[ResumeOrderService] Fetching eligible users for order', [
