@@ -242,6 +242,29 @@ async function main() {
     const rateLimiter = new RateLimiter(opts.rateLimit);
     const connectionPool = new ConnectionPool(opts.concurrency);
 
+    // Map to hold pending promises waiting for `orders/{userId}` messages
+    const pendingOrders = new Map();
+
+    // Subscribe once to orders/# and dispatch incoming messages to pending waiters
+    client.subscribe('orders/#', { qos: 1 }, (err) => {
+      if (err) console.warn('Failed to subscribe to orders/# for simulator:', err.message || err);
+      else console.log('Subscribed to orders/# to observe server order publications');
+    });
+
+    client.on('message', (topic, payload) => {
+      try {
+        const handler = pendingOrders.get(topic);
+        if (handler) {
+          // resolve with raw payload string
+          handler(payload ? payload.toString() : null);
+          pendingOrders.delete(topic);
+        }
+      } catch (e) {
+        // swallow listener errors to avoid crashing simulator
+        console.warn('Error in message handler:', e && e.message ? e.message : e);
+      }
+    });
+
     // Batch processing for better resource management
     let idx = 0;
     let inFlight = 0;
@@ -273,13 +296,37 @@ async function main() {
           });
         }
 
-        // Publish ping first
+        // Publish ping response first (device replying to server ping)
         await publishAsync(pingResTopic, pingResMessage, { qos: 1 });
 
-        // Small delay before final result
+        // Wait for the server to publish the order announcement to `orders/{userId}`.
+        // Only after the simulator sees that topic will it publish the final result.
+        const ordersTopic = `orders/${userId}`;
+
+        // Create a promise that resolves when an `orders/{userId}` message arrives
+        const ordersPromise = new Promise((resolve) => {
+          // store resolver keyed by exact topic
+          pendingOrders.set(ordersTopic, resolve);
+        });
+
+        // race between orders arrival and timeout
+        const ordersPayload = await Promise.race([
+          ordersPromise,
+          new Promise((resolve) => setTimeout(() => resolve(null), opts.statusTimeout || 30000))
+        ]);
+
+        if (!ordersPayload) {
+          // Didn't see the orders/{userId} publish within timeout -- log and skip final result
+          logStream.write(JSON.stringify({ ts: new Date().toISOString(), warning: 'orders_topic_timeout', user_id: userId, order_id: orderId }) + '\n');
+          // ensure any lingering pending entry is cleaned up
+          pendingOrders.delete(ordersTopic);
+          return { published: false, dbOk: null, userId };
+        }
+
+        // Optionally small delay before final result to mimic device processing
         await new Promise(resolve => setTimeout(resolve, Math.max(1, opts.delay)));
 
-        // Publish result
+        // Publish final result only after seeing the order announcement
         await publishAsync(resultTopic, resultMessage, { qos: 1 });
 
         // Verify in database if configured; return object { published, dbOk }
