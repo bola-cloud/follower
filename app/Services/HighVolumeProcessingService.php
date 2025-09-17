@@ -6,7 +6,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Redis;
-use App\Jobs\OptimizedActionBatchJob;
+
 
 /**
  * Service to handle high-volume MQTT processing (500-1000 concurrent users per order)
@@ -90,54 +90,59 @@ class HighVolumeProcessingService
                     ->first(['status']);
 
                 if (!$existingAction) {
-                    // Action doesn't exist - try to create it
-                    Log::warning('Action not found during MQTT update, attempting to create', [
+                    // Action doesn't exist - this is unusual and suggests a timing issue
+                    // Log the issue but DON'T create actions on-the-fly during MQTT processing
+                    Log::warning('Action not found during MQTT update - this suggests a race condition or missing action creation', [
                         'order_id' => $orderId,
                         'user_id' => $userId,
-                        'status' => $status
+                        'status' => $status,
+                        'note' => 'Actions should be created BEFORE devices can respond to pings'
                     ]);
 
-                    // Get order type for action creation
-                    $orderType = $connection->table('orders')
-                        ->where('id', $orderId)
-                        ->value('type') ?? 'create';
+                    // Only create action if this is a "pending" status (initial response to ping)
+                    // Do NOT create actions for completion statuses like "done", "external", etc.
+                    if ($status === 'pending') {
+                        // Get order type for action creation
+                        $orderType = $connection->table('orders')
+                            ->where('id', $orderId)
+                            ->value('type') ?? 'create';
 
-                    // Retry logic with advisory lock per-order to reduce deadlocks under high concurrency
-                    $maxRetries = 4;
-                    $created = false;
-                    $lockName = 'hv_action_order_' . intval($orderId);
+                        // Retry logic with advisory lock per-order to reduce deadlocks under high concurrency
+                        $maxRetries = 4;
+                        $created = false;
+                        $lockName = 'hv_action_order_' . intval($orderId);
 
-                    for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
-                        $gotLock = false;
-                        try {
-                            // attempt to acquire lightweight advisory lock for this order (0.1s)
-                            $res = $connection->selectOne('SELECT GET_LOCK(?, 0.1) as got', [$lockName]);
-                            $gotLock = ($res && isset($res->got) && intval($res->got) === 1);
-                        } catch (\Throwable $le) {
-                            // ignore lock acquisition errors and proceed without lock
+                        for ($attempt = 1; $attempt <= $maxRetries; $attempt++) {
                             $gotLock = false;
-                        }
-
-                        try {
-                            $created = $connection->table('actions')->insertOrIgnore([
-                                'order_id' => $orderId,
-                                'user_id' => $userId,
-                                'type' => $orderType,
-                                'status' => $status,
-                                'performed_at' => now(),
-                                'created_at' => now(),
-                                'updated_at' => now(),
-                            ]);
-
-                            // release advisory lock if acquired
-                            if ($gotLock) {
-                                try { $connection->selectOne('SELECT RELEASE_LOCK(?)', [$lockName]); } catch (\Throwable $__) {}
+                            try {
+                                // attempt to acquire lightweight advisory lock for this order (0.1s)
+                                $res = $connection->selectOne('SELECT GET_LOCK(?, 0.1) as got', [$lockName]);
+                                $gotLock = ($res && isset($res->got) && intval($res->got) === 1);
+                            } catch (\Throwable $le) {
+                                // ignore lock acquisition errors and proceed without lock
+                                $gotLock = false;
                             }
 
-                            break; // success
+                            try {
+                                $created = $connection->table('actions')->insertOrIgnore([
+                                    'order_id' => $orderId,
+                                    'user_id' => $userId,
+                                    'type' => $orderType,
+                                    'status' => $status,
+                                    'performed_at' => now(),
+                                    'created_at' => now(),
+                                    'updated_at' => now(),
+                                ]);
 
-                        } catch (\Illuminate\Database\QueryException $e) {
-                            $msg = $e->getMessage();
+                                // release advisory lock if acquired
+                                if ($gotLock) {
+                                    try { $connection->selectOne('SELECT RELEASE_LOCK(?)', [$lockName]); } catch (\Throwable $__) {}
+                                }
+
+                                break; // success
+
+                            } catch (\Illuminate\Database\QueryException $e) {
+                                $msg = $e->getMessage();
                             $isDeadlock = (strpos($msg, 'SQLSTATE[40001]') !== false || strpos($msg, 'Deadlock found') !== false);
                             $isLockTimeout = (strpos($msg, '1205') !== false || strpos($msg, 'Lock wait timeout') !== false);
 
@@ -196,6 +201,23 @@ class HighVolumeProcessingService
                             'status' => $status
                         ]);
                     }
+                } else {
+                    // For completion statuses (done, external, etc.) when action doesn't exist,
+                    // just log and return - don't try to create actions retroactively
+                    Log::warning('Action not found for completion status - likely timing issue', [
+                        'order_id' => $orderId,
+                        'user_id' => $userId,
+                        'status' => $status,
+                        'note' => 'Device completed task but action was never created or was deleted'
+                    ]);
+
+                    return [
+                        'success' => false,
+                        'message' => 'Action not found for completion status',
+                        'immediate' => true,
+                        'missing_action' => true
+                    ];
+                }
                 } else {
                     // Action exists but wasn't updated (likely already processed)
                     Log::info('Action exists but not updated during MQTT response', [
@@ -257,11 +279,8 @@ class HighVolumeProcessingService
 
             $queueSize = Redis::llen($queueKey);
 
-            // Auto-dispatch batch job if queue is getting full
-            if ($queueSize >= $this->getBatchSize() && $this->shouldDispatchBatchJob()) {
-                OptimizedActionBatchJob::dispatch()->onQueue('high-priority');
-                Cache::put('last_batch_dispatch', now(), 300); // 5 minutes
-            }
+            // Note: Batch job processing removed as per user requirements
+            // Queue will be processed by scheduled jobs or manual cleanup
 
             return [
                 'success' => true,
@@ -437,6 +456,7 @@ class HighVolumeProcessingService
 
     /**
      * Bulk process queued actions (called by batch job)
+     * NOTE: This method is currently unused as batch job processing has been disabled per requirements
      */
     public function processBatch(int $maxActions = 1000): array
     {

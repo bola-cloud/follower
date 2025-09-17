@@ -76,74 +76,58 @@ class OrderService
 
     private function createPendingActions(Order $order, $eligibleUsers)
     {
-        // // Use optimized batch service for better connection management
-        // $batchService = app(\App\Services\BatchDatabaseService::class);
+        if ($eligibleUsers->isEmpty()) {
+            return;
+        }
 
-        // try {
-        //     $now = now();
-        //     $userIds = $eligibleUsers->pluck('id')->toArray();
+        // Use the centralized BatchActionService for consistent action creation
+        $batchService = app(\App\Services\BatchActionService::class);
 
-        //     // Use batch service for optimized insertion
-        //     $inserted = $batchService->createOrderActions($order, $userIds);
+        try {
+            $userIds = $eligibleUsers->pluck('id')->toArray();
 
-        //     Log::info('[OrderService] Batch pending actions created', [
-        //         'order_id' => $order->id,
-        //         'eligible_users_count' => count($userIds),
-        //         'inserted' => $inserted
-        //     ]);
+            // Use batch service for optimized insertion
+            $result = $batchService->batchInsertPendingAction($order, $userIds);
 
-        //     // Dispatch per-user MQTT announcement jobs so each user receives `orders/{user_id}`
-        //     // This ensures the MQTT handler records known orders and devices can respond to pings.
-        //     if (!empty($userIds)) {
-        //         // First, synchronously announce to a small chunk so the MQTT
-        //         // handler can record KNOWN_ORDERS before we send the ping.
-        //         // This mirrors ResumeOrderService which publishes before pinging.
-        //         $syncChunk = array_slice($userIds, 0, 50);
-        //         foreach ($syncChunk as $uid) {
-        //             try {
-        //                 // Publish directly and wait (use the same synchronous publisher)
-        //                 $this->publishOrderAnnouncement($uid, $order->id, $order->type, $order->target_url);
-        //             } catch (\Throwable $je) {
-        //                 Log::warning('[OrderService] Failed to publish synchronous order announcement', [
-        //                     'order_id' => $order->id,
-        //                     'user_id' => $uid,
-        //                     'error' => $je->getMessage()
-        //                 ]);
-        //             }
-        //         }
+            Log::info('[OrderService] Batch pending actions created', [
+                'order_id' => $order->id,
+                'eligible_users_count' => count($userIds),
+                'inserted' => $result['inserted'],
+                'skipped' => $result['skipped']
+            ]);
 
-        //         // Dispatch the rest asynchronously to the high-priority queue
-        //         $remaining = array_slice($userIds, count($syncChunk));
-        //         $chunks = array_chunk($remaining, 200);
-        //         foreach ($chunks as $chunk) {
-        //             foreach ($chunk as $uid) {
-        //                 try {
-        //                     dispatch(new \App\Jobs\SendMqttToUserJob($uid, $order->id, $order->type, $order->target_url));
-        //                 } catch (\Throwable $je) {
-        //                     Log::warning('[OrderService] Failed to dispatch SendMqttToUserJob', [
-        //                         'order_id' => $order->id,
-        //                         'user_id' => $uid,
-        //                         'error' => $je->getMessage()
-        //                     ]);
-        //                 }
-        //             }
-        //         }
+            // After actions are created, publish order announcements to inform MQTT handler
+            // This ensures devices know about the order before they receive pings
+            if ($result['inserted'] > 0) {
+                // Publish announcements to first 50 users synchronously
+                // This ensures MQTT handler records known orders before ping is sent
+                $syncChunk = array_slice($userIds, 0, 50);
+                foreach ($syncChunk as $uid) {
+                    try {
+                        $this->publishOrderAnnouncement($uid, $order->id, $order->type, $order->target_url);
+                    } catch (\Throwable $je) {
+                        Log::warning('[OrderService] Failed to publish synchronous order announcement', [
+                            'order_id' => $order->id,
+                            'user_id' => $uid,
+                            'error' => $je->getMessage()
+                        ]);
+                    }
+                }
 
-        //         Log::info('[OrderService] Synchronously announced to first chunk and dispatched SendMqttToUserJob for remaining users', [
-        //             'order_id' => $order->id,
-        //             'sync_announced' => count($syncChunk),
-        //             'dispatched_count' => count($remaining)
-        //         ]);
-        //     }
+                Log::info('[OrderService] Synchronously announced order to initial users', [
+                    'order_id' => $order->id,
+                    'announced_count' => count($syncChunk)
+                ]);
+            }
 
-        // } catch (\Throwable $e) {
-        //     Log::error('[OrderService] Failed to create batch pending actions', [
-        //         'order_id' => $order->id,
-        //         'error' => $e->getMessage(),
-        //         'eligible_users_count' => $eligibleUsers->count(),
-        //     ]);
-        //     throw $e;
-        // }
+        } catch (\Throwable $e) {
+            Log::error('[OrderService] Failed to create batch pending actions', [
+                'order_id' => $order->id,
+                'error' => $e->getMessage(),
+                'eligible_users_count' => $eligibleUsers->count(),
+            ]);
+            throw $e;
+        }
     }
 
     /**

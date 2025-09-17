@@ -245,124 +245,124 @@ class ResumeOrderService
             ]);
         }
     }
-    public function resume(Order $order): array
-    {
-        $user = auth()->user();
+    // public function resume(Order $order): array
+    // {
+    //     $user = auth()->user();
 
-        if (!$user) {
-            return ['error' => 'User not authenticated.'];
-        }
+    //     if (!$user) {
+    //         return ['error' => 'User not authenticated.'];
+    //     }
 
-        // ❌ Apply 12-hour cooldown ONLY for non-admins
-        if ($user->type !== 'admin' && $order->updated_at->diffInHours(now()) < 12) {
-            return [
-                'error' => 'Cannot resume order. Please wait 12 hours before trying again.',
-                'hours_remaining' => 12 - $order->updated_at->diffInHours(now()),
-            ];
-        }
+    //     // ❌ Apply 12-hour cooldown ONLY for non-admins
+    //     if ($user->type !== 'admin' && $order->updated_at->diffInHours(now()) < 12) {
+    //         return [
+    //             'error' => 'Cannot resume order. Please wait 12 hours before trying again.',
+    //             'hours_remaining' => 12 - $order->updated_at->diffInHours(now()),
+    //         ];
+    //     }
 
 
-        // Re-send to pending users using ping validation (only fresh pending actions)
-        $pendingUserIds = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->pluck('user_id')
-            ->toArray();
+    //     // Re-send to pending users using ping validation (only fresh pending actions)
+    //     $pendingUserIds = DB::table('actions')
+    //         ->where('order_id', $order->id)
+    //         ->where('status', 'pending')
+    //         ->pluck('user_id')
+    //         ->toArray();
 
-        $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
+    //     $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
 
-        // Recalculate actual done count and recent pending actions from database
-        $actualDoneCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'done')
-            ->count();
+    //     // Recalculate actual done count and recent pending actions from database
+    //     $actualDoneCount = DB::table('actions')
+    //         ->where('order_id', $order->id)
+    //         ->where('status', 'done')
+    //         ->count();
 
-        // Count pending actions created within the past 30 minutes
-        $recentPendingCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->where('created_at', '>=', now()->subMinutes(30))
-            ->count();
+    //     // Count pending actions created within the past 30 minutes
+    //     $recentPendingCount = DB::table('actions')
+    //         ->where('order_id', $order->id)
+    //         ->where('status', 'pending')
+    //         ->where('created_at', '>=', now()->subMinutes(30))
+    //         ->count();
 
-        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
-        if ($remaining <= 0) {
-            // Only send ping for pending users if there are any and no remaining work
-            if ($pendingUsers->count() > 0) {
-                $this->sendMqttToEligibleUsersWithPing($order, $pendingUsers->count());
-            }
-            return [
-                'message' => 'No remaining actions needed.',
-                'pending_resend_count' => count($pendingUsers),
-                'new_eligible_count' => 0
-            ];
-        }
+    //     $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
+    //     if ($remaining <= 0) {
+    //         // Only send ping for pending users if there are any and no remaining work
+    //         if ($pendingUsers->count() > 0) {
+    //             $this->sendMqttToEligibleUsersWithPing($order, $pendingUsers->count());
+    //         }
+    //         return [
+    //             'message' => 'No remaining actions needed.',
+    //             'pending_resend_count' => count($pendingUsers),
+    //             'new_eligible_count' => 0
+    //         ];
+    //     }
 
-        // Select new eligible users
-        $eligibleUsers = User::where('type', 'user')
-            ->orderBy('id', 'desc')
-            ->whereNotIn('id', function ($q) use ($order) {
-                $q->select('user_id')->from('actions')->where('order_id', $order->id);
-            })
-            ->whereNotIn('id', $pendingUserIds)
-            ->where('profile_link', '!=', $order->target_url)
-            ->whereNotIn('id', function ($sub) use ($order) {
-                $sub->select('a1.user_id')
-                    ->from('actions as a1')
-                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                    ->where('a1.status', 'done')
-                    ->whereColumn('o1.target_url', 'users.profile_link')
-                    ->where('o1.user_id', $order->user_id);
-            })
-            ->limit($remaining)
-            ->get();
+    //     // Select new eligible users
+    //     $eligibleUsers = User::where('type', 'user')
+    //         ->orderBy('id', 'desc')
+    //         ->whereNotIn('id', function ($q) use ($order) {
+    //             $q->select('user_id')->from('actions')->where('order_id', $order->id);
+    //         })
+    //         ->whereNotIn('id', $pendingUserIds)
+    //         ->where('profile_link', '!=', $order->target_url)
+    //         ->whereNotIn('id', function ($sub) use ($order) {
+    //             $sub->select('a1.user_id')
+    //                 ->from('actions as a1')
+    //                 ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+    //                 ->where('a1.status', 'done')
+    //                 ->whereColumn('o1.target_url', 'users.profile_link')
+    //                 ->where('o1.user_id', $order->user_id);
+    //         })
+    //         ->limit($remaining)
+    //         ->get();
 
-        // Insert actions with duplicate protection
-        $now = now();
-        $actions = $eligibleUsers->map(function ($user) use ($order, $now) {
-            return [
-                'order_id' => $order->id,
-                'user_id' => $user->id,
-                'type' => $order->type,
-                'status' => 'pending',
-                'created_at' => $now,
-                'updated_at' => $now,
-            ];
-        });
+    //     // Insert actions with duplicate protection
+    //     $now = now();
+    //     $actions = $eligibleUsers->map(function ($user) use ($order, $now) {
+    //         return [
+    //             'order_id' => $order->id,
+    //             'user_id' => $user->id,
+    //             'type' => $order->type,
+    //             'status' => 'pending',
+    //             'created_at' => $now,
+    //             'updated_at' => $now,
+    //         ];
+    //     });
 
-        // Use optimized batch service for better connection management
-        $batchService = app(\App\Services\BatchDatabaseService::class);
+    //     // Use optimized batch service for better connection management
+    //     $batchService = app(\App\Services\BatchDatabaseService::class);
 
-        try {
-            $userIds = $eligibleUsers->pluck('id')->toArray();
+    //     try {
+    //         $userIds = $eligibleUsers->pluck('id')->toArray();
 
-            // Use batch service for optimized insertion
-            $inserted = $batchService->createOrderActions($order, $userIds);
+    //         // Use batch service for optimized insertion
+    //         $inserted = $batchService->createOrderActions($order, $userIds);
 
-            Log::info('[ResumeOrderService] Batch actions created', [
-                'order_id' => $order->id,
-                'attempted' => count($userIds),
-                'inserted' => $inserted
-            ]);
+    //         Log::info('[ResumeOrderService] Batch actions created', [
+    //             'order_id' => $order->id,
+    //             'attempted' => count($userIds),
+    //             'inserted' => $inserted
+    //         ]);
 
-        } catch (\Throwable $e) {
-            Log::error('[ResumeOrderService] Failed batch insert of actions', [
-                'order_id' => $order->id,
-                'error' => $e->getMessage()
-            ]);
-            throw $e;
-        }
+    //     } catch (\Throwable $e) {
+    //         Log::error('[ResumeOrderService] Failed batch insert of actions', [
+    //             'order_id' => $order->id,
+    //             'error' => $e->getMessage()
+    //         ]);
+    //         throw $e;
+    //     }
 
-        // Send ONE ping for the order (covers both pending and new users)
-        $this->sendMqttToEligibleUsersWithPing($order, $remaining);
+    //     // Send ONE ping for the order (covers both pending and new users)
+    //     $this->sendMqttToEligibleUsersWithPing($order, $remaining);
 
-        $order->touch();
+    //     $order->touch();
 
-        return [
-            'message' => 'Order resumed successfully.',
-            'pending_resend_count' => count($pendingUsers),
-            'new_eligible_count' => count($eligibleUsers)
-        ];
-    }
+    //     return [
+    //         'message' => 'Order resumed successfully.',
+    //         'pending_resend_count' => count($pendingUsers),
+    //         'new_eligible_count' => count($eligibleUsers)
+    //     ];
+    // }
 
     /**
      * 🔄 SYNCHRONOUS ORDER ANNOUNCEMENT
