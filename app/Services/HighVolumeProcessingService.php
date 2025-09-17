@@ -89,9 +89,9 @@ class HighVolumeProcessingService
                     ->where('user_id', $userId)
                     ->first(['status']);
 
-                if (!$existingAction) {
+                    if (!$existingAction) {
                     // Action doesn't exist - this is unusual and suggests a timing issue
-                    // Log the issue but DON'T create actions on-the-fly during MQTT processing
+                    // Log the issue but DON'T create actions on-the-fly during MQTT processing unless safe
                     Log::warning('Action not found during MQTT update - this suggests a race condition or missing action creation', [
                         'order_id' => $orderId,
                         'user_id' => $userId,
@@ -102,6 +102,41 @@ class HighVolumeProcessingService
                     // Only create action if this is a "pending" status (initial response to ping)
                     // Do NOT create actions for completion statuses like "done", "external", etc.
                     if ($status === 'pending') {
+                        // Rate limiter: reserve a slot in the per-minute global counter to avoid DB overload
+                        $maxPerMinute = (int) env('BATCH_ACTION_MAX_PER_MIN', 5000);
+                        $nowMinute = gmdate('YmdHi');
+                        $globalKey = 'batch_action_rate_global:' . $nowMinute;
+                        $reserved = false;
+                        $reserveAttempts = 0;
+                        $reserveMax = 6;
+
+                        while ($reserveAttempts < $reserveMax) {
+                            $reserveAttempts++;
+                            try {
+                                $current = Redis::get($globalKey);
+                                $current = $current ? intval($current) : 0;
+                                if ($current + 1 <= $maxPerMinute) {
+                                    Redis::incrby($globalKey, 1);
+                                    Redis::expire($globalKey, 70);
+                                    $reserved = true;
+                                    break;
+                                }
+                            } catch (\Throwable $e) {
+                                // Redis unavailable: log and allow creation (to avoid blocking single-action flows)
+                                Log::warning('[HighVolumeProcessingService] Redis unavailable for rate limiting, proceeding', ['error' => $e->getMessage(), 'order_id' => $orderId]);
+                                $reserved = true;
+                                break;
+                            }
+
+                            // backoff
+                            usleep((int) (50 * pow(2, $reserveAttempts - 1)) * 1000);
+                        }
+
+                        if (!$reserved) {
+                            // Could not reserve a slot; avoid creating now to protect DB and queue instead
+                            Log::warning('[HighVolumeProcessingService] Rate limit exceeded for creating missing action; queuing instead', ['order_id' => $orderId, 'user_id' => $userId, 'max_per_minute' => $maxPerMinute]);
+                            return $this->queueForLaterProcessing($orderId, $userId, $status);
+                        }
                         // Get order type for action creation
                         $orderType = $connection->table('orders')
                             ->where('id', $orderId)
@@ -165,6 +200,8 @@ class HighVolumeProcessingService
 
                             // otherwise rethrow after ensuring lock released
                             if (!empty($gotLock)) { try { $connection->selectOne('SELECT RELEASE_LOCK(?)', [$lockName]); } catch (\Throwable $__) {} }
+                            // If we reserved a rate slot, release it because creation failed permanently
+                            try { Redis::decrby($globalKey, 1); } catch (\Throwable $__e) {}
                             throw $e;
                         }
                     }

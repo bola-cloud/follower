@@ -179,11 +179,6 @@ class ResumeOrderService
         $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
 
         if ($remaining <= 0) {
-            // // Debugging: Log no remaining actions
-            // Log::info('[ResumeOrderService] No remaining actions for order', [
-            //     'order_id' => $order->id,
-            // ]);
-
             // Return pending users if any
             return User::whereIn('id', $pendingUserIds)->get();
         }
@@ -206,41 +201,10 @@ class ResumeOrderService
             })
             // ->limit($remaining)
             ->get();
-            
-        // Debugging: Log eligible users fetched (order + eligible user ids)
-        try {
-            Log::info('[ResumeOrderService] Eligible users computed', [
-                'order_id' => $order->id,
-                'eligible_user_ids' => $eligibleUsers->pluck('id')->toArray(),
-            ]);
-            // Duplicate at WARNING level so it shows in environments that filter out INFO
-            Log::warning('[ResumeOrderService] Eligible users computed (warning-level duplicate)', [
-                'order_id' => $order->id,
-                'eligible_user_ids' => $eligibleUsers->pluck('id')->toArray(),
-            ]);
-        } catch (\Throwable $e) {
-            // swallow logging errors to avoid affecting main flow
-            Log::warning('[ResumeOrderService] Failed to log eligible users', ['error' => $e->getMessage(), 'order_id' => $order->id]);
-        }
 
         // Combine pending and new eligible users
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
         $combinedUsers = $pendingUsers->merge($eligibleUsers);
-
-        // Log combined (pending + new) users for visibility
-        try {
-            Log::info('[ResumeOrderService] Combined eligible users', [
-                'order_id' => $order->id,
-                'combined_user_ids' => $combinedUsers->pluck('id')->toArray(),
-            ]);
-            // Duplicate at WARNING level so it shows in environments that filter out INFO
-            Log::warning('[ResumeOrderService] Combined eligible users (warning-level duplicate)', [
-                'order_id' => $order->id,
-                'combined_user_ids' => $combinedUsers->pluck('id')->toArray(),
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('[ResumeOrderService] Failed to log combined eligible users', ['error' => $e->getMessage(), 'order_id' => $order->id]);
-        }
 
         return $combinedUsers;
     }
