@@ -43,7 +43,9 @@ class BatchActionService
             foreach ($chunks as $chunk) {
                 try {
                     $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
-                    Redis::rpush($queueKey, json_encode(['order_id' => $order->id, 'user_ids' => $chunk]));
+                    $chunkId = Str::random(8);
+                    $payload = ['order_id' => $order->id, 'user_ids' => $chunk, 'chunk_id' => $chunkId, 'attempts' => 0, 'enqueued_at' => time()];
+                    Redis::rpush($queueKey, json_encode($payload));
                     $nowMinute = gmdate('YmdHi');
                     $queuedKey = 'batch_action_queued:' . $nowMinute;
                     Redis::incr($queuedKey);
@@ -80,6 +82,28 @@ class BatchActionService
                 try {
                 // Rate limiter: ensure we don't exceed configured inserts per minute
                 $chunkCount = count($chunk);
+                // Defensive DB health check: if the DB looks overloaded, enqueue this chunk instead of inserting
+                try {
+                    $batchDb = app(\App\Services\BatchDatabaseService::class);
+                    if ($batchDb && method_exists($batchDb, 'getConnectionHealth')) {
+                        $health = $batchDb->getConnectionHealth();
+                        $threshold = (int) env('BATCH_ACTION_DB_USAGE_THRESHOLD', 80);
+                        if (empty($health['healthy']) || ($health['usage_percent'] ?? 0) > $threshold) {
+                            $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
+                            $chunkId = Str::random(8);
+                            $payload = ['order_id' => $order->id, 'user_ids' => $chunk, 'chunk_id' => $chunkId, 'attempts' => 0, 'enqueued_at' => time(), 'reason' => 'db_overloaded'];
+                            try { Redis::rpush($queueKey, json_encode($payload)); } catch (\Throwable $__e) {}
+                            $nowMinute = gmdate('YmdHi');
+                            $queuedKey = 'batch_action_queued:' . $nowMinute;
+                            try { Redis::incr($queuedKey); Redis::expire($queuedKey, 3600); } catch (\Throwable $__e) {}
+                            $totalSkipped += $chunkCount;
+                            Log::warning('[BatchActionService] DB overloaded; enqueued chunk instead of immediate insert', ['order_id' => $order->id, 'chunk_id' => $chunkId, 'chunk_size' => $chunkCount, 'db_health' => $health]);
+                            continue;
+                        }
+                    }
+                } catch (\Throwable $e) {
+                    // If health check fails, proceed normally to avoid blocking
+                }
                 $maxPerMinute = (int) env('BATCH_ACTION_MAX_PER_MIN', 5000);
                 $nowMinute = gmdate('YmdHi');
                 $globalKey = 'batch_action_rate_global:' . $nowMinute;
@@ -124,8 +148,10 @@ class BatchActionService
                         // Enqueue the chunk into Redis for later processing by a worker.
                         try {
                             $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
+                            $chunkId = Str::random(8);
+                            $payload = ['order_id' => $order->id, 'user_ids' => $chunk, 'chunk_id' => $chunkId, 'attempts' => 0, 'enqueued_at' => time(), 'reason' => 'rate_limited'];
                             // Store the chunk as JSON payload with order_id and user_ids
-                            Redis::rpush($queueKey, json_encode(['order_id' => $order->id, 'user_ids' => $chunk]));
+                            Redis::rpush($queueKey, json_encode($payload));
                             // Increment a per-minute queued counter for observability
                             $queuedKey = 'batch_action_queued:' . $nowMinute;
                             Redis::incr($queuedKey);
@@ -182,7 +208,9 @@ class BatchActionService
                     // Enqueue failed chunk for retry by a worker so we don't lose users
                     try {
                         $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
-                        Redis::rpush($queueKey, json_encode(['order_id' => $order->id, 'user_ids' => $chunk, 'error' => $e->getMessage()]));
+                        $chunkId = Str::random(8);
+                        $payload = ['order_id' => $order->id, 'user_ids' => $chunk, 'chunk_id' => $chunkId, 'attempts' => 0, 'enqueued_at' => time(), 'error' => $e->getMessage()];
+                        Redis::rpush($queueKey, json_encode($payload));
                         $queuedKey = 'batch_action_queued:' . $nowMinute;
                         Redis::incr($queuedKey);
                         Redis::expire($queuedKey, 3600);
