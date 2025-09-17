@@ -110,7 +110,7 @@ class ResumeOrderService
 
                 if ($existingAction) {
                     if ($existingAction->status === 'pending') {
-                        dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
+                        $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
                         return ['message' => 'Pending action re-dispatched for this user.'];
                     }
                     if (in_array($existingAction->status, ['done', 'external'])) {

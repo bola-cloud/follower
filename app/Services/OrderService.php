@@ -308,9 +308,9 @@ class OrderService
             $result = $resumeService->batchInsertPendingAction($order, [$user->id]);
 
             if ($result['inserted'] > 0) {
-                // Dispatch job for this user
-                dispatch(new SendMqttToUserJob($user->id, $order->id, $order->type, $order->target_url));
-                return ['message' => 'User processed successfully.'];
+                // Publish synchronously for this user
+                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+                return ['message' => 'User processed successfully and announcement published.'];
             }
 
             return ['message' => 'Action already exists or was handled concurrently.'];
