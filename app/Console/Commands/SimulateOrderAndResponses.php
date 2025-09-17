@@ -108,16 +108,13 @@ class SimulateOrderAndResponses extends Command
             $orderId = $order->id;
             $this->info('Order created: id=' . $orderId);
 
-            // Send ping via PingService (non-blocking try/catch)
+            // Request the application to create pending actions and send pings.
+            // This ensures actions exist in the DB before the Node simulator replies.
             try {
-                $pingService = app()->make(\App\Services\PingService::class);
-                $pingService->sendPing('order/ping/req', [
-                    'type' => 'create',
-                    'order_id' => $orderId,
-                    'activation' => true,
-                ]);
+                $orderService = app()->make(\App\Services\OrderService::class);
+                $orderService->handleOrderCreated($order);
             } catch (\Throwable $e) {
-                Log::error('[SimulateOrder] Error sending ping: ' . $e->getMessage());
+                Log::error('[SimulateOrder] Error running OrderService::handleOrderCreated: ' . $e->getMessage());
             }
 
         } catch (\Throwable $e) {
@@ -128,12 +125,46 @@ class SimulateOrderAndResponses extends Command
 
         // export metadata
         $ts = time();
+        // Wait for the server to create pending actions for this order and export
+        // only the user_ids that have an action row. This keeps the simulator
+        // responses aligned with what the server has actually stored.
+        $maxWaitSeconds = 30;
+        $pollIntervalMicro = 500000; // 0.5s
+        $start = time();
+        $foundUserIds = [];
+
+        while (time() - $start < $maxWaitSeconds) {
+            try {
+                $foundUserIds = DB::table('actions')
+                    ->where('order_id', $orderId)
+                    ->where('status', 'pending')
+                    ->whereIn('user_id', $createdIds)
+                    ->pluck('user_id')
+                    ->toArray();
+
+                $foundUserIds = array_values(array_unique($foundUserIds));
+            } catch (\Throwable $e) {
+                Log::warning('[SimulateOrder] Polling actions table failed', ['error' => $e->getMessage()]);
+            }
+
+            // If we found at least one stored action, stop early. Otherwise keep polling until timeout.
+            if (count($foundUserIds) > 0) {
+                break;
+            }
+
+            usleep($pollIntervalMicro);
+        }
+
+        // Fall back to the created user list if the DB returned nothing within the timeout.
+        $exportUserIds = !empty($foundUserIds) ? $foundUserIds : $createdIds;
+
         $export = [
             'ts' => $ts,
             'order_id' => $orderId,
             'owner_id' => $owner->id,
-            'user_ids' => $createdIds,
-            'count' => count($createdIds),
+            'user_ids' => $exportUserIds,
+            'stored_count' => count($exportUserIds),
+            'expected_count' => count($createdIds),
         ];
 
         $exportPath = storage_path("logs/loadtest_{$ts}.json");
