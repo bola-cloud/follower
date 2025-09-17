@@ -30,6 +30,23 @@ class HighVolumeProcessingService
      */
     public function processAction(int $orderId, int $userId, string $status): array
     {
+        // If configured, enqueue all incoming high-volume actions to Redis
+        // This offloads DB work to background processors and protects MySQL
+        $enqueueAll = filter_var(env('HIGH_VOLUME_ENQUEUE_ALL', false), FILTER_VALIDATE_BOOLEAN);
+        if ($enqueueAll) {
+            try {
+                $actionData = ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status, 'ts' => now()->timestamp];
+                $queueKey = env('HIGH_VOLUME_QUEUE_KEY', 'high_volume_actions_queue');
+                Redis::rpush($queueKey, json_encode($actionData));
+                Redis::expire($queueKey, 3600);
+                $queueSize = Redis::llen($queueKey);
+                Log::info('[HighVolumeProcessingService] Enqueued action (enqueue-all enabled)', ['order_id' => $orderId, 'user_id' => $userId, 'queue_size' => $queueSize]);
+                return ['success' => true, 'queued' => true, 'queue_size' => $queueSize];
+            } catch (\Throwable $e) {
+                Log::warning('[HighVolumeProcessingService] Failed to enqueue action in enqueue-all mode', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+                // Fallthrough to regular processing if Redis is unavailable
+            }
+        }
         // Check circuit breaker
         if ($this->isCircuitOpen()) {
             return $this->queueForLaterProcessing($orderId, $userId, $status);
