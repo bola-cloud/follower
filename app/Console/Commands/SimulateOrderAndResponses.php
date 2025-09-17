@@ -108,13 +108,17 @@ class SimulateOrderAndResponses extends Command
             $orderId = $order->id;
             $this->info('Order created: id=' . $orderId);
 
-            // Request the application to create pending actions and send pings.
-            // This ensures actions exist in the DB before the Node simulator replies.
+            // Send ping via PingService (non-blocking try/catch) — this matches the
+            // real production flow where pings are sent and devices respond.
             try {
-                $orderService = app()->make(\App\Services\OrderService::class);
-                $orderService->handleOrderCreated($order);
+                $pingService = app()->make(\App\Services\PingService::class);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'create',
+                    'order_id' => $orderId,
+                    'activation' => true,
+                ]);
             } catch (\Throwable $e) {
-                Log::error('[SimulateOrder] Error running OrderService::handleOrderCreated: ' . $e->getMessage());
+                Log::error('[SimulateOrder] Error sending ping: ' . $e->getMessage());
             }
 
         } catch (\Throwable $e) {
