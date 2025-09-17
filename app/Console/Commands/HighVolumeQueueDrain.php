@@ -123,6 +123,100 @@ class HighVolumeQueueDrain extends Command
                 }
             }
 
+            // Additionally, drain per-order batch action queues (e.g. batch_action_queue:{orderId})
+            try {
+                $requeueEnv = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:{orderId}');
+                if (strpos($requeueEnv, '{orderId}') !== false) {
+                    $pattern = str_replace('{orderId}', '*', $requeueEnv);
+                } else {
+                    // treat as prefix
+                    $pattern = rtrim($requeueEnv, ':') . ':*';
+                }
+
+                $keys = Redis::keys($pattern);
+                if (!empty($keys)) {
+                    foreach ($keys as $key) {
+                        // Pop up to chunkSize items from this per-order queue
+                        for ($pi = 0; $pi < $limit; $pi++) {
+                            $raw = Redis::lpop($key);
+                            if (!$raw) break;
+                            $payload = json_decode($raw, true);
+                            if (!$payload) continue;
+
+                            // Detect payload shape: chunk insert (user_ids) vs single update
+                            if (!empty($payload['user_ids']) && !empty($payload['order_id'])) {
+                                $orderId = intval($payload['order_id']);
+                                $userIds = is_array($payload['user_ids']) ? $payload['user_ids'] : [$payload['user_ids']];
+                                $chunks = array_chunk($userIds, $chunkSize);
+                                foreach ($chunks as $chunk) {
+                                    $nowMinute = gmdate('YmdHi');
+                                    $globalKey = 'batch_action_rate_global:' . $nowMinute;
+                                    try {
+                                        $current = Redis::incrby($globalKey, count($chunk));
+                                        Redis::expire($globalKey, 70);
+                                    } catch (\Throwable $e) {
+                                        Log::warning('[HighVolumeQueueDrain] Redis unavailable for rate limiting (per-order), proceeding', ['error' => $e->getMessage(), 'order_key' => $key]);
+                                        $current = count($chunk);
+                                    }
+
+                                    if ($current > $maxPerMinute) {
+                                        // Requeue this chunk back to the same per-order queue
+                                        try {
+                                            Redis::rpush($key, json_encode(['order_id' => $orderId, 'user_ids' => $chunk]));
+                                        } catch (\Throwable $__e) {
+                                            Log::warning('[HighVolumeQueueDrain] Failed to requeue per-order chunk due to rate limit', ['error' => $__e->getMessage(), 'order_key' => $key]);
+                                        }
+                                        continue;
+                                    }
+
+                                    try {
+                                        $order = Order::find($orderId);
+                                        if (!$order) {
+                                            Log::warning('[HighVolumeQueueDrain] Per-order queue item: Order not found, skipping', ['order_id' => $orderId, 'order_key' => $key]);
+                                            continue;
+                                        }
+
+                                        $inserted = $batchService->createOrderActions($order, $chunk);
+                                        $processed += $inserted;
+                                        $this->info('Inserted ' . $inserted . " actions for order {$orderId} from requeue key {$key}");
+                                    } catch (\Throwable $e) {
+                                        Log::error('[HighVolumeQueueDrain] Failed to insert actions from per-order queue', ['error' => $e->getMessage(), 'order_id' => $orderId, 'order_key' => $key]);
+                                        // Requeue the chunk for later retry
+                                        try { Redis::rpush($key, json_encode(['order_id' => $orderId, 'user_ids' => $chunk, 'error' => $e->getMessage()])); } catch (\Throwable $__e) {}
+                                    }
+                                }
+                            } else {
+                                // Treat as single update: expects order_id, user_id, status
+                                if (!empty($payload['order_id']) && !empty($payload['user_id']) && !empty($payload['status'])) {
+                                    $updates[] = ['order_id' => intval($payload['order_id']), 'user_id' => intval($payload['user_id']), 'status' => $payload['status']];
+                                } else {
+                                    Log::warning('[HighVolumeQueueDrain] Unknown payload in per-order queue, skipping', ['payload' => $payload, 'order_key' => $key]);
+                                }
+                            }
+                        }
+                    }
+                    // If updates were accumulated from per-order queues, process them in batches now
+                    if (!empty($updates)) {
+                        $maxBatch = BatchDatabaseService::MAX_BATCH_SIZE ?? 500;
+                        $batches = array_chunk($updates, $maxBatch);
+                        foreach ($batches as $batch) {
+                            try {
+                                $updated = $batchService->batchUpdateActionStatus($batch);
+                                $processed += $updated;
+                                $this->info('Updated ' . $updated . " actions in batch (from per-order queues)");
+                            } catch (\Throwable $e) {
+                                Log::error('[HighVolumeQueueDrain] Failed to batch update actions (from per-order queues)', ['error' => $e->getMessage()]);
+                                foreach ($batch as $upd) { try { Redis::rpush($queueKey, json_encode($upd)); } catch (\Throwable $__e) {} }
+                            }
+                        }
+                        // clear updates to avoid double-processing on next loop
+                        $updates = [];
+                    }
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[HighVolumeQueueDrain] Error while scanning per-order requeue keys', ['error' => $e->getMessage()]);
+            }
+
             // If once flag is set, exit after one pass
             if ($once) break;
 
