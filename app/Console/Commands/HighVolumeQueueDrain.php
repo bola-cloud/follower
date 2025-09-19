@@ -39,8 +39,15 @@ class HighVolumeQueueDrain extends Command
             }
 
             if (empty($items)) {
-                $this->info('Queue empty. Exiting.');
-                break;
+                if ($once) {
+                    $this->info('Queue empty. Exiting.');
+                    break;
+                }
+
+                // When running as a daemon (not --once), don't exit on empty queue.
+                // Sleep briefly to avoid a tight restart loop under Supervisor.
+                usleep(200000); // 200ms
+                continue;
             }
 
             // Separate creates (pending) and status updates
@@ -106,7 +113,8 @@ class HighVolumeQueueDrain extends Command
 
             // Process updates in batches
             if (!empty($updates)) {
-                $maxBatch = BatchDatabaseService::MAX_BATCH_SIZE ?? 500;
+                // Don't access class-private constants directly; use env fallback
+                $maxBatch = (int) env('BATCH_DATABASE_MAX_BATCH', 500);
                 $batches = array_chunk($updates, $maxBatch);
                 foreach ($batches as $batch) {
                     try {
@@ -197,7 +205,8 @@ class HighVolumeQueueDrain extends Command
                     }
                     // If updates were accumulated from per-order queues, process them in batches now
                     if (!empty($updates)) {
-                        $maxBatch = BatchDatabaseService::MAX_BATCH_SIZE ?? 500;
+                        // Use environment override or sensible default to control batch update size
+                        $maxBatch = (int) env('BATCH_DATABASE_MAX_BATCH', 500);
                         $batches = array_chunk($updates, $maxBatch);
                         foreach ($batches as $batch) {
                             try {
