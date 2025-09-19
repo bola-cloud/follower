@@ -24,7 +24,8 @@ class MqttResponseController extends Controller
             $validated = $request->validate([
                 'order_id' => 'required|integer',
                 'user_id' => 'required|integer',
-                'status' => 'required|in:done,external',
+                // accept 'busy' from devices so we can handle/ignore it without logging validation errors
+                'status' => 'required|in:done,external,busy',
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             \Log::warning("[MQTT_API] Validation failed", [
@@ -256,7 +257,8 @@ class MqttResponseController extends Controller
                 'actions' => 'required|array|min:1|max:50', // Limit batch size
                 'actions.*.order_id' => 'required|integer',
                 'actions.*.user_id' => 'required|integer',
-                'actions.*.status' => 'required|in:done,external',
+                // accept 'busy' in batch items too
+                'actions.*.status' => 'required|in:done,external,busy',
                 'batch_id' => 'sometimes|string',
                 'timestamp' => 'sometimes|integer',
             ]);

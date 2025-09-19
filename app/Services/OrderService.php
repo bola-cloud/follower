@@ -139,6 +139,12 @@ class OrderService
      */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
+        // Defensive: if userId is missing or null, skip publishing
+        if (empty($userId)) {
+            Log::warning('Skipping publishOrderAnnouncement because user_id is empty', ['order_id' => $orderId, 'user_id' => $userId]);
+            return;
+        }
+
         $payloadArray = [
             'user_id' => $userId,
             'url' => $url,
@@ -151,30 +157,52 @@ class OrderService
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
         // Execute synchronously and capture output for debugging
-        $command = "node {$scriptPath} {$escapedJson} 2>&1";
-        $output = [];
-        $exitCode = 0;
+    $command = "node {$scriptPath} {$escapedJson} 2>&1";
+    $output = [];
+    $exitCode = 0;
 
-        exec($command, $output, $exitCode);
+    // Measure duration for debugging timeouts
+    $start = microtime(true);
+    exec($command, $output, $exitCode);
+    $duration = microtime(true) - $start;
+    Log::info('[OrderService] publish command executed', ['command' => $command, 'duration_ms' => round($duration * 1000, 2), 'exit_code' => $exitCode]);
 
         if ($exitCode !== 0) {
-            // Primary attempt failed (node script timeout or error). Log and fall back to a non-blocking publisher
+            // Primary attempt failed (node script timeout or error). Log and enqueue for background publishing
+            $outputText = implode("\n", $output);
             Log::warning('Failed to publish order announcement', [
                 'user_id' => $userId,
                 'order_id' => $orderId,
                 'exit_code' => $exitCode,
-                'output' => implode("\n", $output)
+                'output' => $outputText
             ]);
 
-            // Fallback: launch the same node publisher in background (non-blocking). This avoids long synchronous timeouts
-            $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
-            @exec($bgCommand);
-
-            Log::warning('Fallback publisher launched in background', [
-                'user_id' => $userId,
-                'order_id' => $orderId,
-                'bg_command' => $bgCommand
-            ]);
+            // Enqueue to Redis publish queue for reliable background processing
+            try {
+                $publishQueue = env('MQTT_PUBLISH_QUEUE', 'mqtt_publish_queue');
+                $payload = [
+                    'user_id' => $userId,
+                    'order_id' => $orderId,
+                    'type' => $type,
+                    'url' => $url,
+                    'json' => $json,
+                    'attempts' => 0,
+                    'last_error' => $outputText,
+                    'enqueued_at' => time()
+                ];
+                Redis::rpush($publishQueue, json_encode($payload));
+                Redis::expire($publishQueue, 86400); // keep for 24h
+            } catch (\Throwable $e) {
+                // If Redis fails, fallback to background exec to avoid blocking
+                $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
+                @exec($bgCommand);
+                Log::warning('Fallback publisher launched in background after Redis failure', [
+                    'user_id' => $userId,
+                    'order_id' => $orderId,
+                    'bg_command' => $bgCommand,
+                    'error' => $e->getMessage()
+                ]);
+            }
         } else {
             Log::info('Order announcement published', [
                 'user_id' => $userId,

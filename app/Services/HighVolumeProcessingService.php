@@ -30,6 +30,11 @@ class HighVolumeProcessingService
      */
     public function processAction(int $orderId, int $userId, string $status): array
     {
+        // Defensive: if device reports busy or user_id is missing, ignore to avoid DB/queue side-effects
+        if ($status === 'busy' || empty($userId)) {
+            Log::info('[HighVolumeProcessingService] Ignoring busy status or empty user', ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]);
+            return ['success' => true, 'skipped' => true, 'message' => 'Device busy or invalid user - ignored'];
+        }
         // If configured, enqueue all incoming high-volume actions to Redis
         // This offloads DB work to background processors and protects MySQL
         $enqueueAll = filter_var(env('HIGH_VOLUME_ENQUEUE_ALL', false), FILTER_VALIDATE_BOOLEAN);

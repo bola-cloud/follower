@@ -367,30 +367,44 @@ client.on('message', async (topic, message) => {
       return;
     }
 
-    const actionData = { order_id, user_id, status };
-
-    // Use batching if enabled and system is healthy
-    if (BATCH_ENABLED && !systemHealth.circuitOpen && systemHealth.status === 'healthy') {
-      pendingActions.push(actionData);
-
-      // Process immediately if batch is full
-      if (pendingActions.length >= BATCH_SIZE) {
-        processBatchedActions();
+      // If device reports 'busy' on the final response topic, silently ignore it.
+      // Final responses are expected to be 'done' or 'external' only.
+      if (String(status).toLowerCase() === 'busy') {
+        if (DEBUG) console.log(`⏭️ Ignoring final 'busy' response for order ${order_id} user ${user_id}`);
+        // Optionally record to a lightweight log for post-mortem without calling API
+        try {
+          // Keep a small local log file for debugging missing orders, but avoid heavy I/O in hot paths
+          fs.appendFileSync('ignored_busy_responses.log', JSON.stringify({ ts: new Date().toISOString(), order_id, user_id, status }) + '\n', { encoding: 'utf8' });
+        } catch (e) {
+          if (DEBUG) console.warn('Failed to write ignored_busy_responses.log:', e.message);
+        }
+        return;
       }
 
-      if (DEBUG) console.log(`📦 Action queued for batch: ${pendingActions.length}/${BATCH_SIZE}`);
+      const actionData = { order_id, user_id, status };
+
+      // Use batching if enabled and system is healthy
+      if (BATCH_ENABLED && !systemHealth.circuitOpen && systemHealth.status === 'healthy') {
+        pendingActions.push(actionData);
+
+        // Process immediately if batch is full
+        if (pendingActions.length >= BATCH_SIZE) {
+          processBatchedActions();
+        }
+
+        if (DEBUG) console.log(`📦 Action queued for batch: ${pendingActions.length}/${BATCH_SIZE}`);
+        return;
+      }
+
+      // Process immediately (non-batched or system degraded)
+      try {
+        const res = await throttledPost(`${API_BASE}/api/mqtt/response`, actionData);
+        if (DEBUG) console.log('✅ Action updated:', res.data || res.status);
+      } catch (err) {
+        console.error('❌ Failed to update action:', err.response?.data || err.message);
+      }
+
       return;
-    }
-
-    // Process immediately (non-batched or system degraded)
-    try {
-      const res = await throttledPost(`${API_BASE}/api/mqtt/response`, actionData);
-      if (DEBUG) console.log('✅ Action updated:', res.data || res.status);
-    } catch (err) {
-      console.error('❌ Failed to update action:', err.response?.data || err.message);
-    }
-
-    return;
   }
 
   // device activation v2
