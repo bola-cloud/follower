@@ -191,36 +191,50 @@ class SimulateOrderAndResponses extends Command
         $logPath = storage_path("logs/loadtest-mqtt-{$ts}.log");
         $cmd = ['node', $nodeScript, $exportPath, '--broker=' . $broker, '--concurrency=' . $concurrency, '--delay=' . $delay, '--log=' . $logPath];
 
-        $this->info('Starting Node simulator (will run until completion)...');
-        $process = new Process($cmd);
-        // Pass DB connection env so the Node simulator (running on the same host) can poll the actions table
-        $dbConn = config('database.connections.mysql');
-        $processEnv = [
-            'DB_HOST' => $dbConn['host'] ?? env('DB_HOST'),
-            'DB_PORT' => $dbConn['port'] ?? env('DB_PORT', '3306'),
-            'DB_DATABASE' => $dbConn['database'] ?? env('DB_DATABASE'),
-            'DB_USERNAME' => $dbConn['username'] ?? env('DB_USERNAME'),
-            'DB_PASSWORD' => $dbConn['password'] ?? env('DB_PASSWORD'),
-        ];
-        $process->setEnv(array_merge($process->getEnv(), $processEnv));
-        $process->setTimeout(null);
+        // The Node simulator launch is intentionally disabled for real-device testing.
+        // If you want to run the simulator locally, uncomment the block below and
+        // ensure `node_scripts/load_test_mqtt_simulator.cjs` exists.
+        //
+        // $this->info('Starting Node simulator (will run until completion)...');
+        // $process = new Process($cmd);
+        // // Pass DB connection env so the Node simulator (running on the same host) can poll the actions table
+        // $dbConn = config('database.connections.mysql');
+        // $processEnv = [
+        //     'DB_HOST' => $dbConn['host'] ?? env('DB_HOST'),
+        //     'DB_PORT' => $dbConn['port'] ?? env('DB_PORT', '3306'),
+        //     'DB_DATABASE' => $dbConn['database'] ?? env('DB_DATABASE'),
+        //     'DB_USERNAME' => $dbConn['username'] ?? env('DB_USERNAME'),
+        //     'DB_PASSWORD' => $dbConn['password'] ?? env('DB_PASSWORD'),
+        // ];
+        // $process->setEnv(array_merge($process->getEnv(), $processEnv));
+        // $process->setTimeout(null);
+        //
+        // // Run the Node script and stream output to console so we can monitor progress.
+        // $exitCode = $process->run(function ($type, $buffer) {
+        //     // OUT vs ERR
+        //     if (defined('\Symfony\Component\Process\Process::OUT') && \Symfony\Component\Process\Process::OUT === $type) {
+        //         $this->line(trim($buffer));
+        //     } else {
+        //         $this->error(trim($buffer));
+        //     }
+        // });
+        //
+        // if ($exitCode !== 0 || ! $process->isSuccessful()) {
+        //     $this->error('Node simulator finished with errors. Exit code: ' . $exitCode);
+        //     $this->error('Node stderr: ' . $process->getErrorOutput());
+        // } else {
+        //     $this->info('Node simulator finished successfully. Log: ' . $logPath);
+        // }
 
-        // Run the Node script and stream output to console so we can monitor progress.
-        $exitCode = $process->run(function ($type, $buffer) {
-            // OUT vs ERR
-            if (defined('\Symfony\Component\Process\Process::OUT') && \Symfony\Component\Process\Process::OUT === $type) {
-                $this->line(trim($buffer));
-            } else {
-                $this->error(trim($buffer));
-            }
-        });
-
-        if ($exitCode !== 0 || ! $process->isSuccessful()) {
-            $this->error('Node simulator finished with errors. Exit code: ' . $exitCode);
-            $this->error('Node stderr: ' . $process->getErrorOutput());
-        } else {
-            $this->info('Node simulator finished successfully. Log: ' . $logPath);
-        }
+        // Print the identifiers and metadata for real devices to use when replying.
+        $this->line('--- SIMULATION READY FOR REAL DEVICES ---');
+        $this->line('Order ID: ' . $orderId);
+        $this->line('Owner ID: ' . $owner->id);
+        $this->line('Stored responder count (exported): ' . count($exportUserIds));
+        $this->line('Expected responder count: ' . count($createdIds));
+        $this->line('Export file path: ' . $exportPath);
+        $this->line('First 50 responder IDs: ' . json_encode(array_slice($exportUserIds, 0, 50)));
+        $this->line('If you want to run the Node simulator locally, re-enable the Process block in this command and ensure the script exists: ' . $nodeScript);
 
         return 0;
     }
