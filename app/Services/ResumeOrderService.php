@@ -354,6 +354,17 @@ class ResumeOrderService
      */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
+        // If the order is paused, skip publishing
+        try {
+            $order = \App\Models\Order::find($orderId);
+            if ($order && isset($order->status) && $order->status === 'paused') {
+                Log::info('[ResumeOrderService] Skipping publishOrderAnnouncement because order is paused', ['order_id' => $orderId, 'user_id' => $userId]);
+                return;
+            }
+        } catch (\Throwable $__e) {
+            Log::warning('[ResumeOrderService] Could not verify order status before publish', ['order_id' => $orderId, 'error' => $__e->getMessage()]);
+        }
+
         $payloadArray = [
             'user_id' => $userId,
             'url' => $url,

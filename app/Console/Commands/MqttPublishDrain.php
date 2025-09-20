@@ -36,6 +36,19 @@ class MqttPublishDrain extends Command
                         Log::info('[MqttPublishDrain] Skipping publish item with empty user_id or busy status', ['item' => $item]);
                         continue;
                     }
+
+                    // If order exists and is paused, skip publishing for this order
+                    if (!empty($item['order_id'])) {
+                        try {
+                            $order = \App\Models\Order::find($item['order_id']);
+                            if ($order && isset($order->status) && $order->status === 'paused') {
+                                Log::info('[MqttPublishDrain] Skipping publish because order is paused', ['order_id' => $item['order_id'], 'item' => $item]);
+                                continue;
+                            }
+                        } catch (\Throwable $__e) {
+                            Log::warning('[MqttPublishDrain] Could not verify order status before publish', ['order_id' => $item['order_id'], 'error' => $__e->getMessage()]);
+                        }
+                    }
                     $json = $item['json'] ?? json_encode([
                         'user_id' => $item['user_id'] ?? null,
                         'url' => $item['url'] ?? null,

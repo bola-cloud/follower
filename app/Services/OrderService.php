@@ -140,6 +140,18 @@ class OrderService
      */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
+        // If the order is paused, do not publish announcements for it.
+        try {
+            $order = \App\Models\Order::find($orderId);
+            if ($order && isset($order->status) && $order->status === 'paused') {
+                Log::info('[OrderService] Skipping publishOrderAnnouncement because order is paused', ['order_id' => $orderId, 'user_id' => $userId]);
+                return;
+            }
+        } catch (\Throwable $__e) {
+            // If the lookup fails for any reason, continue to attempt publish (defensive).
+            Log::warning('[OrderService] Could not verify order status before publish', ['order_id' => $orderId, 'error' => $__e->getMessage()]);
+        }
+
         // Defensive: if userId is missing or null, skip publishing
         if (empty($userId)) {
             Log::warning('Skipping publishOrderAnnouncement because user_id is empty', ['order_id' => $orderId, 'user_id' => $userId]);

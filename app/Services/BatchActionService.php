@@ -177,11 +177,90 @@ class BatchActionService
                     ];
                 }
 
-                // Use raw SQL for maximum performance with proper escaping
-                    // Skip session optimization inside performBatchInsert when already applied above.
-                    $inserted = $this->performBatchInsert($batchData, $order->id, !$sessionOptimized);
-                $totalInserted += $inserted;
-                $totalSkipped += (count($chunk) - $inserted);
+                // Per-chunk retry/backoff configuration (env overrides)
+                $chunkMaxAttempts = (int) env('BATCH_INSERT_MAX_ATTEMPTS', 5);
+                $chunkBaseBackoffMs = (int) env('BATCH_INSERT_BASE_BACKOFF_MS', 100);
+
+                $attempt = 0;
+                $inserted = 0;
+                $chunkFailed = false;
+
+                while ($attempt < $chunkMaxAttempts) {
+                    $attempt++;
+                    try {
+                        // Process the logical batchData in smaller DB transaction chunks to limit lock scope
+                        $dbTxChunkSize = (int) env('BATCH_DB_TX_CHUNK_SIZE', 200);
+                        $txChunks = array_chunk($batchData, $dbTxChunkSize);
+                        $inserted = 0;
+
+                        foreach ($txChunks as $txIndex => $txChunk) {
+                            // performBatchInsert already has its own deadlock retry; we call it per txChunk
+                            $affected = $this->performBatchInsert($txChunk, $order->id, !$sessionOptimized);
+                            $inserted += $affected;
+                        }
+
+                        // Successful insert of entire logical chunk, break retry loop
+                        break;
+                    } catch (\Throwable $e) {
+                        // Detect lock-wait timeouts and deadlocks
+                        $msg = $e->getMessage();
+                        $sqlState = null;
+                        if ($e instanceof \Illuminate\Database\QueryException && isset($e->errorInfo[0])) {
+                            $sqlState = $e->errorInfo[0];
+                        }
+
+                        $isTransientLock = false;
+                        if (strpos($msg, 'Lock wait timeout') !== false || strpos($msg, 'Lock wait') !== false) {
+                            $isTransientLock = true;
+                        }
+                        if (in_array($sqlState, ['1205', '1213', '40001'], true)) {
+                            $isTransientLock = true;
+                        }
+                        if (strpos($msg, 'Deadlock') !== false || strpos($msg, 'Deadlock found') !== false || strpos($msg, 'SQLSTATE[40001]') !== false) {
+                            $isTransientLock = true;
+                        }
+
+                        Log::warning('[BatchActionService] performBatchInsert chunk attempt failed', [
+                            'order_id' => $order->id,
+                            'attempt' => $attempt,
+                            'chunk_size' => count($batchData),
+                            'error' => $e->getMessage(),
+                            'sqlstate' => $sqlState
+                        ]);
+
+                        if ($isTransientLock && $attempt < $chunkMaxAttempts) {
+                            // exponential backoff with small jitter
+                            $sleepMs = (int) ($chunkBaseBackoffMs * pow(2, $attempt - 1) + rand(0, 50));
+                            usleep($sleepMs * 1000);
+                            continue; // retry
+                        }
+
+                        // Non-transient or max attempts exhausted
+                        $chunkFailed = true;
+                        Log::error('[BatchActionService] Chunk failed after retries', ['order_id' => $order->id, 'chunk_size' => count($batchData), 'attempts' => $attempt, 'error' => $e->getMessage()]);
+                        break;
+                    }
+                }
+
+                if ($chunkFailed) {
+                    // Enqueue failed chunk for retry by a worker so we don't lose users
+                    try {
+                        $queueKey = env('BATCH_ACTION_REQUEUE_KEY', 'batch_action_queue:' . $order->id);
+                        $chunkId = Str::random(8);
+                        $payload = ['order_id' => $order->id, 'user_ids' => $chunk, 'chunk_id' => $chunkId, 'attempts' => 0, 'enqueued_at' => time(), 'error' => 'chunk_failed_after_retries'];
+                        Redis::rpush($queueKey, json_encode($payload));
+                        $queuedKey = 'batch_action_queued:' . $nowMinute;
+                        Redis::incr($queuedKey);
+                        Redis::expire($queuedKey, 3600);
+                    } catch (\Throwable $__e) {
+                        Log::warning('[BatchActionService] Failed to enqueue failed chunk to Redis after retries', ['error' => $__e->getMessage(), 'order_id' => $order->id]);
+                    }
+
+                    $totalSkipped += count($chunk);
+                } else {
+                    $totalInserted += $inserted;
+                    $totalSkipped += (count($chunk) - $inserted);
+                }
 
                 // Small delay between chunks to prevent overwhelming the database
                 if ($chunkIndex < count($chunks) - 1 && count($chunks) > 1) {
