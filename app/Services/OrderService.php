@@ -190,23 +190,25 @@ class OrderService
                 'output' => $outputText
             ]);
 
-            // Enqueue to Redis publish queue for reliable background processing
+            // Enqueue to the persistent Node publisher queue (safer than spawning node per item)
             try {
-                $publishQueue = env('MQTT_PUBLISH_QUEUE', 'mqtt_publish_queue');
-                $payload = [
-                    'user_id' => $userId,
-                    'order_id' => $orderId,
-                    'type' => $type,
-                    'url' => $url,
-                    'json' => $json,
-                    'attempts' => 0,
-                    'last_error' => $outputText,
-                    'enqueued_at' => time()
+                $publisherQueue = env('MQTT_QUEUE_KEY', 'mqtt:publish');
+                $job = [
+                    'topic' => "orders/{$userId}",
+                    'payload' => $json,
+                    'qos' => 0,
+                    'retain' => false,
+                    'meta' => [
+                        'order_id' => $orderId,
+                        'attempts' => 0,
+                        'enqueued_at' => time(),
+                    ]
                 ];
-                Redis::rpush($publishQueue, json_encode($payload));
-                Redis::expire($publishQueue, 86400); // keep for 24h
+                Redis::rpush($publisherQueue, json_encode($job));
+                Redis::expire($publisherQueue, 86400);
+                Log::info('[OrderService] Enqueued publish job to persistent publisher', ['publisher_queue' => $publisherQueue, 'job' => $job]);
             } catch (\Throwable $e) {
-                // If Redis fails, fallback to background exec to avoid blocking
+                // If Redis fails, fall back to existing behavior to avoid data loss
                 $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
                 @exec($bgCommand);
                 Log::warning('Fallback publisher launched in background after Redis failure', [

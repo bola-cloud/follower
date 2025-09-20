@@ -8,6 +8,7 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Redis;
 
 class SendMqttToUserJob implements ShouldQueue
 {
@@ -43,12 +44,29 @@ class SendMqttToUserJob implements ShouldQueue
         ];
 
         $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $escapedJson = escapeshellarg($json);
-        $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
-        // 🚀 ASYNCHRONOUS EXECUTION: Fire and forget for maximum speed
-        $command = "node {$scriptPath} {$escapedJson} >> " . storage_path('logs/mqtt_output.log') . " 2>&1 &";
-        exec($command);
+        try {
+            $publisherQueue = env('MQTT_QUEUE_KEY', 'mqtt:publish');
+            $job = [
+                'topic' => "orders/{$this->userId}",
+                'payload' => $json,
+                'qos' => 0,
+                'retain' => false,
+                'meta' => [
+                    'order_id' => $this->orderId,
+                    'attempts' => $this->attempts(),
+                    'enqueued_at' => time(),
+                ]
+            ];
+            Redis::rpush($publisherQueue, json_encode($job));
+        } catch (\Throwable $e) {
+            // Fallback to existing background exec if Redis is unavailable
+            $escapedJson = escapeshellarg($json);
+            $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
+            $command = "node {$scriptPath} {$escapedJson} >> " . storage_path('logs/mqtt_output.log') . " 2>&1 &";
+            @exec($command);
+            Log::warning('[SendMqttToUserJob] Redis enqueue failed, fallback to background exec', ['error' => $e->getMessage(), 'user_id' => $this->userId, 'order_id' => $this->orderId]);
+        }
 
         // Minimal logging only for errors
         if ($this->attempts() > 1) {

@@ -9,9 +9,10 @@ const QUEUE_KEY = process.env.MQTT_QUEUE_KEY || 'mqtt:publish';
 const redis = new Redis(REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: null });
 const client = mqtt.connect(BROKER, { reconnectPeriod: 1000, keepalive: 30 });
 
-client.on('connect', () => console.log('✅ MQTT publisher connected'));
-client.on('error', (e) => console.error('❌ MQTT error:', e.message));
-redis.on('error', (e) => console.error('❌ Redis error:', e.message));
+client.on('connect', () => console.log('✅ MQTT publisher connected to', BROKER));
+client.on('reconnect', () => console.log('🔁 MQTT reconnecting'));
+client.on('error', (e) => console.error('❌ MQTT error:', e && e.message ? e.message : e));
+redis.on('error', (e) => console.error('❌ Redis error:', e && e.message ? e.message : e));
 
 async function loop() {
   while (true) {

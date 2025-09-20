@@ -1,5 +1,5 @@
 const mqtt = require('mqtt');
-const broker = 'mqtt://109.199.112.65:1883';
+const broker = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
 const client = mqtt.connect(broker, {
   clean: true,
   reconnectPeriod: 0
@@ -31,11 +31,13 @@ try {
 
       if (err) {
         console.error('❌ Failed to publish message:', err);
+        client.end(true);
+        process.exit(1);
       } else {
         console.log(`✅ Published to "${topic}": ${message}`);
+        client.end(); // graceful close
+        process.exit(0);
       }
-
-      client.end(); // graceful close
     });
   });
 
@@ -48,10 +50,10 @@ try {
   setTimeout(() => {
     if (!finished) {
       console.warn('⚠️ Timeout reached before confirmation, exiting...');
-      client.end(true); // force close
+      try { client.end(true); } catch (e) {}
       process.exit(1);
     }
-  }, 10000); // ⬅️ Increase to 10 seconds
+  }, parseInt(process.env.MQTT_PUBLISH_TIMEOUT_MS || '20000', 10));
 } catch (err) {
   console.error('❌ Error:', err.message);
   process.exit(1);

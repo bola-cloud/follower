@@ -56,26 +56,28 @@ class MqttPublishDrain extends Command
                         'type' => $item['type'] ?? null,
                     ]);
 
-                    $escapedJson = escapeshellarg($json);
-                    $command = "node {$scriptPath} {$escapedJson} 2>&1";
-                    $output = [];
-                    $exit = 0;
-                    exec($command, $output, $exit);
+                    // Enqueue to the persistent Node publisher (single long-lived MQTT connection)
+                    $publisherQueue = env('MQTT_QUEUE_KEY', 'mqtt:publish');
 
-                    if ($exit !== 0) {
-                        Log::warning('[MqttPublishDrain] publish failed, requeuing', ['item' => $item, 'exit' => $exit, 'output' => implode("\n", $output)]);
-                        // increment attempts and requeue with small delay
-                        $item['attempts'] = ($item['attempts'] ?? 0) + 1;
-                        $item['last_error'] = implode("\n", $output);
-                        if ($item['attempts'] < 5) {
-                            // push to tail for retry
-                            Redis::rpush($queueKey, json_encode($item));
-                        } else {
-                            Log::error('[MqttPublishDrain] Dropping publish item after max attempts', ['item' => $item]);
-                        }
-                    } else {
-                        Log::info('[MqttPublishDrain] Published via node script', ['item' => $item, 'output' => implode("\n", $output)]);
-                    }
+                    $job = [
+                        'topic' => "orders/{$item['user_id']}",
+                        'payload' => $item['json'] ?? json_encode([
+                            'user_id' => $item['user_id'] ?? null,
+                            'url' => $item['url'] ?? null,
+                            'order_id' => $item['order_id'] ?? null,
+                            'type' => $item['type'] ?? null,
+                        ]),
+                        'qos' => 0,
+                        'retain' => false,
+                        'meta' => [
+                            'attempts' => ($item['attempts'] ?? 0),
+                            'enqueued_at' => time(),
+                        ]
+                    ];
+
+                    // Push job to tail so persistent publisher (BRPOP) will process it
+                    Redis::rpush($publisherQueue, json_encode($job));
+                    Log::info('[MqttPublishDrain] Enqueued publish job to persistent publisher', ['publisher_queue' => $publisherQueue, 'job' => $job]);
 
                     $processed++;
                 } catch (\Throwable $e) {
