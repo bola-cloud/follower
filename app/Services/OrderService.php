@@ -353,8 +353,29 @@ class OrderService
             $result = $resumeService->batchInsertPendingAction($order, [$user->id]);
 
             if ($result['inserted'] > 0) {
-                // Publish synchronously for this user
-                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+                    // Add focused logging immediately before publish so we can trace topics and payloads
+                    $topic = "orders/{$user->id}";
+                    $pingTopic = 'order/ping/req';
+                    $expectedResTopic = 'order/ping/res';
+                    $payload = [
+                        'user_id' => $user->id,
+                        'url' => $order->target_url,
+                        'order_id' => $order->id,
+                        'type' => $order->type,
+                    ];
+
+                    Log::info('[OrderService] About to publish announcement from handle', [
+                        'order_id' => $order->id,
+                        'user_id' => $user->id,
+                        'topic' => $topic,
+                        'payload' => $payload,
+                        'publish_mode' => env('MQTT_PUBLISH_MODE', 'sync'),
+                        'ping_topic' => $pingTopic,
+                        'expected_response_topic' => $expectedResTopic,
+                    ]);
+
+                    // Publish synchronously for this user
+                    $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
                 return ['message' => 'User processed successfully and announcement published.'];
             }
 

@@ -33,8 +33,15 @@ class MqttPublisherRedis
         ];
 
         try {
-            Redis::rpush($this->key, json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $res = Redis::rpush($this->key, json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
             Redis::expire($this->key, 86400);
+            // Log enqueue success for observability (shows in storage/logs/laravel.log)
+            try {
+                Log::info('[MqttPublisherRedis] enqueued', ['key' => $this->key, 'rpush' => $res, 'topic' => $topic, 'meta' => $job['meta']]);
+            } catch (\Throwable $e) {
+                // swallow logging errors to avoid breaking enqueue path
+            }
+
             return true;
         } catch (\Throwable $e) {
             Log::warning('[MqttPublisherRedis] enqueue failed', ['error' => $e->getMessage(), 'job' => $job]);
