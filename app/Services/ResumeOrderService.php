@@ -388,12 +388,24 @@ class ResumeOrderService
             // Use the Redis-backed enqueue helper when configured
             try {
                 $publisher = app(\App\Services\MqttPublisherRedis::class);
-                $publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
-                Log::info('[OrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId]);
-                return;
+                $enqueued = false;
+                try {
+                    $enqueued = $publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
+                } catch (\Throwable $inner) {
+                    // If enqueue itself throws, log and attempt sync fallback below
+                    Log::warning('[OrderService] Exception while enqueuing publish job', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+                }
+
+                if ($enqueued) {
+                    Log::info('[OrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId]);
+                    return;
+                }
+
+                // If enqueue returned false or failed, fall through to sync behavior
+                Log::warning('[OrderService] Enqueue returned false or failed, falling back to sync', ['order_id' => $orderId, 'user_id' => $userId]);
             } catch (\Throwable $e) {
-                Log::warning('[OrderService] Failed to enqueue publish job, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
-                // fallthrough to sync behavior
+                // If we couldn't resolve the publisher or some unexpected error occurred, fall back to sync
+                Log::warning('[OrderService] Failed to resolve MqttPublisherRedis, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
             }
         }
 
