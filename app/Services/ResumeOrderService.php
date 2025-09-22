@@ -410,24 +410,25 @@ class ResumeOrderService
         $escapedJson = escapeshellarg($json);
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
-        // Execute synchronously and capture output for debugging
-        $command = "node {$scriptPath} {$escapedJson} 2>&1";
-        $output = [];
-        $exitCode = 0;
+        // Execute synchronously with a PHP-level timeout to avoid blocking PHP-FPM workers
+        $nodeBin = env('NODE_BIN', 'node');
+        $timeoutMs = intval(env('MQTT_PUBLISH_TIMEOUT_MS', 5000)); // default 5s PHP-side timeout
+        $command = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escapedJson;
 
-        exec($command, $output, $exitCode);
+        $result = $this->runCommandWithTimeout($command, $timeoutMs);
 
-        if ($exitCode !== 0) {
-            // Primary attempt failed (node script timeout or error). Log and fall back to a non-blocking publisher
-            Log::warning('Failed to publish order announcement', [
+        // Log result and decide fallback
+        if ($result['exit_code'] !== 0) {
+            Log::warning('Failed to publish order announcement (proc)', [
                 'user_id' => $userId,
                 'order_id' => $orderId,
-                'exit_code' => $exitCode,
-                'output' => implode("\n", $output)
+                'exit_code' => $result['exit_code'],
+                'duration_ms' => $result['duration_ms'],
+                'output' => $result['output']
             ]);
 
             // Fallback: launch the same node publisher in background (non-blocking). This avoids long synchronous timeouts
-            $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
+            $bgCommand = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escapedJson . " > /dev/null 2>&1 &";
             @exec($bgCommand);
 
             Log::warning('Fallback publisher launched in background', [
@@ -436,12 +437,82 @@ class ResumeOrderService
                 'bg_command' => $bgCommand
             ]);
         } else {
-            Log::info('Order announcement published', [
+            Log::error('Order announcement published (proc)', [
                 'user_id' => $userId,
                 'order_id' => $orderId,
-                'output' => implode("\n", $output)
+                'duration_ms' => $result['duration_ms'],
+                'output' => $result['output']
             ]);
         }
+    }
+
+    /**
+     * Run a shell command with a timeout (in milliseconds) using proc_open.
+     * Returns array with keys: output (string), exit_code (int), duration_ms (float)
+     */
+    private function runCommandWithTimeout(string $command, int $timeoutMs): array
+    {
+        $start = microtime(true);
+
+        $descriptors = [
+            1 => ['pipe', 'w'], // stdout
+            2 => ['pipe', 'w'], // stderr
+        ];
+
+        $process = proc_open($command, $descriptors, $pipes);
+
+        if (!is_resource($process)) {
+            return ['output' => '', 'exit_code' => 1, 'duration_ms' => 0.0];
+        }
+
+        // Set non-blocking
+        stream_set_blocking($pipes[1], false);
+        stream_set_blocking($pipes[2], false);
+
+        $output = '';
+        $timeoutSec = $timeoutMs / 1000;
+
+        $status = proc_get_status($process);
+        while ($status['running']) {
+            $read = [$pipes[1], $pipes[2]];
+            $write = null;
+            $except = null;
+            // Wait up to 100ms for output
+            $ready = stream_select($read, $write, $except, 0, 100000);
+            if ($ready > 0) {
+                foreach ($read as $r) {
+                    $chunk = stream_get_contents($r);
+                    if ($chunk !== false && $chunk !== '') {
+                        $output .= $chunk;
+                    }
+                }
+            }
+
+            // Check timeout
+            $elapsed = microtime(true) - $start;
+            if ($elapsed >= $timeoutSec) {
+                // Timeout reached: terminate process
+                try { proc_terminate($process); } catch (\Throwable $e) {}
+                $output .= "\n[timeout] process killed after {$timeoutMs}ms";
+                break;
+            }
+
+            usleep(100000); // 100ms
+            $status = proc_get_status($process);
+        }
+
+        // Read any remaining output
+        $output .= stream_get_contents($pipes[1]);
+        $output .= stream_get_contents($pipes[2]);
+
+        foreach ($pipes as $p) {
+            @fclose($p);
+        }
+
+        $exitCode = proc_close($process);
+        $durationMs = round((microtime(true) - $start) * 1000, 2);
+
+        return ['output' => trim($output), 'exit_code' => $exitCode, 'duration_ms' => $durationMs];
     }
 
     private function dispatchMqttJob(Order $order, User $user): void

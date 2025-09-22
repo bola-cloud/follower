@@ -1,5 +1,5 @@
 const mqtt = require('mqtt');
-const broker = 'mqtt://109.199.112.65:1883';
+const broker = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
 const client = mqtt.connect(broker, {
   clean: true,
   reconnectPeriod: 0
