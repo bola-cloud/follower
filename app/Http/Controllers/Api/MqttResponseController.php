@@ -451,7 +451,12 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
-        \Log::error("Hi,bola");
+        // Remove noisy stray debug; add structured trace for visibility
+        Log::info('[MqttResponseController] entry trace', [
+            'method' => __METHOD__,
+            'request_path' => request()->path(),
+            'ip' => request()->ip()
+        ]);
         // Check database connectivity first
         if (!$this->checkDatabaseConnectivity()) {
             \Log::error("[triggerOrder] Database connection failed, rejecting request");
