@@ -410,7 +410,27 @@ class ResumeOrderService
         $escapedJson = escapeshellarg($json);
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
-        // Execute synchronously with a PHP-level timeout to avoid blocking PHP-FPM workers
+        // Try enqueue to Redis-backed persistent publisher first (fast, non-blocking)
+        try {
+            $publisher = app(\App\Services\MqttPublisherRedis::class);
+            $enqueued = false;
+            try {
+                $enqueued = (bool)$publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
+            } catch (\Throwable $inner) {
+                Log::warning('[ResumeOrderService] MqttPublisherRedis->enqueue threw, will fallback to sync', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+            }
+
+            if ($enqueued) {
+                Log::error('[ResumeOrderService] Enqueued publish job (queue mode) [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
+                return; // success - non-blocking enqueue
+            }
+            // If enqueue failed or returned false, we'll fall back to sync below
+            Log::warning('[ResumeOrderService] enqueue returned false or failed; falling back to sync [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
+        } catch (\Throwable $e) {
+            Log::warning('[ResumeOrderService] Failed to resolve MqttPublisherRedis, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+        }
+
+        // Synchronous fallback: Execute with a PHP-level timeout (proc_open wrapper)
         $nodeBin = env('NODE_BIN', 'node');
         $timeoutMs = intval(env('MQTT_PUBLISH_TIMEOUT_MS', 5000)); // default 5s PHP-side timeout
         $command = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escapedJson;

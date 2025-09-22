@@ -76,12 +76,29 @@ redisSub.subscribe(REDIS_NOTIFY_CHANNEL).then(() => {
   console.error(`${now()} [redis-sub] subscribe failed:`, e && e.message ? e.message : e);
 });
 
-const mqttClient = mqtt.connect(MQTT_BROKER, {
-  clean: true,
-  reconnectPeriod: 1000,
-});
+// Create a small pool of MQTT clients to allow parallel publish operations
+const CLIENT_POOL = parseInt(process.env.CLIENT_POOL || '8', 10);
+const mqttClients = [];
+let connectedClients = 0;
 
-let connected = false;
+for (let i = 0; i < CLIENT_POOL; i++) {
+  const c = mqtt.connect(MQTT_BROKER, { clean: true, reconnectPeriod: 1000 });
+  c._poolIndex = i;
+  c.on('connect', () => {
+    connectedClients++;
+    console.log(`${now()} [mqtt-client-${i}] connected`);
+  });
+  c.on('close', () => {
+    connectedClients = Math.max(0, connectedClients - 1);
+    console.log(`${now()} [mqtt-client-${i}] closed`);
+  });
+  c.on('error', (err) => {
+    connectedClients = Math.max(0, connectedClients - 1);
+    errorCount++;
+    console.error(`${now()} [mqtt-client-${i}] error:`, err && err.message ? err.message : err);
+  });
+  mqttClients.push(c);
+}
 let publishCount = 0;
 let errorCount = 0;
 let loopCount = 0;
@@ -159,24 +176,44 @@ async function workerLoop(id) {
         continue;
       }
 
-      // Wait until MQTT is connected or timeout
+      // Wait until at least one MQTT client is connected or timeout
       const start = Date.now();
-      while (!connected && Date.now() - start < 10000 && running) {
+      while (connectedClients === 0 && Date.now() - start < 10000 && running) {
         await new Promise(r => setTimeout(r, 200));
       }
 
-      if (!connected) {
+      if (connectedClients === 0) {
         // Push job back into Redis tail for retry, to not lose it
         await redis.lpush(REDIS_QUEUE_KEY, payloadRaw);
         console.warn(`${now()} [worker-${id}] mqtt not connected, requeued job`);
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
-
       try {
-        await publishPromise(topic, payload, {qos, retain});
+        // Select an MQTT client from the pool (round-robin by loopCount)
+        const clientIndex = loopCount % mqttClients.length;
+        const clientForPublish = mqttClients[clientIndex];
+
+        // Publish using clientForPublish with a small promise wrapper
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const timer = setTimeout(() => {
+            if (!settled) {
+              settled = true;
+              return reject(new Error('publish timeout'));
+            }
+          }, MQTT_PUBLISH_TIMEOUT_MS);
+
+          clientForPublish.publish(topic, payload, {qos, retain}, (err) => {
+            clearTimeout(timer);
+            if (settled) return;
+            settled = true;
+            if (err) return reject(err);
+            resolve();
+          });
+        });
+
         publishCount++;
-        // Optionally add monitoring hooks here (statsd/prometheus)
       } catch (err) {
         errorCount++;
         console.error(`${now()} [worker-${id}] publish failed:`, err.message || err);
