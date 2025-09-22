@@ -451,6 +451,7 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
+        \Log::error("Hi,bola");
         // Check database connectivity first
         if (!$this->checkDatabaseConnectivity()) {
             \Log::error("[triggerOrder] Database connection failed, rejecting request");
