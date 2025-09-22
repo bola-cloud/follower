@@ -71,6 +71,15 @@ class OrderService
         return $result;
     }
 
+    /**
+     * Delegate to ResumeOrderService::getEligibleUsers to reuse logic and avoid duplication.
+     */
+    public function getEligibleUsers(Order $order)
+    {
+        $service = app(\App\Services\ResumeOrderService::class);
+        return $service->getEligibleUsers($order);
+    }
+
     private function createPendingActions(Order $order, $eligibleUsers)
     {
         Log::error('[OrderService] createPendingActions start', [
