@@ -357,23 +357,25 @@ class ResumeOrderService
      * knows about the order before devices respond to pings
      */
 
+    /**
+     * 🔄 UNIFIED ORDER ANNOUNCEMENT PUBLISHER
+     * Publish order to users with queue-first approach and robust fallbacks
+     */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
-        // If the order is paused, do not publish announcements for it.
+        // Defensive order paused check
         try {
             $order = \App\Models\Order::find($orderId);
             if ($order && isset($order->status) && $order->status === 'paused') {
-                Log::info('[OrderService] Skipping publishOrderAnnouncement because order is paused', ['order_id' => $orderId, 'user_id' => $userId]);
+                Log::info('[publishOrderAnnouncement] Skipping publish because order is paused', ['order_id' => $orderId, 'user_id' => $userId]);
                 return;
             }
-        } catch (\Throwable $__e) {
-            // If the lookup fails for any reason, continue to attempt publish (defensive).
-            Log::warning('[OrderService] Could not verify order status before publish', ['order_id' => $orderId, 'error' => $__e->getMessage()]);
+        } catch (\Throwable $e) {
+            Log::warning('[publishOrderAnnouncement] Order lookup failed, continuing', ['order_id' => $orderId, 'error' => $e->getMessage()]);
         }
 
-        // Defensive: if userId is missing or null, skip publishing
         if (empty($userId)) {
-            Log::warning('Skipping publishOrderAnnouncement because user_id is empty', ['order_id' => $orderId, 'user_id' => $userId]);
+            Log::warning('[publishOrderAnnouncement] Skipping: empty userId', ['order_id' => $orderId, 'user_id' => $userId]);
             return;
         }
 
@@ -384,94 +386,105 @@ class ResumeOrderService
             'type' => $type,
         ];
 
-        $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $jsonPayload = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        if ($jsonPayload === false) {
+            $jsonErr = json_last_error_msg();
+            Log::error('[publishOrderAnnouncement] json_encode failed [TRACE]', ['error' => $jsonErr, 'order_id' => $orderId, 'user_id' => $userId, 'payload' => $payloadArray]);
+            return;
+        }
 
-        // Allow switching publish mode via env: 'sync' (default) or 'queue'
         $mode = env('MQTT_PUBLISH_MODE', 'sync');
+
+        // Queue-mode: try enqueueing to Redis-backed publisher first
         if ($mode === 'queue') {
-            // Use the Redis-backed enqueue helper when configured
             try {
                 $publisher = app(\App\Services\MqttPublisherRedis::class);
                 $enqueued = false;
                 try {
-                    $enqueued = $publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
+                    $enqueued = (bool)$publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
                 } catch (\Throwable $inner) {
-                    // If enqueue itself throws, log and attempt sync fallback below
-                    Log::warning('[OrderService] Exception while enqueuing publish job', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+                    Log::warning('[publishOrderAnnouncement] MqttPublisherRedis->enqueue threw, will fallback to sync', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
                 }
 
                 if ($enqueued) {
-                    Log::info('[OrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId]);
+                    // Short, high-signal trace
+                    Log::error('[publishOrderAnnouncement] Enqueued publish job (queue mode) [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
                     return;
                 }
 
-                // If enqueue returned false or failed, fall through to sync behavior
-                Log::warning('[OrderService] Enqueue returned false or failed, falling back to sync', ['order_id' => $orderId, 'user_id' => $userId]);
+                // If enqueue failed or returned false, we'll fall back to sync below
+                Log::error('[publishOrderAnnouncement] enqueue returned false or failed; falling back to sync [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
             } catch (\Throwable $e) {
-                // If we couldn't resolve the publisher or some unexpected error occurred, fall back to sync
-                Log::warning('[OrderService] Failed to resolve MqttPublisherRedis, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+                Log::warning('[publishOrderAnnouncement] Failed to resolve MqttPublisherRedis, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
             }
         }
 
-        $escapedJson = escapeshellarg($json);
+        // Synchronous publish using node script (captures output + duration)
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
-
-        // Execute synchronously and capture output for debugging
+        $escapedJson = escapeshellarg($jsonPayload);
         $command = "node {$scriptPath} {$escapedJson} 2>&1";
         $output = [];
         $exitCode = 0;
-
-        // Measure duration for debugging timeouts
         $start = microtime(true);
         exec($command, $output, $exitCode);
-        $duration = microtime(true) - $start;
-        Log::info('[OrderService] publish command executed', ['command' => $command, 'duration_ms' => round($duration * 1000, 2), 'exit_code' => $exitCode]);
+        $durationMs = round((microtime(true) - $start) * 1000, 2);
+
+        Log::error('[publishOrderAnnouncement] publish command executed [TRACE]', [
+            'order_id' => $orderId,
+            'user_id' => $userId,
+            'command' => $command,
+            'duration_ms' => $durationMs,
+            'exit_code' => $exitCode
+        ]);
 
         if ($exitCode !== 0) {
-            // Primary attempt failed (node script timeout or error). Log and enqueue for background publishing
             $outputText = implode("\n", $output);
-            Log::warning('Failed to publish order announcement', [
-                'user_id' => $userId,
+            Log::error('[publishOrderAnnouncement] Sync publish failed [TRACE]', [
                 'order_id' => $orderId,
+                'user_id' => $userId,
                 'exit_code' => $exitCode,
                 'output' => $outputText
             ]);
 
-            // Enqueue to Redis as a fallback
+            // Fallback: enqueue to persistent Redis publisher list
+            $publisherQueue = env('MQTT_QUEUE_KEY', 'mqtt:publish');
+            $job = [
+                'topic' => "orders/{$userId}",
+                'payload' => $payloadArray,
+                'qos' => 0,
+                'retain' => false,
+                'meta' => [
+                    'order_id' => $orderId,
+                    'attempts' => 0,
+                    'enqueued_at' => time(),
+                ]
+            ];
+
             try {
-                $publisherQueue = env('MQTT_QUEUE_KEY', 'mqtt:publish');
-                $job = [
-                    'topic' => "orders/{$userId}",
-                    'payload' => $payloadArray,
-                    'qos' => 0,
-                    'retain' => false,
-                    'meta' => [
-                        'order_id' => $orderId,
-                        'attempts' => 0,
-                        'enqueued_at' => time(),
-                    ]
-                ];
-                Redis::rpush($publisherQueue, json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
-                Redis::expire($publisherQueue, 86400);
-                Log::info('[OrderService] Enqueued publish job to persistent publisher', ['publisher_queue' => $publisherQueue, 'job' => $job]);
+                $pushed = \Illuminate\Support\Facades\Redis::rpush($publisherQueue, json_encode($job, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
+                \Illuminate\Support\Facades\Redis::expire($publisherQueue, 86400);
+                Log::error('[publishOrderAnnouncement] Enqueued publish job to persistent publisher (fallback) [TRACE]', ['publisher_queue' => $publisherQueue, 'pushed' => $pushed, 'job' => $job]);
+                return;
             } catch (\Throwable $e) {
-                // If Redis fails, fall back to background node spawn to avoid data loss
+                // Final fallback: spawn background node process so we don't lose the publish
                 $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
                 @exec($bgCommand);
-                Log::warning('Fallback publisher launched in background after Redis failure', [
-                    'user_id' => $userId,
+                Log::error('[publishOrderAnnouncement] Background publish spawned after Redis fallback failure [TRACE]', [
                     'order_id' => $orderId,
+                    'user_id' => $userId,
                     'bg_command' => $bgCommand,
                     'error' => $e->getMessage()
                 ]);
+                return;
             }
-        } else {
-            Log::info('Order announcement published', [
-                'user_id' => $userId,
-                'order_id' => $orderId,
-                'output' => implode("\n", $output)
-            ]);
         }
+
+        // Success path
+        Log::error('[publishOrderAnnouncement] Order announcement published successfully [TRACE]', [
+            'order_id' => $orderId,
+            'user_id' => $userId,
+            'output' => implode("\n", $output)
+        ]);
     }
 
     private function dispatchMqttJob(Order $order, User $user): void
