@@ -26,6 +26,7 @@ const IORedis = require('ioredis');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const REDIS_QUEUE_KEY = process.env.REDIS_QUEUE_KEY || 'mqtt:publish';
+const REDIS_NOTIFY_CHANNEL = process.env.REDIS_NOTIFY_CHANNEL || (REDIS_QUEUE_KEY + ':notify');
 const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '50', 10);
 const MQTT_PUBLISH_TIMEOUT_MS = parseInt(process.env.MQTT_PUBLISH_TIMEOUT_MS || '5000', 10);
@@ -39,6 +40,40 @@ const redis = new IORedis(REDIS_URL, {
   // optional tuning
   maxRetriesPerRequest: null,
   enableReadyCheck: true,
+});
+
+// Create a separate subscriber client for pub/sub so it doesn't interfere with BRPOP/command pipeline
+const redisSub = new IORedis(REDIS_URL, {
+  maxRetriesPerRequest: null,
+  enableReadyCheck: true,
+});
+
+redisSub.on('error', (err) => {
+  console.error(`${now()} [redis-sub] error:`, err && err.message ? err.message : err);
+});
+
+// When notified, attempt to quickly drain the list using non-blocking LPOP in a tight loop
+redisSub.on('message', async (channel, message) => {
+  try {
+    if (channel !== REDIS_NOTIFY_CHANNEL) return;
+    // perform a short drain window to hand jobs to the existing publish machinery
+    for (let i = 0; i < 100; i++) {
+      const item = await redis.rpop(REDIS_QUEUE_KEY);
+      if (!item) break;
+      // push the item back to the head so the BRPOP worker loops pick it up uniformly
+      await redis.lpush(REDIS_QUEUE_KEY, item);
+      // small pause to let worker loops pick it up
+      await new Promise(r => setTimeout(r, 1));
+    }
+  } catch (e) {
+    console.error(`${now()} [redis-sub] notify drain failed:`, e && e.message ? e.message : e);
+  }
+});
+
+redisSub.subscribe(REDIS_NOTIFY_CHANNEL).then(() => {
+  console.log(`${now()} [redis-sub] subscribed to ${REDIS_NOTIFY_CHANNEL}`);
+}).catch((e) => {
+  console.error(`${now()} [redis-sub] subscribe failed:`, e && e.message ? e.message : e);
 });
 
 const mqttClient = mqtt.connect(MQTT_BROKER, {

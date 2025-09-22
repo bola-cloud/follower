@@ -60,6 +60,17 @@ class MqttPublisherRedis
             } catch (\Throwable $e) {
                 // best-effort expire; don't fail enqueue
             }
+
+            // Publish a short notification on a pub/sub channel to wake up any subscriber
+            // This allows the persistent Node worker to immediately drain the list instead
+            // of waiting for BRPOP timeout. Channel name is configurable via env.
+            try {
+                $notifyChannel = env('MQTT_QUEUE_PUBSUB_CHANNEL', $this->key . ':notify');
+                // publish returns number of clients that received the message
+                $redisConn->publish($notifyChannel, '1');
+            } catch (\Throwable $e) {
+                // best-effort notify; don't fail enqueue
+            }
             // Log enqueue success for observability (shows in storage/logs/laravel.log)
             try {
                 Log::info('[MqttPublisherRedis] enqueued', ['key' => $this->key, 'rpush' => $res, 'topic' => $topic, 'meta' => $job['meta']]);
