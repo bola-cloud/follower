@@ -122,9 +122,8 @@ module.exports.apps.push({
   node_args: '--max-old-space-size=256',
   env: {
     NODE_ENV: 'production',
-    REDIS_URL: 'redis://127.0.0.1:6379/2',
+    REDIS_URL: 'redis://127.0.0.1:6379',
     REDIS_QUEUE_KEY: 'mqtt:publish',
-    MQTT_QUEUE_KEY: 'mqtt:publish',
     MQTT_BROKER: 'mqtt://109.199.112.65:1883',
     CONCURRENCY: '50',
     MQTT_PUBLISH_TIMEOUT_MS: '5000',
@@ -132,9 +131,8 @@ module.exports.apps.push({
   },
   env_production: {
     NODE_ENV: 'production',
-    REDIS_URL: 'redis://127.0.0.1:6379/2',
+    REDIS_URL: 'redis://127.0.0.1:6379',
     REDIS_QUEUE_KEY: 'mqtt:publish',
-    MQTT_QUEUE_KEY: 'mqtt:publish',
     MQTT_BROKER: 'mqtt://109.199.112.65:1883',
     CONCURRENCY: '50',
     MQTT_PUBLISH_TIMEOUT_MS: '5000',
