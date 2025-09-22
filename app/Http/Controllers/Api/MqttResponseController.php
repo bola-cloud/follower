@@ -14,28 +14,6 @@ class MqttResponseController extends Controller
 {
     public function handle(Request $request)
     {
-        // Diagnostic: log process info immediately to trace request handling
-        try {
-            \Log::info('[triggerOrder] start diagnostic', [
-                'pid' => getmypid(),
-                'sapi' => php_sapi_name(),
-                'memory' => memory_get_usage(true),
-                'time' => now()->toDateTimeString()
-            ]);
-        } catch (\Throwable $_e) {
-            // swallow
-        }
-
-        // Register shutdown handler to capture fatal errors / abrupt terminations
-        register_shutdown_function(function () use ($request) {
-            $err = error_get_last();
-            if ($err) {
-                try {
-                    \Log::error('[triggerOrder] shutdown error', ['error' => $err]);
-                } catch (\Throwable $_) {}
-            }
-        });
-
         // Check database connectivity first
         if (!$this->checkDatabaseConnectivity()) {
             \Log::error("[MQTT_API] Database connection failed, rejecting request");
@@ -49,9 +27,6 @@ class MqttResponseController extends Controller
                 // accept 'busy' from devices so we can handle/ignore it without logging validation errors
                 'status' => 'required|in:done,external,busy',
             ]);
-            try {
-                \Log::info('[triggerOrder] validation passed', ['payload' => array_slice($request->all(), 0, 10)]);
-            } catch (\Throwable $_e) {}
         } catch (\Illuminate\Validation\ValidationException $e) {
             \Log::warning("[MQTT_API] Validation failed", [
                 'payload' => $request->all(),
@@ -82,7 +57,6 @@ class MqttResponseController extends Controller
 
         // 🚀 HIGH-VOLUME PROCESSING: Use the new service for scalable processing
         try {
-            try { \Log::info('[triggerOrder] about to call highVolumeService', ['order_id' => $orderId, 'user_id' => $userId]); } catch (\Throwable $_e) {}
             $highVolumeService = app(\App\Services\HighVolumeProcessingService::class);
             $result = $highVolumeService->processAction($orderId, $userId, $status);
 
@@ -477,7 +451,7 @@ class MqttResponseController extends Controller
 
     public function triggerOrder(Request $request)
     {
-        // Diagnostic logging removed to reduce log noise
+        \Log::error("Hi,bola");
         // Check database connectivity first
         if (!$this->checkDatabaseConnectivity()) {
             \Log::error("[triggerOrder] Database connection failed, rejecting request");

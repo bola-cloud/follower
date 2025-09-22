@@ -386,130 +386,42 @@ class ResumeOrderService
             'type' => $type,
         ];
 
-        $jsonPayload = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        if ($jsonPayload === false) {
-            $jsonErr = json_last_error_msg();
-            Log::error('[publishOrderAnnouncement] json_encode failed [TRACE]', ['error' => $jsonErr, 'order_id' => $orderId, 'user_id' => $userId, 'payload' => $payloadArray]);
-            return;
-        }
-
-        $mode = env('MQTT_PUBLISH_MODE', 'sync');
-
-        // $mode = env('MQTT_PUBLISH_MODE', 'sync');
-
-        // // Queue-mode: try enqueueing to Redis-backed publisher first
-        // if ($mode === 'queue') {
-        //     try {
-        //         $publisher = app(\App\Services\MqttPublisherRedis::class);
-        //         $enqueued = false;
-        //         try {
-        //             $enqueued = (bool)$publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
-        //         } catch (\Throwable $inner) {
-        //             Log::warning('[publishOrderAnnouncement] MqttPublisherRedis->enqueue threw, will fallback to sync', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
-        //         }
-
-        //         if ($enqueued) {
-        //             // Short, high-signal trace
-        //             Log::error('[publishOrderAnnouncement] Enqueued publish job (queue mode) [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
-        //             return;
-        //         }
-
-        //         // If enqueue failed or returned false, we'll fall back to sync below
-        //         Log::error('[publishOrderAnnouncement] enqueue returned false or failed; falling back to sync [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
-        //     } catch (\Throwable $e) {
-        //         Log::warning('[publishOrderAnnouncement] Failed to resolve MqttPublisherRedis, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
-        //     }
-        // }
-
-        // Synchronous publish using node script (captures output + duration)
+        $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $escapedJson = escapeshellarg($json);
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
-        $escapedJson = escapeshellarg($jsonPayload);
+
+        // Execute synchronously and capture output for debugging
         $command = "node {$scriptPath} {$escapedJson} 2>&1";
         $output = [];
         $exitCode = 0;
-        $start = microtime(true);
-
-        // If this is an HTTP request (not running in console), don't block the PHP worker
-        // by executing a long-running node process synchronously. Spawn it in background
-        // so NGINX/PHP-FPM won't hit upstream timeouts (504). For CLI runs (artisan), keep
-        // the original synchronous behavior for observability in scheduled/console tasks.
-        if (!app()->runningInConsole()) {
-            $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
-            try {
-                @exec($bgCommand);
-            } catch (\Throwable $e) {
-                // swallow - we don't want to break the request if background spawn fails
-            }
-            $durationMs = round((microtime(true) - $start) * 1000, 2);
-            Log::error('[publishOrderAnnouncement] Spawned background publisher to avoid blocking HTTP [TRACE]', [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'bg_command' => $bgCommand,
-                'duration_ms' => $durationMs,
-            ]);
-            // Return immediately: background worker or persistent Node publisher should handle it
-            return;
-        }
 
         exec($command, $output, $exitCode);
-        $durationMs = round((microtime(true) - $start) * 1000, 2);
 
-        Log::error('[publishOrderAnnouncement] publish command executed [TRACE]', [
-            'order_id' => $orderId,
-            'user_id' => $userId,
-            'command' => $command,
-            'duration_ms' => $durationMs,
-            'exit_code' => $exitCode
-        ]);
+        if ($exitCode !== 0) {
+            // Primary attempt failed (node script timeout or error). Log and fall back to a non-blocking publisher
+            Log::warning('Failed to publish order announcement', [
+                'user_id' => $userId,
+                'order_id' => $orderId,
+                'exit_code' => $exitCode,
+                'output' => implode("\n", $output)
+            ]);
 
-        // if ($exitCode !== 0) {
-        //     $outputText = implode("\n", $output);
-        //     Log::error('[publishOrderAnnouncement] Sync publish failed [TRACE]', [
-        //         'order_id' => $orderId,
-        //         'user_id' => $userId,
-        //         'exit_code' => $exitCode,
-        //         'output' => $outputText
-        //     ]);
+            // Fallback: launch the same node publisher in background (non-blocking). This avoids long synchronous timeouts
+            $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
+            @exec($bgCommand);
 
-        //     // Fallback: enqueue to persistent Redis publisher list
-        //     $publisherQueue = env('MQTT_QUEUE_KEY', 'mqtt:publish');
-        //     $job = [
-        //         'topic' => "orders/{$userId}",
-        //         'payload' => $payloadArray,
-        //         'qos' => 0,
-        //         'retain' => false,
-        //         'meta' => [
-        //             'order_id' => $orderId,
-        //             'attempts' => 0,
-        //             'enqueued_at' => time(),
-        //         ]
-        //     ];
-
-        //     try {
-        //         $pushed = \Illuminate\Support\Facades\Redis::rpush($publisherQueue, json_encode($job, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE));
-        //         \Illuminate\Support\Facades\Redis::expire($publisherQueue, 86400);
-        //         Log::error('[publishOrderAnnouncement] Enqueued publish job to persistent publisher (fallback) [TRACE]', ['publisher_queue' => $publisherQueue, 'pushed' => $pushed, 'job' => $job]);
-        //         return;
-        //     } catch (\Throwable $e) {
-        //         // Final fallback: spawn background node process so we don't lose the publish
-        //         $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
-        //         @exec($bgCommand);
-        //         Log::error('[publishOrderAnnouncement] Background publish spawned after Redis fallback failure [TRACE]', [
-        //             'order_id' => $orderId,
-        //             'user_id' => $userId,
-        //             'bg_command' => $bgCommand,
-        //             'error' => $e->getMessage()
-        //         ]);
-        //         return;
-        //     }
-        // }
-
-        // Success path
-        Log::error('[publishOrderAnnouncement] Order announcement published successfully [TRACE]', [
-            'order_id' => $orderId,
-            'user_id' => $userId,
-            'output' => implode("\n", $output)
-        ]);
+            Log::warning('Fallback publisher launched in background', [
+                'user_id' => $userId,
+                'order_id' => $orderId,
+                'bg_command' => $bgCommand
+            ]);
+        } else {
+            Log::info('Order announcement published', [
+                'user_id' => $userId,
+                'order_id' => $orderId,
+                'output' => implode("\n", $output)
+            ]);
+        }
     }
 
     private function dispatchMqttJob(Order $order, User $user): void
