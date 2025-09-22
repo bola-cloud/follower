@@ -404,6 +404,7 @@ class ResumeOrderService
             'order_id' => $orderId,
             'type' => $type,
         ];
+        Log::error('[ResumeOrderService] publishOrderAnnouncement Data',$payloadArray);
 
         $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $escapedJson = escapeshellarg($json);
