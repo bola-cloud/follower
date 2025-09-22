@@ -426,6 +426,29 @@ class ResumeOrderService
         $output = [];
         $exitCode = 0;
         $start = microtime(true);
+
+        // If this is an HTTP request (not running in console), don't block the PHP worker
+        // by executing a long-running node process synchronously. Spawn it in background
+        // so NGINX/PHP-FPM won't hit upstream timeouts (504). For CLI runs (artisan), keep
+        // the original synchronous behavior for observability in scheduled/console tasks.
+        if (!app()->runningInConsole()) {
+            $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
+            try {
+                @exec($bgCommand);
+            } catch (\Throwable $e) {
+                // swallow - we don't want to break the request if background spawn fails
+            }
+            $durationMs = round((microtime(true) - $start) * 1000, 2);
+            Log::error('[publishOrderAnnouncement] Spawned background publisher to avoid blocking HTTP [TRACE]', [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'bg_command' => $bgCommand,
+                'duration_ms' => $durationMs,
+            ]);
+            // Return immediately: background worker or persistent Node publisher should handle it
+            return;
+        }
+
         exec($command, $output, $exitCode);
         $durationMs = round((microtime(true) - $start) * 1000, 2);
 
