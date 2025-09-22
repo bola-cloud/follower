@@ -14,10 +14,10 @@ class ResumeOrderService
     public function handle(Order $order, User $user): array
     {
         // Focused info logging for resume processing
-        Log::info('[ResumeOrderService] resume start', [
-            'user_id' => $user->id,
-            'order_id' => $order->id,
-            'order_type' => $order->type
+        Log::info('[ResumeOrderService] handle start', [
+            'user_id' => $user->id ?? null,
+            'order_id' => $order->id ?? null,
+            'order_type' => $order->type ?? null
         ]);
         // No transaction or lock needed here - triggerOrder already validated slots and eligibility
         // Just check basic eligibility and create the action
@@ -135,6 +135,11 @@ class ResumeOrderService
      */
     public function batchInsertPendingAction(Order $order, array $userIds): array
     {
+        Log::info('[ResumeOrderService] batchInsertPendingAction start', [
+            'order_id' => $order->id ?? null,
+            'user_ids_count' => count($userIds)
+        ]);
+
         // Delegate batch insertion to the centralized BatchActionService
         $batchService = app(\App\Services\BatchActionService::class);
         return $batchService->batchInsertPendingAction($order, $userIds);
@@ -144,6 +149,11 @@ class ResumeOrderService
 
     public function checkUserEligibility(Order $order, User $user): bool
     {
+        Log::info('[ResumeOrderService] checkUserEligibility start', [
+            'order_id' => $order->id ?? null,
+            'user_id' => $user->id ?? null
+        ]);
+
         $eligibleUsers = $this->getEligibleUsers($order);
 
         // Use a more efficient lookup by creating an array of eligible user IDs
@@ -155,11 +165,10 @@ class ResumeOrderService
 
     public function getEligibleUsers(Order $order)
     {
-        // // Debugging: Log order details
-        // Log::info('[ResumeOrderService] Fetching eligible users for order', [
-        //     'order_id' => $order->id,
-        //     'target_url' => $order->target_url,
-        // ]);
+        Log::info('[ResumeOrderService] getEligibleUsers start', [
+            'order_id' => $order->id ?? null,
+            'target_url' => $order->target_url ?? null
+        ]);
 
         // Get pending users and new eligible users similar to resume method
         $pendingUserIds = DB::table('actions')
@@ -215,6 +224,10 @@ class ResumeOrderService
 
     private function createPendingActionForUser(Order $order, User $user): void
     {
+        Log::info('[ResumeOrderService] createPendingActionForUser start', [
+            'order_id' => $order->id ?? null,
+            'user_id' => $user->id ?? null
+        ]);
         // Check if action already exists
         $existingAction = DB::table('actions')
             ->where('order_id', $order->id)
@@ -363,6 +376,12 @@ class ResumeOrderService
      */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
+        Log::info('[ResumeOrderService] publishOrderAnnouncement start', [
+            'order_id' => $orderId ?? null,
+            'user_id' => $userId ?? null,
+            'type' => $type ?? null,
+            'url' => $url ?? null
+        ]);
         // Defensive order paused check
         try {
             $order = \App\Models\Order::find($orderId);
@@ -426,6 +445,10 @@ class ResumeOrderService
 
     private function dispatchMqttJob(Order $order, User $user): void
     {
+        Log::info('[ResumeOrderService] dispatchMqttJob start', [
+            'order_id' => $order->id ?? null,
+            'user_id' => $user->id ?? null
+        ]);
         dispatch(new SendMqttToUserJob(
             $user->id,
             $order->id,
@@ -435,6 +458,10 @@ class ResumeOrderService
     }
     private function sendMqttToEligibleUsersWithPing(Order $order, $remaining): void
     {
+        Log::info('[ResumeOrderService] sendMqttToEligibleUsersWithPing start', [
+            'order_id' => $order->id ?? null,
+            'remaining' => $remaining ?? null
+        ]);
         $orderData = [
             'type' => 'resume',
             'order_id' => $order->id,
@@ -448,6 +475,9 @@ class ResumeOrderService
 
     private function sendMqttPing(Order $order): void
     {
+        Log::info('[ResumeOrderService] sendMqttPing start', [
+            'order_id' => $order->id ?? null
+        ]);
         $pingData = [
             'type' => 'resume',
             'order_id' => $order->id,
@@ -461,6 +491,10 @@ class ResumeOrderService
 
     private function publishToMqtt($topic, $data)
     {
+        Log::info('[ResumeOrderService] publishToMqtt start', [
+            'topic' => $topic ?? null,
+            'data_sample' => is_array($data) ? array_slice($data,0,5) : null
+        ]);
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1";
         exec($command . " > /dev/null 2>&1 &");
