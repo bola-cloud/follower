@@ -417,17 +417,28 @@ class ResumeOrderService
             try {
                 $enqueued = (bool)$publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
             } catch (\Throwable $inner) {
-                Log::warning('[ResumeOrderService] MqttPublisherRedis->enqueue threw, will fallback to sync', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+                Log::warning('[ResumeOrderService] MqttPublisherRedis->enqueue threw', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
             }
 
             if ($enqueued) {
                 Log::error('[ResumeOrderService] Enqueued publish job (queue mode) [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
                 return; // success - non-blocking enqueue
             }
-            // If enqueue failed or returned false, we'll fall back to sync below
+
+            // If enqueue failed or returned false and strict mode is enabled, skip sync fallback
+            if (env('MQTT_STRICT_ENQUEUE', false)) {
+                Log::warning('[ResumeOrderService] enqueue failed and MQTT_STRICT_ENQUEUE enabled - skipping sync fallback', ['order_id' => $orderId, 'user_id' => $userId]);
+                return;
+            }
+
+            // Otherwise, proceed to sync fallback
             Log::warning('[ResumeOrderService] enqueue returned false or failed; falling back to sync [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
         } catch (\Throwable $e) {
-            Log::warning('[ResumeOrderService] Failed to resolve MqttPublisherRedis, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+            Log::warning('[ResumeOrderService] Failed to resolve MqttPublisherRedis', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+            if (env('MQTT_STRICT_ENQUEUE', false)) {
+                Log::warning('[ResumeOrderService] MQTT_STRICT_ENQUEUE enabled and publisher resolution failed - skipping sync fallback', ['order_id' => $orderId, 'user_id' => $userId]);
+                return;
+            }
         }
 
         // Synchronous fallback: Execute with a PHP-level timeout (proc_open wrapper)

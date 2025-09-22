@@ -31,24 +31,14 @@ class OrderService
             $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
 
             if ($remaining <= 0) {
-                return;
+                // No remaining slots — nothing to do
+                return collect([]);
             }
-
-            $eligibleUsers = $this->getEligibleUsers($order, $remaining);
-
-            $this->createPendingActions($order, $eligibleUsers);
-            $this->sendMqttPing($order);
         } catch (\Throwable $e) {
-            throw $e;
+            Log::warning('[OrderService] handleOrderCreated failed', ['error' => $e->getMessage(), 'order_id' => $order->id ?? null]);
+            return collect([]);
         }
-    }
 
-    private function getEligibleUsers(Order $order, $limit = 0)
-    {
-        Log::error('[OrderService] getEligibleUsers start', [
-            'order_id' => $order->id ?? null,
-            'limit' => $limit ?? null
-        ]);
         $order->loadMissing('user');
 
         $query = User::where('type', 'user')
