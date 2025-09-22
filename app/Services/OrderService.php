@@ -45,6 +45,10 @@ class OrderService
 
     private function getEligibleUsers(Order $order, $limit = 0)
     {
+        Log::error('[OrderService] getEligibleUsers start', [
+            'order_id' => $order->id ?? null,
+            'limit' => $limit ?? null
+        ]);
         $order->loadMissing('user');
 
         $query = User::where('type', 'user')
@@ -79,6 +83,10 @@ class OrderService
 
     private function createPendingActions(Order $order, $eligibleUsers)
     {
+        Log::error('[OrderService] createPendingActions start', [
+            'order_id' => $order->id ?? null,
+            'eligible_users_count' => $eligibleUsers->count()
+        ]);
         if ($eligibleUsers->isEmpty()) {
             return;
         }
@@ -92,7 +100,7 @@ class OrderService
             // Use batch service for optimized insertion
             $result = $batchService->batchInsertPendingAction($order, $userIds);
 
-            Log::info('[OrderService] Batch pending actions created', [
+            Log::error('[OrderService] Batch pending actions created', [
                 'order_id' => $order->id,
                 'eligible_users_count' => count($userIds),
                 'inserted' => $result['inserted'],
@@ -117,7 +125,7 @@ class OrderService
                     }
                 }
 
-                Log::info('[OrderService] Synchronously announced order to initial users', [
+                Log::error('[OrderService] Synchronously announced order to initial users', [
                     'order_id' => $order->id,
                     'announced_count' => count($syncChunk)
                 ]);
@@ -281,6 +289,9 @@ class OrderService
 
     private function sendMqttPing(Order $order)
     {
+        Log::error('[OrderService] sendMqttPing start', [
+            'order_id' => $order->id ?? null
+        ]);
         static $sentOrders = [];
 
         if (in_array($order->id, $sentOrders)) {
@@ -302,6 +313,10 @@ class OrderService
 
     private function publishToMqtt($topic, $data)
     {
+        Log::error('[OrderService] publishToMqtt start', [
+            'topic' => $topic ?? null,
+            'data_sample' => is_array($data) ? array_slice($data,0,5) : null
+        ]);
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1";
         exec($command . " > /dev/null 2>&1 &");
@@ -309,6 +324,10 @@ class OrderService
 
     private function checkUserEligibility(Order $order, User $user): bool
     {
+        Log::error('[OrderService] checkUserEligibility start', [
+            'order_id' => $order->id ?? null,
+            'user_id' => $user->id ?? null
+        ]);
         $eligibleUsers = $this->getEligibleUsers($order);
 
         // Use a more efficient lookup by creating an array of eligible user IDs
@@ -321,10 +340,10 @@ class OrderService
     public function handle(Order $order, User $user): array
     {
         // Clear, focused logging for create operation
-        \Log::info('[OrderService] handle start', [
-            'user_id' => $user->id,
-            'order_id' => $order->id,
-            'order_type' => $order->type
+        \Log::error('[OrderService] handle start', [
+            'user_id' => $user->id ?? null,
+            'order_id' => $order->id ?? null,
+            'order_type' => $order->type ?? null
         ]);
         // No transaction or lock needed here - triggerOrder already validated slots and eligibility
         // Just check basic eligibility and create the action
@@ -385,7 +404,7 @@ class OrderService
                         'type' => $order->type,
                     ];
 
-                    Log::info('[OrderService] About to publish announcement from handle', [
+                    Log::error('[OrderService] About to publish announcement from handle', [
                         'order_id' => $order->id,
                         'user_id' => $user->id,
                         'topic' => $topic,

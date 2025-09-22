@@ -454,7 +454,7 @@ class MqttResponseController extends Controller
     public function triggerOrder(Request $request)
     {
         // Remove noisy stray debug; add structured trace for visibility
-        Log::info('[MqttResponseController] entry trace', [
+        Log::error('[MqttResponseController] entry trace', [
             'method' => __METHOD__,
             'request_path' => request()->path(),
             'ip' => request()->ip()
