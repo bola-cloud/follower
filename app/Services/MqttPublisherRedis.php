@@ -33,7 +33,19 @@ class MqttPublisherRedis
         ];
 
         try {
-            $res = Redis::rpush($this->key, json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
+            $payload = json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+            if ($payload === false) {
+                Log::warning('[MqttPublisherRedis] json_encode failed', ['job' => $job, 'error' => json_last_error_msg()]);
+                return false;
+            }
+
+            $res = Redis::rpush($this->key, $payload);
+            // Ensure the list has at least one element after push
+            if (!is_int($res) || $res <= 0) {
+                Log::warning('[MqttPublisherRedis] rpush returned unexpected result', ['key' => $this->key, 'rpush' => $res]);
+                return false;
+            }
+
             Redis::expire($this->key, 86400);
             // Log enqueue success for observability (shows in storage/logs/laravel.log)
             try {
