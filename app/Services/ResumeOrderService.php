@@ -393,6 +393,8 @@ class ResumeOrderService
             return;
         }
 
+        $mode = env('MQTT_PUBLISH_MODE', 'sync');
+
         // $mode = env('MQTT_PUBLISH_MODE', 'sync');
 
         // // Queue-mode: try enqueueing to Redis-backed publisher first

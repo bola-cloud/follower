@@ -202,6 +202,7 @@ class OrderService
         $output = [];
         $exitCode = 0;
         $start = microtime(true);
+
         exec($command, $output, $exitCode);
         $durationMs = round((microtime(true) - $start) * 1000, 2);
 
