@@ -166,19 +166,35 @@ class OrderService
         ];
 
         $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+
+        // Allow switching publish mode via env: 'sync' (default) or 'queue'
+        $mode = env('MQTT_PUBLISH_MODE', 'sync');
+        if ($mode === 'queue') {
+            // Use the Redis-backed enqueue helper when configured
+            try {
+                $publisher = app(\App\Services\MqttPublisherRedis::class);
+                $publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
+                Log::info('[OrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId]);
+                return;
+            } catch (\Throwable $e) {
+                Log::warning('[OrderService] Failed to enqueue publish job, falling back to sync', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
+                // fallthrough to sync behavior
+            }
+        }
+
         $escapedJson = escapeshellarg($json);
         $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
 
         // Execute synchronously and capture output for debugging
-    $command = "node {$scriptPath} {$escapedJson} 2>&1";
-    $output = [];
-    $exitCode = 0;
+        $command = "node {$scriptPath} {$escapedJson} 2>&1";
+        $output = [];
+        $exitCode = 0;
 
-    // Measure duration for debugging timeouts
-    $start = microtime(true);
-    exec($command, $output, $exitCode);
-    $duration = microtime(true) - $start;
-    Log::info('[OrderService] publish command executed', ['command' => $command, 'duration_ms' => round($duration * 1000, 2), 'exit_code' => $exitCode]);
+        // Measure duration for debugging timeouts
+        $start = microtime(true);
+        exec($command, $output, $exitCode);
+        $duration = microtime(true) - $start;
+        Log::info('[OrderService] publish command executed', ['command' => $command, 'duration_ms' => round($duration * 1000, 2), 'exit_code' => $exitCode]);
 
         if ($exitCode !== 0) {
             // Primary attempt failed (node script timeout or error). Log and enqueue for background publishing
@@ -190,12 +206,12 @@ class OrderService
                 'output' => $outputText
             ]);
 
-            // Enqueue to the persistent Node publisher queue (safer than spawning node per item)
+            // Enqueue to Redis as a fallback
             try {
                 $publisherQueue = env('MQTT_QUEUE_KEY', 'mqtt:publish');
                 $job = [
                     'topic' => "orders/{$userId}",
-                    'payload' => $json,
+                    'payload' => $payloadArray,
                     'qos' => 0,
                     'retain' => false,
                     'meta' => [
@@ -204,11 +220,11 @@ class OrderService
                         'enqueued_at' => time(),
                     ]
                 ];
-                Redis::rpush($publisherQueue, json_encode($job));
+                Redis::rpush($publisherQueue, json_encode($job, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES));
                 Redis::expire($publisherQueue, 86400);
                 Log::info('[OrderService] Enqueued publish job to persistent publisher', ['publisher_queue' => $publisherQueue, 'job' => $job]);
             } catch (\Throwable $e) {
-                // If Redis fails, fall back to existing behavior to avoid data loss
+                // If Redis fails, fall back to background node spawn to avoid data loss
                 $bgCommand = "node {$scriptPath} {$escapedJson} > /dev/null 2>&1 &";
                 @exec($bgCommand);
                 Log::warning('Fallback publisher launched in background after Redis failure', [
