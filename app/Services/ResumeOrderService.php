@@ -69,6 +69,8 @@ class ResumeOrderService
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
                 // Dispatch queued MQTT publish job instead of synchronous publish
+                // Trace log for produced publish attempt
+                Log::error('[ResumeOrderService] dispatching publish for existing pending action [TRACE]', ['order_id' => $order->id, 'user_id' => $user->id]);
                 $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
                 return ['message' => 'Pending action re-dispatched for this user.'];
             }
@@ -83,13 +85,15 @@ class ResumeOrderService
             // Create action using high-performance batch system
             $result = $this->batchInsertPendingAction($order, [$user->id]);
 
-            if ($result['inserted'] > 0) {
-                // Dispatch queued MQTT publish job after successful insertion
-                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                return ['message' => 'User processed successfully.'];
-            } else {
-                return ['message' => 'Action already exists or was handled concurrently.'];
-            }
+                if ($result['inserted'] > 0) {
+                    // Trace log for produced publish attempt
+                    Log::error('[ResumeOrderService] publish job enqueued after insertion [TRACE]', ['order_id' => $order->id, 'user_id' => $user->id]);
+                    // Dispatch queued MQTT publish job after successful insertion
+                    $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
+                    return ['message' => 'User processed successfully.'];
+                } else {
+                    return ['message' => 'Action already exists or was handled concurrently.'];
+                }
 
         } catch (\Illuminate\Database\QueryException $e) {
             // Duplicate entry error code from MySQL is 1062 (SQLSTATE 23000)
