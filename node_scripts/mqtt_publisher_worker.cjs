@@ -1,24 +1,9 @@
 #!/usr/bin/env node
+/* eslint-disable no-console */
 /*
-Persistent MQTT publisher worker
-- Consumes JSON jobs from a Redis list (BRPOP) and publishes them to MQTT
-- Designed to run under PM2 (or systemd) and handle high throughput by
-  running a configurable number of worker loops in parallel.
-
-Environment variables:
-  REDIS_URL (optional) - example: redis://127.0.0.1:6379
-  REDIS_QUEUE_KEY - Redis list key to BRPOP from (default: mqtt:publish)
-  MQTT_BROKER - MQTT connection string (default: mqtt://109.199.112.65:1883)
-  CONCURRENCY - number of parallel BRPOP worker loops (default: 50)
-  MQTT_PUBLISH_TIMEOUT_MS - per-publish timeout (default: 5000)
-  METRICS_INTERVAL_MS - periodic metrics log interval (default: 10000)
-
-Job format expected (JSON string pushed by producers):
-  { "topic": "orders/123", "payload": {...}|"string", "qos":0, "retain":false, "meta": {...} }
-
-This file depends on the npm packages: mqtt, ioredis
-Install them in project root: `npm install mqtt ioredis`
-Run with pm2: `pm2 start node_scripts/mqtt_publisher_worker.cjs --name mqtt-publisher --node-args="--unhandled-rejections=strict"`
+Persistent MQTT publisher worker (Redis -> MQTT) with client pool, retries, and graceful shutdown.
+Requires: npm i mqtt ioredis
+Run with pm2: pm2 start node_scripts/mqtt_publisher_worker.cjs --name mqtt-publisher --node-args="--unhandled-rejections=strict"
 */
 
 const mqtt = require('mqtt');
@@ -26,246 +11,213 @@ const IORedis = require('ioredis');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 const REDIS_QUEUE_KEY = process.env.REDIS_QUEUE_KEY || 'mqtt:publish';
-const REDIS_NOTIFY_CHANNEL = process.env.REDIS_NOTIFY_CHANNEL || (REDIS_QUEUE_KEY + ':notify');
+const DEAD_LETTER_KEY = `${REDIS_QUEUE_KEY}:dead`;
 const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '50', 10);
 const MQTT_PUBLISH_TIMEOUT_MS = parseInt(process.env.MQTT_PUBLISH_TIMEOUT_MS || '5000', 10);
 const METRICS_INTERVAL_MS = parseInt(process.env.METRICS_INTERVAL_MS || '10000', 10);
+const CLIENT_POOL = parseInt(process.env.CLIENT_POOL || '8', 10);
+const MAX_RETRIES = parseInt(process.env.MAX_RETRIES || '5', 10);
 
 let running = true;
-
-function now() { return new Date().toISOString(); }
-
-const redis = new IORedis(REDIS_URL, {
-  // optional tuning
-  maxRetriesPerRequest: null,
-  enableReadyCheck: true,
-});
-
-// Create a separate subscriber client for pub/sub so it doesn't interfere with BRPOP/command pipeline
-const redisSub = new IORedis(REDIS_URL, {
-  maxRetriesPerRequest: null,
-  enableReadyCheck: true,
-});
-
-redisSub.on('error', (err) => {
-  console.error(`${now()} [redis-sub] error:`, err && err.message ? err.message : err);
-});
-
-// When notified, attempt to quickly drain the list using non-blocking LPOP in a tight loop
-redisSub.on('message', async (channel, message) => {
-  try {
-    if (channel !== REDIS_NOTIFY_CHANNEL) return;
-    // perform a short drain window to hand jobs to the existing publish machinery
-    for (let i = 0; i < 100; i++) {
-      const item = await redis.rpop(REDIS_QUEUE_KEY);
-      if (!item) break;
-      // push the item back to the head so the BRPOP worker loops pick it up uniformly
-      await redis.lpush(REDIS_QUEUE_KEY, item);
-      // small pause to let worker loops pick it up
-      await new Promise(r => setTimeout(r, 1));
-    }
-  } catch (e) {
-    console.error(`${now()} [redis-sub] notify drain failed:`, e && e.message ? e.message : e);
-  }
-});
-
-redisSub.subscribe(REDIS_NOTIFY_CHANNEL).then(() => {
-  console.log(`${now()} [redis-sub] subscribed to ${REDIS_NOTIFY_CHANNEL}`);
-}).catch((e) => {
-  console.error(`${now()} [redis-sub] subscribe failed:`, e && e.message ? e.message : e);
-});
-
-// Create a small pool of MQTT clients to allow parallel publish operations
-const CLIENT_POOL = parseInt(process.env.CLIENT_POOL || '8', 10);
-const mqttClients = [];
-let connectedClients = 0;
-
-for (let i = 0; i < CLIENT_POOL; i++) {
-  const c = mqtt.connect(MQTT_BROKER, { clean: true, reconnectPeriod: 1000 });
-  c._poolIndex = i;
-  c.on('connect', () => {
-    connectedClients++;
-    console.log(`${now()} [mqtt-client-${i}] connected`);
-  });
-  c.on('close', () => {
-    connectedClients = Math.max(0, connectedClients - 1);
-    console.log(`${now()} [mqtt-client-${i}] closed`);
-  });
-  c.on('error', (err) => {
-    connectedClients = Math.max(0, connectedClients - 1);
-    errorCount++;
-    console.error(`${now()} [mqtt-client-${i}] error:`, err && err.message ? err.message : err);
-  });
-  mqttClients.push(c);
-}
 let publishCount = 0;
 let errorCount = 0;
 let loopCount = 0;
 
-mqttClient.on('connect', () => {
-  connected = true;
-  console.log(`${now()} [mqtt] connected to ${MQTT_BROKER}`);
-});
+function now() { return new Date().toISOString(); }
 
-mqttClient.on('reconnect', () => {
-  console.log(`${now()} [mqtt] reconnecting...`);
-});
+const redis = new IORedis(REDIS_URL, { maxRetriesPerRequest: null, enableReadyCheck: true });
 
-mqttClient.on('close', () => {
-  connected = false;
-  console.log(`${now()} [mqtt] connection closed`);
-});
+// ---------- MQTT POOL ----------
+const mqttClients = [];
+let connectedClients = 0;
 
-mqttClient.on('error', (err) => {
-  connected = false;
-  errorCount++;
-  console.error(`${now()} [mqtt] error:`, err && err.message ? err.message : err);
-});
+function buildClient(i) {
+  const c = mqtt.connect(MQTT_BROKER, {
+    clean: true,
+    reconnectPeriod: 1000,
+    // keepalive: 30,
+    // connectTimeout: 10000,
+  });
+  c._poolIndex = i;
 
-async function publishPromise(topic, message, options) {
+  c.on('connect', () => {
+    connectedClients++;
+    console.log(`${now()} [mqtt-${i}] connected`);
+  });
+
+  c.on('close', () => {
+    connectedClients = Math.max(0, connectedClients - 1);
+    console.log(`${now()} [mqtt-${i}] closed`);
+  });
+
+  c.on('error', (err) => {
+    errorCount++;
+    console.error(`${now()} [mqtt-${i}] error:`, err?.message || err);
+  });
+
+  return c;
+}
+
+for (let i = 0; i < CLIENT_POOL; i++) {
+  mqttClients.push(buildClient(i));
+}
+
+function pickConnectedClient() {
+  if (connectedClients === 0) return null;
+  const start = loopCount % mqttClients.length;
+  for (let k = 0; k < mqttClients.length; k++) {
+    const idx = (start + k) % mqttClients.length;
+    const c = mqttClients[idx];
+    if (c.connected) return c;
+  }
+  return null;
+}
+
+function publishWithTimeout(client, topic, payload, opts) {
   return new Promise((resolve, reject) => {
-    let settled = false;
+    let done = false;
     const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true;
-        reject(new Error('publish timeout'));
+      if (!done) {
+        done = true;
+        return reject(new Error('publish timeout'));
       }
     }, MQTT_PUBLISH_TIMEOUT_MS);
 
-    mqttClient.publish(topic, message, options || {}, (err) => {
+    client.publish(topic, payload, opts || {}, (err) => {
       clearTimeout(timer);
-      if (settled) return;
-      settled = true;
+      if (done) return;
+      done = true;
       if (err) return reject(err);
       resolve();
     });
   });
 }
 
+// ---------- WORKER LOOP ----------
 async function workerLoop(id) {
   console.log(`${now()} [worker-${id}] started`);
   while (running) {
     try {
-      // BRPOP blocks until an item is available or timeout expires (5s)
-      const res = await redis.brpop(REDIS_QUEUE_KEY, 5);
+      const res = await redis.brpop(REDIS_QUEUE_KEY, 5); // 5s
       loopCount++;
       if (!res) continue;
+
       const payloadRaw = res[1];
       let job;
       try {
         job = JSON.parse(payloadRaw);
       } catch (err) {
-        console.error(`${now()} [worker-${id}] invalid JSON job, dropping:`, err.message);
-        continue;
+        console.error(`${now()} [worker-${id}] invalid JSON, dropping:`, err.message);
+        continue; // drop malformed
       }
 
       const topic = job.topic;
-      let payload = job.payload;
-      if (typeof payload === 'object') {
-        try { payload = JSON.stringify(payload); } catch (e) { payload = String(payload); }
-      } else {
-        payload = String(payload || '');
-      }
-
-      const qos = typeof job.qos === 'number' ? job.qos : 0;
-      const retain = !!job.retain;
-
       if (!topic) {
-        console.warn(`${now()} [worker-${id}] job missing topic, skipping`);
+        console.warn(`${now()} [worker-${id}] job missing topic, dropping`);
         continue;
       }
 
-      // Wait until at least one MQTT client is connected or timeout
-      const start = Date.now();
-      while (connectedClients === 0 && Date.now() - start < 10000 && running) {
-        await new Promise(r => setTimeout(r, 200));
+      // Serialize payload
+      let payload = job.payload;
+      if (typeof payload === 'object') {
+        try { payload = JSON.stringify(payload); } catch { payload = String(payload); }
+      } else {
+        payload = String(payload ?? '');
       }
 
+      const qos = Number.isInteger(job.qos) ? job.qos : 0;
+      const retain = !!job.retain;
+
+      const meta = job.meta && typeof job.meta === 'object' ? job.meta : {};
+      meta._retries = Number.isInteger(meta._retries) ? meta._retries : 0;
+
+      // Wait up to 10s for any client
+      const startWait = Date.now();
+      while (connectedClients === 0 && Date.now() - startWait < 10000 && running) {
+        await new Promise(r => setTimeout(r, 200));
+      }
       if (connectedClients === 0) {
-        // Push job back into Redis tail for retry, to not lose it
-        await redis.lpush(REDIS_QUEUE_KEY, payloadRaw);
-        console.warn(`${now()} [worker-${id}] mqtt not connected, requeued job`);
+        await redis.lpush(REDIS_QUEUE_KEY, payloadRaw); // requeue
+        console.warn(`${now()} [worker-${id}] no mqtt connection, requeued`);
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
+
+      const client = pickConnectedClient();
+      if (!client) {
+        await redis.lpush(REDIS_QUEUE_KEY, payloadRaw);
+        console.warn(`${now()} [worker-${id}] pool has no connected client, requeued`);
+        await new Promise(r => setTimeout(r, 500));
+        continue;
+      }
+
       try {
-        // Select an MQTT client from the pool (round-robin by loopCount)
-        const clientIndex = loopCount % mqttClients.length;
-        const clientForPublish = mqttClients[clientIndex];
-
-        // Publish using clientForPublish with a small promise wrapper
-        await new Promise((resolve, reject) => {
-          let settled = false;
-          const timer = setTimeout(() => {
-            if (!settled) {
-              settled = true;
-              return reject(new Error('publish timeout'));
-            }
-          }, MQTT_PUBLISH_TIMEOUT_MS);
-
-          clientForPublish.publish(topic, payload, {qos, retain}, (err) => {
-            clearTimeout(timer);
-            if (settled) return;
-            settled = true;
-            if (err) return reject(err);
-            resolve();
-          });
-        });
-
+        await publishWithTimeout(client, topic, payload, { qos, retain });
         publishCount++;
       } catch (err) {
         errorCount++;
-        console.error(`${now()} [worker-${id}] publish failed:`, err.message || err);
-        // push job back to Redis for retry, but avoid tight immediate retry
-        await redis.lpush(REDIS_QUEUE_KEY, payloadRaw);
+        meta._retries += 1;
+        job.meta = meta;
+
+        if (meta._retries > MAX_RETRIES) {
+          const dead = JSON.stringify({ job, reason: err.message, failedAt: now() });
+          await redis.lpush(DEAD_LETTER_KEY, dead);
+          console.error(`${now()} [worker-${id}] publish failed, DLQ (retries=${meta._retries}):`, err.message);
+        } else {
+          const requeue = JSON.stringify(job);
+          await redis.rpush(REDIS_QUEUE_KEY, requeue);
+          console.warn(`${now()} [worker-${id}] publish failed, requeued (retries=${meta._retries}):`, err.message);
+        }
         await new Promise(r => setTimeout(r, 200));
       }
     } catch (err) {
-      // Redis or other unexpected error - log and backoff briefly
-      console.error(`${now()} [worker-${id}] loop error:`, err && err.message ? err.message : err);
+      console.error(`${now()} [worker-${id}] loop error:`, err?.message || err);
       await new Promise(r => setTimeout(r, 1000));
     }
   }
   console.log(`${now()} [worker-${id}] stopped`);
 }
 
-// Start concurrency worker loops
+// Start workers
 const workers = [];
 for (let i = 0; i < CONCURRENCY; i++) {
   workers.push(workerLoop(i + 1));
 }
 
-// Metrics logger
+// Metrics
 const metricsTimer = setInterval(async () => {
   try {
     const qlen = await redis.llen(REDIS_QUEUE_KEY);
-    console.log(`${now()} [metrics] qlen=${qlen} publish=${publishCount} errors=${errorCount} loops=${loopCount} connected=${connected}`);
+    const dlen = await redis.llen(DEAD_LETTER_KEY);
+    console.log(`${now()} [metrics] qlen=${qlen} dlq=${dlen} publish=${publishCount} errors=${errorCount} loops=${loopCount} connected=${connectedClients}`);
   } catch (e) {
-    console.error(`${now()} [metrics] failed to get qlen:`, e && e.message ? e.message : e);
+    console.error(`${now()} [metrics] qlen failed:`, e?.message || e);
   }
 }, METRICS_INTERVAL_MS);
 
+// Shutdown
 async function shutdown() {
   if (!running) return;
   running = false;
   console.log(`${now()} [shutdown] stopping workers...`);
   clearInterval(metricsTimer);
-  try { await Promise.allSettled(workers); } catch (e) {}
-  try { mqttClient.end(true); } catch (e) {}
-  try { await redis.quit(); } catch (e) {}
+  try { await Promise.allSettled(workers); } catch {}
+
+  try {
+    await Promise.allSettled(mqttClients.map(c => new Promise(res => c.end(true, res))));
+  } catch {}
+
+  try { await redis.quit(); } catch {}
   console.log(`${now()} [shutdown] exited`);
   process.exit(0);
 }
 
 process.on('SIGINT', shutdown);
 process.on('SIGTERM', shutdown);
-
-// Unhandled rejections should crash so PM2 can restart with a clean state
 process.on('unhandledRejection', (err) => {
-  console.error(`${now()} [fatal] unhandledRejection:`, err && err.stack ? err.stack : err);
+  console.error(`${now()} [fatal] unhandledRejection:`, err?.stack || err);
   process.exit(1);
 });
 
-// Keep node process alive by awaiting all worker promises
-Promise.all(workers).then(() => shutdown()).catch(() => shutdown());
+Promise.all(workers).then(shutdown).catch(shutdown);

@@ -376,17 +376,18 @@ class ResumeOrderService
      */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
-        Log::error('[ResumeOrderService] publishOrderAnnouncement start', [
+        Log::info('[ResumeOrderService] publishOrderAnnouncement start', [
             'order_id' => $orderId ?? null,
-            'user_id' => $userId ?? null,
-            'type' => $type ?? null,
-            'url' => $url ?? null
+            'user_id'  => $userId ?? null,
+            'type'     => $type ?? null,
+            'url'      => $url ?? null
         ]);
-        // Defensive order paused check
+
+        // Skip paused orders
         try {
             $order = \App\Models\Order::find($orderId);
             if ($order && isset($order->status) && $order->status === 'paused') {
-                Log::info('[publishOrderAnnouncement] Skipping publish because order is paused', ['order_id' => $orderId, 'user_id' => $userId]);
+                Log::info('[publishOrderAnnouncement] Skipping - order paused', ['order_id' => $orderId, 'user_id' => $userId]);
                 return;
             }
         } catch (\Throwable $e) {
@@ -399,81 +400,44 @@ class ResumeOrderService
         }
 
         $payloadArray = [
-            'user_id' => $userId,
-            'url' => $url,
+            'user_id'  => $userId,
+            'url'      => $url,
             'order_id' => $orderId,
-            'type' => $type,
+            'type'     => $type,
         ];
-        Log::error('[ResumeOrderService] publishOrderAnnouncement Data',$payloadArray);
+        Log::info('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
 
-        $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-        $escapedJson = escapeshellarg($json);
-        $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
-
-        // Try enqueue to Redis-backed persistent publisher first (fast, non-blocking)
+        // 1) Fast path: enqueue to Redis worker
+        $enqueued = false;
         try {
             $publisher = app(\App\Services\MqttPublisherRedis::class);
-            $enqueued = false;
-            try {
-                $enqueued = (bool)$publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
-            } catch (\Throwable $inner) {
-                Log::warning('[ResumeOrderService] MqttPublisherRedis->enqueue threw', ['error' => $inner->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
-            }
-
-            if ($enqueued) {
-                Log::error('[ResumeOrderService] Enqueued publish job (queue mode) [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
-                return; // success - non-blocking enqueue
-            }
-
-            // If enqueue failed or returned false and strict mode is enabled, skip sync fallback
-            if (env('MQTT_STRICT_ENQUEUE', false)) {
-                Log::warning('[ResumeOrderService] enqueue failed and MQTT_STRICT_ENQUEUE enabled - skipping sync fallback', ['order_id' => $orderId, 'user_id' => $userId]);
-                return;
-            }
-
-            // Otherwise, proceed to sync fallback
-            Log::warning('[ResumeOrderService] enqueue returned false or failed; falling back to sync [TRACE]', ['order_id' => $orderId, 'user_id' => $userId]);
+            $enqueued = (bool) $publisher->enqueue("orders/{$userId}", $payloadArray, 0, false);
         } catch (\Throwable $e) {
-            Log::warning('[ResumeOrderService] Failed to resolve MqttPublisherRedis', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
-            if (env('MQTT_STRICT_ENQUEUE', false)) {
-                Log::warning('[ResumeOrderService] MQTT_STRICT_ENQUEUE enabled and publisher resolution failed - skipping sync fallback', ['order_id' => $orderId, 'user_id' => $userId]);
-                return;
-            }
+            Log::warning('[ResumeOrderService] MqttPublisherRedis->enqueue failed', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
         }
 
-        // Synchronous fallback: Execute with a PHP-level timeout (proc_open wrapper)
-        $nodeBin = env('NODE_BIN', 'node');
-        $timeoutMs = intval(env('MQTT_PUBLISH_TIMEOUT_MS', 5000)); // default 5s PHP-side timeout
-        $command = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escapedJson;
+        if ($enqueued) {
+            Log::info('[ResumeOrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId]);
+            return;
+        }
 
-        $result = $this->runCommandWithTimeout($command, $timeoutMs);
+        // 2) If strict is enabled, do not block; exit early
+        if (env('MQTT_STRICT_ENQUEUE', true)) {
+            Log::warning('[ResumeOrderService] enqueue failed and MQTT_STRICT_ENQUEUE=true - skipping fallback', ['order_id' => $orderId, 'user_id' => $userId]);
+            return;
+        }
 
-        // Log result and decide fallback
-        if ($result['exit_code'] !== 0) {
-            Log::warning('Failed to publish order announcement (proc)', [
-                'user_id' => $userId,
-                'order_id' => $orderId,
-                'exit_code' => $result['exit_code'],
-                'duration_ms' => $result['duration_ms'],
-                'output' => $result['output']
-            ]);
-
-            // Fallback: launch the same node publisher in background (non-blocking). This avoids long synchronous timeouts
-            $bgCommand = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escapedJson . " > /dev/null 2>&1 &";
+        // 3) Non-blocking background fallback (best effort)
+        try {
+            $json       = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $escaped    = escapeshellarg($json);
+            $nodeBin    = env('NODE_BIN', 'node');
+            $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
+            $bgCommand  = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escaped . " > /dev/null 2>&1 &";
             @exec($bgCommand);
-
-            Log::warning('Fallback publisher launched in background', [
-                'user_id' => $userId,
-                'order_id' => $orderId,
-                'bg_command' => $bgCommand
-            ]);
-        } else {
-            Log::error('Order announcement published (proc)', [
-                'user_id' => $userId,
-                'order_id' => $orderId,
-                'duration_ms' => $result['duration_ms'],
-                'output' => $result['output']
-            ]);
+            Log::warning('[ResumeOrderService] background publisher launched (fallback)', ['order_id' => $orderId, 'user_id' => $userId]);
+        } catch (\Throwable $e) {
+            Log::warning('[ResumeOrderService] background fallback failed', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
         }
     }
 
