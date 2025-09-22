@@ -39,14 +39,27 @@ class MqttPublisherRedis
                 return false;
             }
 
-            $res = Redis::rpush($this->key, $payload);
+            // Use named "queue" connection (config.database.redis.queue) when available so we
+            // enqueue to the same Redis DB the Node worker is configured to watch (DB 2).
+            try {
+                $redisConn = Redis::connection('queue');
+            } catch (\Throwable $e) {
+                // Fall back to default Redis connection
+                $redisConn = Redis::connection();
+            }
+
+            $res = $redisConn->rpush($this->key, $payload);
             // Ensure the list has at least one element after push
             if (!is_int($res) || $res <= 0) {
                 Log::warning('[MqttPublisherRedis] rpush returned unexpected result', ['key' => $this->key, 'rpush' => $res]);
                 return false;
             }
 
-            Redis::expire($this->key, 86400);
+            try {
+                $redisConn->expire($this->key, 86400);
+            } catch (\Throwable $e) {
+                // best-effort expire; don't fail enqueue
+            }
             // Log enqueue success for observability (shows in storage/logs/laravel.log)
             try {
                 Log::info('[MqttPublisherRedis] enqueued', ['key' => $this->key, 'rpush' => $res, 'topic' => $topic, 'meta' => $job['meta']]);
