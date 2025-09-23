@@ -72,9 +72,7 @@ class OrderService
     }
 
     /**
-     * Centralized eligible user selection
-     * Delegate to ResumeOrderService so behavior is consistent across flows
-     * and to avoid duplicate implementations that cause redeclare errors.
+     * Get eligible users for this order
      *
      * @param Order $order
      * @param int $limit Optional limit (kept for signature compatibility)
@@ -82,9 +80,30 @@ class OrderService
      */
     private function getEligibleUsers(Order $order, $limit = 0)
     {
-        $resume = app(\App\Services\ResumeOrderService::class);
-        // ResumeOrderService::getEligibleUsers currently handles pending + new eligible users
-        return $resume->getEligibleUsers($order);
+        $order->loadMissing('user');
+
+        $query = User::where('type', 'user')
+            ->orderBy('id', 'desc')
+            ->whereNotIn('id', function ($q) use ($order) {
+                $q->select('user_id')
+                    ->from('actions')
+                    ->whereIn('order_id', function ($s) use ($order) {
+                        $s->select('id')->from('orders')->where('target_url', $order->target_url);
+                    })
+                    ->whereIn('status', ['done', 'external'])
+                    ->whereNotExists(function ($reciprocal) use ($order) {
+                        $reciprocal->select(DB::raw(1))
+                            ->from('actions as a2')
+                            ->join('orders as o2', 'a2.order_id', '=', 'o2.id')
+                            ->whereColumn('a2.user_id', 'actions.user_id')
+                            ->whereIn('a2.status', ['done', 'external'])
+                            ->where('o2.user_id', $order->user_id)
+                            ->whereColumn('o2.target_url', 'users.profile_link');
+                    });
+            })
+            ->where('profile_link', '!=', $order->target_url);
+
+        return $query->get();
     }
 
     private function createPendingActions(Order $order, $eligibleUsers)
