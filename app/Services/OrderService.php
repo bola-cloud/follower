@@ -78,7 +78,7 @@ class OrderService
      * @param int $limit Optional limit (kept for signature compatibility)
      * @return \Illuminate\Support\Collection
      */
-    private function getEligibleUsers(Order $order, $limit = 0)
+    public function getEligibleUsers(Order $order, $limit = 0)
     {
         $order->loadMissing('user');
 
