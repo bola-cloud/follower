@@ -122,8 +122,9 @@ module.exports.apps.push({
   node_args: '--max-old-space-size=256',
   env: {
     NODE_ENV: 'production',
-    REDIS_URL: 'redis://127.0.0.1:6379',
-    REDIS_QUEUE_KEY: 'mqtt:publish',
+    // Point to Redis logical DB 2 (used by Laravel's queue connection) and include prefix
+    REDIS_URL: 'redis://127.0.0.1:6379/2',
+    REDIS_QUEUE_KEY: 'egf:mqtt:publish',
     MQTT_BROKER: 'mqtt://109.199.112.65:1883',
     CONCURRENCY: '50',
     MQTT_PUBLISH_TIMEOUT_MS: '5000',
@@ -131,8 +132,9 @@ module.exports.apps.push({
   },
   env_production: {
     NODE_ENV: 'production',
-    REDIS_URL: 'redis://127.0.0.1:6379',
-    REDIS_QUEUE_KEY: 'mqtt:publish',
+    // Point to Redis logical DB 2 (used by Laravel's queue connection) and include prefix
+    REDIS_URL: 'redis://127.0.0.1:6379/2',
+    REDIS_QUEUE_KEY: 'egf:mqtt:publish',
     MQTT_BROKER: 'mqtt://109.199.112.65:1883',
     CONCURRENCY: '50',
     MQTT_PUBLISH_TIMEOUT_MS: '5000',
