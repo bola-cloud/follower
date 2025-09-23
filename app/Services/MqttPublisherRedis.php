@@ -39,10 +39,26 @@ class MqttPublisherRedis
                 return false;
             }
 
+            $usedConnection = 'default';
             try {
                 $redisConn = Redis::connection('queue');
+                $usedConnection = 'queue';
             } catch (\Throwable $e) {
                 $redisConn = Redis::connection();
+                $usedConnection = 'default';
+            }
+
+            // Diagnostic info (do not expose sensitive values in prod logs)
+            try {
+                $diag = [
+                    'redis_url' => env('REDIS_URL') ?: env('REDIS_HOST') . ':' . (env('REDIS_PORT') ?: '6379'),
+                    'env_queue_key' => env('MQTT_QUEUE_KEY'),
+                    'using_connection' => $usedConnection,
+                    'pipeline_started_at' => time(),
+                ];
+                Log::debug('[MqttPublisherRedis] enqueue diagnostics', $diag);
+            } catch (\Throwable $__d) {
+                // ignore diag logging errors
             }
 
             $notifyChannel = env('MQTT_QUEUE_PUBSUB_CHANNEL', $this->key . ':notify');
@@ -53,6 +69,13 @@ class MqttPublisherRedis
                 $pipe->expire($this->key, 86400);
                 $pipe->publish($notifyChannel, '1'); // best-effort wake up
             });
+
+            // Record pipeline results for debugging
+            try {
+                Log::debug('[MqttPublisherRedis] pipeline results', ['results' => $results]);
+            } catch (\Throwable $__l) {
+                // ignore
+            }
 
             // RPUSH result is index 0 in pipeline results
             $rpushRes = $results[0] ?? null;
