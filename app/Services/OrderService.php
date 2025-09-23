@@ -72,43 +72,19 @@ class OrderService
     }
 
     /**
-     * Delegate eligible user selection to ResumeOrderService to avoid
-     * duplicate implementations and keep behavior centralized.
+     * Centralized eligible user selection
+     * Delegate to ResumeOrderService so behavior is consistent across flows
+     * and to avoid duplicate implementations that cause redeclare errors.
      *
      * @param Order $order
-     * @param int $limit Optional limit (not currently used by ResumeOrderService)
+     * @param int $limit Optional limit (kept for signature compatibility)
      * @return \Illuminate\Support\Collection
      */
     private function getEligibleUsers(Order $order, $limit = 0)
     {
-        $order->loadMissing('user');
-
-        $query = User::where('type', 'user')
-            ->orderBy('id', 'desc')
-            ->whereNotIn('id', function ($q) use ($order) {
-                $q->select('user_id')
-                    ->from('actions')
-                    ->whereIn('order_id', function ($s) use ($order) {
-                        $s->select('id')->from('orders')->where('target_url', $order->target_url);
-                    })
-                    ->whereIn('status', ['done', 'external'])
-                    ->whereNotExists(function ($reciprocal) use ($order) {
-                        $reciprocal->select(DB::raw(1))
-                            ->from('actions as a2')
-                            ->join('orders as o2', 'a2.order_id', '=', 'o2.id')
-                            ->whereColumn('a2.user_id', 'actions.user_id')
-                            ->whereIn('a2.status', ['done', 'external'])
-                            ->where('o2.user_id', $order->user_id)
-                            ->whereColumn('o2.target_url', 'users.profile_link');
-                    });
-            })
-            ->where('profile_link', '!=', $order->target_url);
-
-        // if ($limit > 0) {
-        //     $query->limit($limit);
-        // }
-
-        return $query->get();
+        $resume = app(\App\Services\ResumeOrderService::class);
+        // ResumeOrderService::getEligibleUsers currently handles pending + new eligible users
+        return $resume->getEligibleUsers($order);
     }
 
     private function createPendingActions(Order $order, $eligibleUsers)
@@ -240,45 +216,6 @@ class OrderService
         } catch (\Throwable $e) {
             Log::warning('[ResumeOrderService] background fallback failed', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
         }
-    }
-
-    /**
-     * Public wrapper to allow controlled invocation of the publisher from controllers or tests.
-     * This calls the existing private publisher and returns a simple result array.
-     */
-    public function publishAnnouncementPublic(int $userId, int $orderId, string $type, string $url): array
-    {
-        try {
-            $this->publishOrderAnnouncement($userId, $orderId, $type, $url);
-            return ['success' => true, 'message' => 'Publish attempted'];
-        } catch (\Throwable $e) {
-            Log::error('[OrderService] publishAnnouncementPublic failed', ['error' => $e->getMessage(), 'order_id' => $orderId, 'user_id' => $userId]);
-            return ['success' => false, 'message' => $e->getMessage()];
-        }
-    }
-
-    private function sendMqttPing(Order $order)
-    {
-        Log::error('[OrderService] sendMqttPing start', [
-            'order_id' => $order->id ?? null
-        ]);
-        static $sentOrders = [];
-
-        if (in_array($order->id, $sentOrders)) {
-            // Log::info("[OrderService] Ping for order {$order->id} already sent, skipping.");
-            return;
-        }
-
-        $sentOrders[] = $order->id;
-
-        $pingData = [
-            'type' => $order->type ?? 'create',
-            'order_id' => $order->id,
-            'activation' => true
-        ];
-
-        $this->publishToMqtt('order/ping/req', $pingData);
-        // Log::info("[OrderService] Sent ping for order {$order->id} to `order/ping/req` via MQTT");
     }
 
     private function publishToMqtt($topic, $data)
