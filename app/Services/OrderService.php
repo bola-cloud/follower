@@ -78,32 +78,63 @@ class OrderService
      * @param int $limit Optional limit (kept for signature compatibility)
      * @return \Illuminate\Support\Collection
      */
-    public function getEligibleUsers(Order $order, $limit = 0)
+    public function getEligibleUsers(Order $order)
     {
-        $order->loadMissing('user');
+        Log::error('[ResumeOrderService] getEligibleUsers start', [
+            'order_id' => $order->id ?? null,
+            'target_url' => $order->target_url ?? null
+        ]);
 
-        $query = User::where('type', 'user')
+        // Get pending users and new eligible users similar to resume method
+        $pendingUserIds = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'pending')
+            ->pluck('user_id')
+            ->toArray();
+
+        $actualDoneCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'done')
+            ->count();
+
+        // Count pending actions created within the past 30 minutes
+        $recentPendingCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'pending')
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->count();
+
+        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
+
+        if ($remaining <= 0) {
+            // Return pending users if any
+            return User::whereIn('id', $pendingUserIds)->get();
+        }
+
+        // Get new eligible users
+        $eligibleUsers = User::where('type', 'user')
             ->orderBy('id', 'desc')
             ->whereNotIn('id', function ($q) use ($order) {
-                $q->select('user_id')
-                    ->from('actions')
-                    ->whereIn('order_id', function ($s) use ($order) {
-                        $s->select('id')->from('orders')->where('target_url', $order->target_url);
-                    })
-                    ->whereIn('status', ['done', 'external'])
-                    ->whereNotExists(function ($reciprocal) use ($order) {
-                        $reciprocal->select(DB::raw(1))
-                            ->from('actions as a2')
-                            ->join('orders as o2', 'a2.order_id', '=', 'o2.id')
-                            ->whereColumn('a2.user_id', 'actions.user_id')
-                            ->whereIn('a2.status', ['done', 'external'])
-                            ->where('o2.user_id', $order->user_id)
-                            ->whereColumn('o2.target_url', 'users.profile_link');
-                    });
+                $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
             })
-            ->where('profile_link', '!=', $order->target_url);
+            ->whereNotIn('id', $pendingUserIds)
+            ->where('profile_link', '!=', $order->target_url)
+            ->whereNotIn('id', function ($sub) use ($order) {
+                $sub->select('a1.user_id')
+                    ->from('actions as a1')
+                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                    ->whereIn('a1.status', ['done', 'external'])
+                    ->whereColumn('o1.target_url', 'users.profile_link')
+                    ->where('o1.user_id', $order->user_id);
+            })
+            // ->limit($remaining)
+            ->get();
 
-        return $query->get();
+        // Combine pending and new eligible users
+        $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
+        $combinedUsers = $pendingUsers->merge($eligibleUsers);
+
+        return $combinedUsers;
     }
 
     private function createPendingActions(Order $order, $eligibleUsers)
