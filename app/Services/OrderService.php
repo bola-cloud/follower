@@ -79,63 +79,11 @@ class OrderService
      * @param int $limit Optional limit (not currently used by ResumeOrderService)
      * @return \Illuminate\Support\Collection
      */
-    public function getEligibleUsers(Order $order)
+    private function getEligibleUsers(Order $order, $limit = 0)
     {
-        Log::error('[ResumeOrderService] getEligibleUsers start', [
-            'order_id' => $order->id ?? null,
-            'target_url' => $order->target_url ?? null
-        ]);
-
-        // Get pending users and new eligible users similar to resume method
-        $pendingUserIds = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->pluck('user_id')
-            ->toArray();
-
-        $actualDoneCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'done')
-            ->count();
-
-        // Count pending actions created within the past 30 minutes
-        $recentPendingCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->where('created_at', '>=', now()->subMinutes(30))
-            ->count();
-
-        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
-
-        if ($remaining <= 0) {
-            // Return pending users if any
-            return User::whereIn('id', $pendingUserIds)->get();
-        }
-
-        // Get new eligible users
-        $eligibleUsers = User::where('type', 'user')
-            ->orderBy('id', 'desc')
-            ->whereNotIn('id', function ($q) use ($order) {
-                $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
-            })
-            ->whereNotIn('id', $pendingUserIds)
-            ->where('profile_link', '!=', $order->target_url)
-            ->whereNotIn('id', function ($sub) use ($order) {
-                $sub->select('a1.user_id')
-                    ->from('actions as a1')
-                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                    ->whereIn('a1.status', ['done', 'external'])
-                    ->whereColumn('o1.target_url', 'users.profile_link')
-                    ->where('o1.user_id', $order->user_id);
-            })
-            // ->limit($remaining)
-            ->get();
-
-        // Combine pending and new eligible users
-        $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
-        $combinedUsers = $pendingUsers->merge($eligibleUsers);
-
-        return $combinedUsers;
+        $resume = app(\App\Services\ResumeOrderService::class);
+        $users = $resume->getEligibleUsers($order);
+        return $users;
     }
 
     private function createPendingActions(Order $order, $eligibleUsers)
