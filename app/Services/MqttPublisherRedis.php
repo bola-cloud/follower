@@ -11,7 +11,8 @@ class MqttPublisherRedis
 
     public function __construct()
     {
-        $this->key = env('MQTT_QUEUE_KEY', 'mqtt:publish');
+        // Support either MQTT_QUEUE_KEY or REDIS_QUEUE_KEY (some deployments use one or the other)
+        $this->key = env('MQTT_QUEUE_KEY', env('REDIS_QUEUE_KEY', 'mqtt:publish'));
     }
 
     /**
@@ -24,6 +25,16 @@ class MqttPublisherRedis
      */
     public function enqueue(string $topic, $payload, int $qos = 0, bool $retain = false): bool
     {
+        if (is_array($payload)) {
+            $payload = json_encode($payload, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            if ($payload === false) {
+                Log::warning('[MqttPublisherRedis] json_encode failed for payload array', ['payload' => $payload, 'error' => json_last_error_msg()]);
+                return false;
+            }
+        } elseif (!is_string($payload)) {
+            Log::warning('[MqttPublisherRedis] Invalid payload type, must be string or array', ['type' => gettype($payload)]);
+            return false;
+        }
         $job = [
             'topic'   => $topic,
             'payload' => $payload,
@@ -48,15 +59,17 @@ class MqttPublisherRedis
                 $usedConnection = 'default';
             }
 
-            // Diagnostic info (do not expose sensitive values in prod logs)
+            // Diagnostic info (ERROR level so it appears in production logs)
             try {
                 $diag = [
-                    'redis_url' => env('REDIS_URL') ?: env('REDIS_HOST') . ':' . (env('REDIS_PORT') ?: '6379'),
-                    'env_queue_key' => env('MQTT_QUEUE_KEY'),
+                    'redis_host' => env('REDIS_HOST') ?: null,
+                    'redis_port' => env('REDIS_PORT') ?: null,
+                    'redis_db' => env('REDIS_DB') ?: null,
+                    'env_queue_key' => env('MQTT_QUEUE_KEY') ?: $this->key,
                     'using_connection' => $usedConnection,
                     'pipeline_started_at' => time(),
                 ];
-                Log::debug('[MqttPublisherRedis] enqueue diagnostics', $diag);
+                Log::error('[MqttPublisherRedis] enqueue diagnostics', $diag);
             } catch (\Throwable $__d) {
                 // ignore diag logging errors
             }
@@ -70,9 +83,9 @@ class MqttPublisherRedis
                 $pipe->publish($notifyChannel, '1'); // best-effort wake up
             });
 
-            // Record pipeline results for debugging
+            // Record pipeline results for debugging (ERROR level for production visibility)
             try {
-                Log::debug('[MqttPublisherRedis] pipeline results', ['results' => $results]);
+                Log::error('[MqttPublisherRedis] pipeline results', ['results' => $results]);
             } catch (\Throwable $__l) {
                 // ignore
             }

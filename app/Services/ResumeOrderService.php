@@ -405,7 +405,7 @@ class ResumeOrderService
             'order_id' => $orderId,
             'type'     => $type,
         ];
-        Log::info('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
+    Log::error('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
 
         // 1) Fast path: enqueue to Redis worker
         $enqueued = false;
@@ -417,7 +417,7 @@ class ResumeOrderService
         }
 
         if ($enqueued) {
-            Log::info('[ResumeOrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId]);
+            Log::error('[ResumeOrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId, 'queue_key' => env('MQTT_QUEUE_KEY', env('REDIS_QUEUE_KEY', 'mqtt:publish'))]);
             return;
         }
 

@@ -104,9 +104,15 @@ async function workerLoop(id) {
       if (!res) continue;
 
       const payloadRaw = res[1];
+      if (process.env.DEBUG_MQTT_WORKER) {
+        try { console.error(`${now()} [worker-${id}] BRPOP raw:`, payloadRaw); } catch(e) {}
+      }
       let job;
       try {
         job = JSON.parse(payloadRaw);
+        if (process.env.DEBUG_MQTT_WORKER) {
+          try { console.error(`${now()} [worker-${id}] parsed job topic=${job.topic} meta=${JSON.stringify(job.meta||{})}`); } catch(e) {}
+        }
       } catch (err) {
         console.error(`${now()} [worker-${id}] invalid JSON, dropping:`, err.message);
         continue; // drop malformed
