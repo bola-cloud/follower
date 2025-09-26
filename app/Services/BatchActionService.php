@@ -20,13 +20,16 @@ class BatchActionService
             return ['inserted' => 0, 'skipped' => 0];
         }
 
-        // Chunk size can be controlled via env for tuning. Default 200 to reduce lock contention.
-        $chunkSize = (int) env('BATCH_ACTION_CHUNK_SIZE', 200);
+    // Chunk size can be controlled via env for tuning. Default 1000 to push throughput if DB can handle it.
+    // Lower values will reduce lock contention but increase round trips.
+    $chunkSize = (int) env('BATCH_ACTION_CHUNK_SIZE', 1000);
         $totalUsers = count($userIds);
 
         // Optional fast mode: if enabled and there are many users, allow larger chunks for throughput
         if ($totalUsers > 2000 && env('BATCH_ACTION_FAST_MODE', false)) {
-            $chunkSize = min(1000, max($chunkSize, intval($totalUsers / max(2, ceil($totalUsers / 1000)))));
+            // allow very large chunks in fast mode but cap to a safe maximum configurable via env
+            $fastMax = (int) env('BATCH_ACTION_FAST_MAX_CHUNK', 5000);
+            $chunkSize = min($fastMax, max($chunkSize, intval($totalUsers / max(2, ceil($totalUsers / 1000)))));
         }
         $totalInserted = 0;
         $totalSkipped = 0;
@@ -104,7 +107,8 @@ class BatchActionService
                 } catch (\Throwable $e) {
                     // If health check fails, proceed normally to avoid blocking
                 }
-                $maxPerMinute = (int) env('BATCH_ACTION_MAX_PER_MIN', 5000);
+                // Allow raising the per-minute global target; default 15000 to allow 5000 inserts/min per worker
+                $maxPerMinute = (int) env('BATCH_ACTION_MAX_PER_MIN', 15000);
                 $nowMinute = gmdate('YmdHi');
                 $globalKey = 'batch_action_rate_global:' . $nowMinute;
 
@@ -189,7 +193,8 @@ class BatchActionService
                     $attempt++;
                     try {
                         // Process the logical batchData in smaller DB transaction chunks to limit lock scope
-                        $dbTxChunkSize = (int) env('BATCH_DB_TX_CHUNK_SIZE', 200);
+                    // Increase DB transaction chunk size to reduce transaction overhead. Default 1000.
+                    $dbTxChunkSize = (int) env('BATCH_DB_TX_CHUNK_SIZE', 1000);
                         $txChunks = array_chunk($batchData, $dbTxChunkSize);
                         $inserted = 0;
 
@@ -262,9 +267,10 @@ class BatchActionService
                     $totalSkipped += (count($chunk) - $inserted);
                 }
 
-                // Small delay between chunks to prevent overwhelming the database
+                // Small configurable delay between chunks to prevent overwhelming the database. Default 1000 microseconds (1ms)
                 if ($chunkIndex < count($chunks) - 1 && count($chunks) > 1) {
-                    usleep(10000); // 10ms pause between chunks
+                    $interChunkUs = (int) env('BATCH_INTER_CHUNK_US', 1000);
+                    if ($interChunkUs > 0) usleep($interChunkUs);
                 }
 
                 Log::info('[BatchActionService] Batch chunk inserted', [
@@ -347,6 +353,58 @@ class BatchActionService
     {
         if (empty($batchData)) {
             return 0;
+        }
+
+        // Optional fast-path using LOAD DATA LOCAL INFILE for very large batches.
+        $useFastLoad = filter_var(env('BATCH_USE_FAST_LOAD', false), FILTER_VALIDATE_BOOLEAN);
+        $fastLoadMin = (int) env('BATCH_FAST_LOAD_MIN_ROWS', 1000);
+        if ($useFastLoad && count($batchData) >= $fastLoadMin) {
+            try {
+                $tmpDir = sys_get_temp_dir();
+                $fileName = $tmpDir . DIRECTORY_SEPARATOR . 'actions_bulk_' . uniqid() . '.csv';
+                $fp = fopen($fileName, 'w');
+                if ($fp === false) {
+                    throw new \RuntimeException('Failed to open temporary file for fast load');
+                }
+
+                foreach ($batchData as $row) {
+                    // Use CSV with tab delimiter to be safe for URLs etc
+                    fputcsv($fp, [$row['order_id'], $row['user_id'], $row['type'], $row['status'], $row['created_at'], $row['updated_at']], '\t');
+                }
+                fclose($fp);
+
+                // Build LOAD DATA LOCAL INFILE SQL (expecting columns order_id,user_id,type,status,created_at,updated_at)
+                $table = DB::getTablePrefix() . 'actions';
+                $sql = "LOAD DATA LOCAL INFILE '" . addslashes($fileName) . "' INTO TABLE `actions` CHARACTER SET utf8mb4 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n' (order_id, user_id, type, status, created_at, updated_at)";
+
+                // Execute using PDO directly to allow LOCAL INFILE
+                $pdo = DB::connection()->getPdo();
+                // Enable local infile attribute if available
+                try {
+                    if (defined('PDO::MYSQL_ATTR_LOCAL_INFILE')) {
+                        $pdo->setAttribute(constant('PDO::MYSQL_ATTR_LOCAL_INFILE'), true);
+                    }
+                } catch (\Throwable $__e) {
+                    // ignore if not allowed
+                }
+
+                $affected = $pdo->exec($sql);
+                // cleanup
+                @unlink($fileName);
+
+                if ($affected === false) {
+                    // fallback if exec failed
+                    Log::warning('[BatchActionService] Fast LOAD DATA failed, falling back to standard insert', ['error' => json_encode($pdo->errorInfo())]);
+                } else {
+                    return intval($affected);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[BatchActionService] Fast LOAD DATA path failed, falling back to standard path', ['error' => $e->getMessage()]);
+                // attempt to unlink temp file if exists
+                if (!empty($fileName) && file_exists($fileName)) {
+                    @unlink($fileName);
+                }
+            }
         }
 
         try {
