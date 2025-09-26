@@ -215,45 +215,78 @@ class ActionQueueJob implements ShouldQueue
 
         // NO TRANSACTION - for maximum speed, single atomic update
         try {
-            // Only update actions that are currently PENDING - prevents duplicate MQTT updates
+            // First, attempt to update an existing pending action (non-done)
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->where('user_id', $userId)
-                ->where('status', 'pending') // ONLY update if status is pending
+                ->where('status', '!=', 'done')
                 ->update([
                     'status' => $status,
                     'performed_at' => now(),
                     'updated_at' => now(),
                 ]);
 
-            if ($updated === 0) {
-                // Action doesn't exist, not pending, or already processed - skip duplicate
-                Log::debug("⚠️ Action not updated (not found, not pending, or already processed)", [
+            if ($updated > 0) {
+                Log::info("✅ Action updated successfully", [
                     'order_id' => $orderId,
                     'user_id' => $userId,
-                    'requested_status' => $status,
-                    'reason' => 'action_not_pending_or_duplicate_mqtt'
+                    'status' => $status,
+                    'rows_affected' => $updated
                 ]);
-                return; // Continue processing - not an error, likely duplicate MQTT
+
+                if ($status === 'done') {
+                    DB::statement(
+                        "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                        [$orderId]
+                    );
+                    $this->checkOrderCompletion($orderId);
+                }
+
+                return;
             }
 
-            Log::info("✅ Action updated successfully", [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'status' => $status,
-                'rows_affected' => $updated
-            ]);
+            // If no rows updated, try to insert the missing action (race conditions may cause missing rows)
+            $existing = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->where('user_id', $userId)
+                ->first();
 
-            // Increment order done_count if action was successful and status is 'done'
-            if ($status === 'done') {
-                DB::statement(
-                    "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
-                    [$orderId]
-                );
+            if (!$existing) {
+                // Insert or ignore in case of concurrent inserts
+                $inserted = DB::table('actions')->insertOrIgnore([
+                    'order_id' => $orderId,
+                    'user_id' => $userId,
+                    'type' => $actionData['type'] ?? 'follow',
+                    'status' => $status,
+                    'performed_at' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now(),
+                ]);
 
-                // Check if order should be completed
-                $this->checkOrderCompletion($orderId);
+                if ($inserted && $status === 'done') {
+                    DB::statement(
+                        "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                        [$orderId]
+                    );
+                    $this->checkOrderCompletion($orderId);
+                }
+
+                Log::info('Inserted missing action during processing', ['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]);
+                return;
             }
+
+            // If action exists and is already done, nothing to do. Ensure order count consistency repair.
+            if ($existing->status === 'done') {
+                // Repair done_count if needed
+                $doneCount = DB::table('actions')->where('order_id', $orderId)->where('status', 'done')->count();
+                DB::table('orders')->where('id', $orderId)->update(['done_count' => $doneCount, 'updated_at' => now()]);
+                Log::debug('Action already done; repaired order done_count if needed', ['order_id' => $orderId, 'user_id' => $userId]);
+                return;
+            }
+
+            // Otherwise, the existing row wasn't updated due to an unexpected condition. Re-queue for retry.
+            Log::warning('Action processing could not update existing row - requeuing for retry', ['order_id' => $orderId, 'user_id' => $userId, 'existing_status' => $existing->status]);
+            $this->requeueActions([['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]]);
 
         } catch (\Throwable $e) {
             Log::error("❌ Failed to update action", [
@@ -262,6 +295,8 @@ class ActionQueueJob implements ShouldQueue
                 'status' => $status,
                 'error' => $e->getMessage()
             ]);
+            // Re-queue current action so it can be retried by another worker
+            $this->requeueActions([['order_id' => $orderId, 'user_id' => $userId, 'status' => $status]]);
             throw $e;
         }
     }
