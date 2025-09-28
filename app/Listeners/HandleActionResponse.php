@@ -53,18 +53,13 @@ class HandleActionResponse
                 ]);
 
             if ($updated) {
-                // If we set status to done, increment the order done_count atomically
+                // If we set status to done, recompute canonical done_count to avoid double-increments
                 if ($normalized === 'done') {
-                    DB::statement(
-                        "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
-                        [$orderId]
-                    );
-
-                    // Fire OrderCompleted if necessary (re-check current values)
-                    $order = \App\Models\Order::find($orderId);
-                    if ($order && $order->done_count >= $order->total_count && $order->status !== 'completed') {
-                        $order->update(['status' => 'completed']);
-                        event(new \App\Events\OrderCompleted($order));
+                    try {
+                        $batchDb = app(\App\Services\BatchDatabaseService::class);
+                        $batchDb->recomputeDoneCountForOrder($orderId);
+                    } catch (\Throwable $__e) {
+                        Log::warning('Failed to recompute done_count after update in HandleActionResponse', ['order_id' => $orderId, 'error' => $__e->getMessage()]);
                     }
                 }
 
@@ -91,10 +86,12 @@ class HandleActionResponse
                 ]);
 
                 if ($created && $normalized === 'done') {
-                    DB::statement(
-                        "UPDATE orders SET done_count = LEAST(done_count + 1, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
-                        [$orderId]
-                    );
+                    try {
+                        $batchDb = app(\App\Services\BatchDatabaseService::class);
+                        $batchDb->recomputeDoneCountForOrder($orderId);
+                    } catch (\Throwable $__e) {
+                        Log::warning('Failed to recompute done_count after create in HandleActionResponse', ['order_id' => $orderId, 'error' => $__e->getMessage()]);
+                    }
                 }
 
                 DB::commit();

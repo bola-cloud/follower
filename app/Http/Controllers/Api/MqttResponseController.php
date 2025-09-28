@@ -59,6 +59,14 @@ class MqttResponseController extends Controller
 
         // 🚀 HIGH-VOLUME PROCESSING: Use the new service for scalable processing
         try {
+            // Lightweight ingress dedupe to avoid duplicate MQTT publishes from topic QoS/resend behaviour
+            $ingressKey = 'mqtt:ingress:' . $orderId . ':' . $userId . ':' . $status . ':' . substr(md5(json_encode($request->all())), 0, 8);
+            $added = Cache::add($ingressKey, true, now()->addSeconds(10));
+            if (!$added) {
+                // Duplicate ingress -- accept but do not reprocess
+                return response()->json(['success' => true, 'message' => 'Duplicate ingress ignored'], 202);
+            }
+
             $highVolumeService = app(\App\Services\HighVolumeProcessingService::class);
             $result = $highVolumeService->processAction($orderId, $userId, $status);
 
@@ -308,6 +316,19 @@ class MqttResponseController extends Controller
                     }
 
                     // Process through high-volume service
+                    // Small per-item ingress dedupe for batch items
+                    $ingressKey = 'mqtt:ingress:' . $orderId . ':' . $userId . ':' . $status . ':' . substr(md5(json_encode($actionData)), 0, 8);
+                    $added = Cache::add($ingressKey, true, now()->addSeconds(10));
+                    if (!$added) {
+                        $results[] = [
+                            'index' => $index,
+                            'success' => true,
+                            'message' => 'Duplicate ingress ignored',
+                            'skipped' => true
+                        ];
+                        continue;
+                    }
+
                     $result = $highVolumeService->processAction($orderId, $userId, $status);
                     $results[] = [
                         'index' => $index,

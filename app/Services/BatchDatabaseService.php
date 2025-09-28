@@ -10,7 +10,7 @@ use App\Models\User;
 
 class BatchDatabaseService
 {
-    private const MAX_BATCH_SIZE = 1000;
+    private const MAX_BATCH_SIZE = 300;
     private const CONNECTION_POOL_SIZE = 5;
     private const BATCH_TIMEOUT = 30; // seconds
 
@@ -402,6 +402,37 @@ class BatchDatabaseService
                 ]);
 
             Log::info('Order completed', ['order_id' => $orderId]);
+        }
+    }
+
+    /**
+     * Recompute authoritative done_count for an order from the actions table.
+     * Public so other services/listeners/controllers can call it to repair/canonicalize counts.
+     * Returns the recomputed done count.
+     */
+    public function recomputeDoneCountForOrder(int $orderId): int
+    {
+        try {
+            $doneCount = DB::table('actions')
+                ->where('order_id', $orderId)
+                ->whereIn('status', ['done', 'external'])
+                ->count();
+
+            DB::statement(
+                "UPDATE orders SET done_count = LEAST(?, total_count), updated_at = NOW() WHERE id = ?",
+                [$doneCount, $orderId]
+            );
+
+            // Mark completed if needed
+            DB::statement(
+                "UPDATE orders SET status = 'completed', updated_at = NOW() WHERE id = ? AND done_count >= total_count AND status != 'completed'",
+                [$orderId]
+            );
+
+            return (int)$doneCount;
+        } catch (\Throwable $e) {
+            Log::warning('[BatchDatabaseService] recomputeDoneCountForOrder failed', ['order_id' => $orderId, 'error' => $e->getMessage()]);
+            return 0;
         }
     }
 
