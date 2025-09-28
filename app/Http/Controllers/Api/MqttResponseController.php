@@ -505,8 +505,8 @@ class MqttResponseController extends Controller
         $activation = $validated['activation'] ?? true;
         $isBulk = $validated['bulk_processing'] ?? false;
 
-        // 🚀 OPTIMIZED: Get the order and user with minimal fields
-        $order = \App\Models\Order::select('id', 'total_count', 'done_count', 'status', 'type', 'target_url')->find($orderId);
+        // Lightweight existence check: ensure order and user exist before enqueueing heavy work
+        $order = \App\Models\Order::select('id', 'type', 'status')->find($orderId);
         $user = \App\Models\User::select('id', 'type')->find($userId);
 
         if (!$order || !$user) {
@@ -516,44 +516,33 @@ class MqttResponseController extends Controller
             ], 404);
         }
 
-        // 🚀 FAST PATH: Skip expensive checks for bulk processing
+        // If bulk flag, keep previous fast path behavior (dispatch to background job but return quickly)
         if ($isBulk) {
-            return $this->fastTriggerOrder($order, $user, $type);
+            // Dispatch background job for the bulk trigger and return quickly
+            \App\Jobs\ProcessTriggerOrderJob::dispatch($orderId, $userId, $type, $validated['message_id'] ?? null)->onQueue('trigger-orders');
+            return response()->json(['success' => true, 'queued' => true, 'message' => 'Bulk trigger enqueued'], 202);
         }
 
-        // 🚀 REMOVE LOCKING: The user reports that DB locking is preventing actions from being updated
-        // Simple capacity check without locking - let the services handle race conditions internally
-        $doneCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'done')
-            ->count();
-
-        $pendingCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->where('created_at', '>=', now()->subMinutes(15))
-            ->count();
-
-        $remaining = $order->total_count - $doneCount;
-        $availableSlots = $order->total_count - $doneCount - $pendingCount;
-
-        if ($remaining <= 0) {
-            return response()->json(['error' => 'Order already completed.'], 400);
+        // Deduplicate by message_id or a short hash of the payload to avoid duplicate processing/retries
+        $messageId = $validated['message_id'] ?? null;
+        if ($messageId) {
+            $dedupeKey = 'trigger:d:' . $messageId;
+        } else {
+            $dedupeKey = 'trigger:h:' . md5($orderId . ':' . $userId . ':' . $type);
         }
 
-        if ($availableSlots <= 0) {
-            return response()->json(['error' => 'No available slots.'], 400);
+        // Attempt to set a short-lived dedupe lock (use cache driver - prefer Redis). If already set, return quickly.
+        $dedupeSet = \Cache::add($dedupeKey, true, now()->addSeconds(30));
+        if (!$dedupeSet) {
+            // Duplicate request - accept but do not re-enqueue
+            return response()->json(['success' => true, 'queued' => false, 'message' => 'Duplicate trigger ignored'], 202);
         }
 
-        // Heavy processing outside transaction - will use its own locking/logic
+        // Enqueue processing to background job for smoother load handling
         try {
-            if ($type === 'resume') {
-                $service = app(\App\Services\ResumeOrderService::class);
-                $result = $service->handle($order, $user);
-            } else {
-                $service = app(\App\Services\OrderService::class);
-                $result = $service->handle($order, $user);
-            }
+            \App\Jobs\ProcessTriggerOrderJob::dispatch($orderId, $userId, $type, $validated['message_id'] ?? null)->onQueue('trigger-orders');
+            return response()->json(['success' => true, 'queued' => true, 'message' => 'Trigger enqueued'], 202);
+
         } catch (\Illuminate\Database\QueryException $e) {
             // Handle database connection issues specifically
             if (strpos($e->getMessage(), 'Connection refused') !== false || strpos($e->getMessage(), '2002') !== false) {
@@ -571,20 +560,8 @@ class MqttResponseController extends Controller
             return response()->json(['error' => 'Failed to process order.'], 500);
         }
 
-        // Final trace log: this is the last place the triggerOrder flow reaches
-        try {
-            \Log::info('[triggerOrder] reached final return (order/ping/res)', [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'type' => $type,
-                'message_id' => $validated['message_id'] ?? null,
-                'result_summary' => is_array($result) ? array_slice($result, 0, 10) : $result,
-            ]);
-        } catch (\Throwable $_e) {
-            // Swallow logging errors to avoid breaking response flow
-        }
-
-        return response()->json($result);
+        // We now enqueue and return early; final processing happens in background job
+        return response()->json(['success' => true, 'queued' => true], 202);
     }
 
     /**
