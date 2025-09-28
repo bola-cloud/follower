@@ -106,6 +106,8 @@ class BatchDatabaseService
 
         // Group updates by status for efficiency
         $updateGroups = [];
+        // Track per-order increments when status becomes 'done'
+        $orderIncrements = [];
         foreach ($updates as $update) {
             $status = $update['status'];
             $key = md5($status);
@@ -121,6 +123,11 @@ class BatchDatabaseService
                 'order_id' => $update['order_id'],
                 'user_id' => $update['user_id']
             ];
+
+            if ($status === 'done') {
+                $oid = intval($update['order_id']);
+                $orderIncrements[$oid] = ($orderIncrements[$oid] ?? 0) + 1;
+            }
         }
 
         DB::beginTransaction();
@@ -132,6 +139,22 @@ class BatchDatabaseService
                     $group['conditions']
                 );
                 $totalUpdated += $updated;
+            }
+
+            // Apply order done_count increments within the same transaction to keep counts consistent
+            if (!empty($orderIncrements)) {
+                foreach ($orderIncrements as $orderId => $inc) {
+                    DB::statement(
+                        "UPDATE orders SET done_count = LEAST(done_count + ?, total_count), updated_at = NOW() WHERE id = ? AND done_count < total_count",
+                        [$inc, $orderId]
+                    );
+
+                    // If order has reached completion, mark it completed (idempotent)
+                    DB::statement(
+                        "UPDATE orders SET status = 'completed', updated_at = NOW() WHERE id = ? AND done_count >= total_count AND status != 'completed'",
+                        [$orderId]
+                    );
+                }
             }
 
             DB::commit();
