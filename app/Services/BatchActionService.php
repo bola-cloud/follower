@@ -22,7 +22,7 @@ class BatchActionService
 
     // Chunk size can be controlled via env for tuning. Default 1000 to push throughput if DB can handle it.
     // Lower values will reduce lock contention but increase round trips.
-    $chunkSize = (int) env('BATCH_ACTION_CHUNK_SIZE', 1000);
+    $chunkSize = (int) env('BATCH_ACTION_CHUNK_SIZE', 100);
         $totalUsers = count($userIds);
 
         // Optional fast mode: if enabled and there are many users, allow larger chunks for throughput

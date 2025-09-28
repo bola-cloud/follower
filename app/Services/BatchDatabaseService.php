@@ -10,7 +10,7 @@ use App\Models\User;
 
 class BatchDatabaseService
 {
-    private const MAX_BATCH_SIZE = 300;
+    private const MAX_BATCH_SIZE = 100;
     private const CONNECTION_POOL_SIZE = 5;
     private const BATCH_TIMEOUT = 30; // seconds
 
