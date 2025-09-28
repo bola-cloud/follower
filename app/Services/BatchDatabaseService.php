@@ -10,7 +10,7 @@ use App\Models\User;
 
 class BatchDatabaseService
 {
-    private const MAX_BATCH_SIZE = 500;
+    private const MAX_BATCH_SIZE = 1000;
     private const CONNECTION_POOL_SIZE = 5;
     private const BATCH_TIMEOUT = 30; // seconds
 
@@ -133,6 +133,7 @@ class BatchDatabaseService
         DB::beginTransaction();
 
         try {
+            Log::debug('[BatchDatabaseService] batchUpdateActionStatus groups', ['groups' => array_map(function($g){ return ['status' => $g['status'], 'conditions' => count($g['conditions'])]; }, $updateGroups), 'order_increments' => $orderIncrements]);
             foreach ($updateGroups as $group) {
                 $updated = $this->batchUpdateSameStatus(
                     $group['status'],
@@ -183,9 +184,10 @@ class BatchDatabaseService
         // Build WHERE clause with OR conditions
         $whereConditions = [];
 
-        // Bindings must follow the order of placeholders in the SQL above.
-        // SQL placeholders order: status, updated_at, performed_at, then all condition values.
-        $bindings = [$status, now(), /* performed_at placeholder will be bound below */];
+    // Bindings must follow the order of placeholders in the SQL above.
+    // SQL placeholders order: status, updated_at, performed_at, then all condition values.
+    $nowStr = now()->toDateTimeString();
+    $bindings = [$status, $nowStr, /* performed_at placeholder will be bound below */];
 
         foreach ($conditions as $condition) {
             $whereConditions[] = '(order_id = ? AND user_id = ?)';
@@ -193,18 +195,20 @@ class BatchDatabaseService
             $bindings[] = $condition['user_id'];
         }
 
-        // performed_at should be the same as the timestamp we already bound for updated_at
-        // so insert it at position 3 (index 2)
-        $performedAt = now();
-        array_splice($bindings, 2, 0, [$performedAt]);
+    // performed_at should be the same timestamp string we already bound for updated_at
+    // so insert it at position 3 (index 2)
+    $performedAt = $nowStr;
+    array_splice($bindings, 2, 0, [$performedAt]);
 
-        $sql = "UPDATE actions SET
-                    status = ?,
-                    updated_at = ?,
-                    performed_at = CASE WHEN status = 'pending' THEN ? ELSE performed_at END
-                WHERE status = 'pending' AND (" . implode(' OR ', $whereConditions) . ")";
+    $sql = "UPDATE actions SET
+            status = ?,
+            updated_at = ?,
+            performed_at = CASE WHEN status = 'pending' THEN ? ELSE performed_at END
+        WHERE status = 'pending' AND (" . implode(' OR ', $whereConditions) . ")";
 
-        return DB::connection()->affectingStatement($sql, $bindings);
+    Log::debug('[BatchDatabaseService] batchUpdateSameStatus executing', ['sql' => $sql, 'bindings_preview' => array_slice($bindings, 0, 8), 'conditions_count' => count($whereConditions)]);
+
+    return DB::connection()->affectingStatement($sql, $bindings);
     }
 
     /**
