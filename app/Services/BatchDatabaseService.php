@@ -184,63 +184,63 @@ class BatchDatabaseService
         // Build WHERE clause with OR conditions
         $whereConditions = [];
 
-    // Bindings must follow the order of placeholders in the SQL above.
-    // SQL placeholders order: status, updated_at, performed_at, then all condition values.
-    $nowStr = now()->toDateTimeString();
-    $bindings = [$status, $nowStr, /* performed_at placeholder will be bound below */];
+        // Bindings must follow the order of placeholders in the SQL above.
+        // SQL placeholders order: status, updated_at, performed_at, then all condition values.
+        $nowStr = now()->toDateTimeString();
+        $bindings = [$status, $nowStr, /* performed_at placeholder will be bound below */];
 
-        foreach ($conditions as $condition) {
-            $whereConditions[] = '(order_id = ? AND user_id = ?)';
-            $bindings[] = $condition['order_id'];
-            $bindings[] = $condition['user_id'];
+            foreach ($conditions as $condition) {
+                $whereConditions[] = '(order_id = ? AND user_id = ?)';
+                $bindings[] = $condition['order_id'];
+                $bindings[] = $condition['user_id'];
+            }
+
+        // performed_at should be the same timestamp string we already bound for updated_at
+        // so insert it at position 3 (index 2)
+        $performedAt = $nowStr;
+        array_splice($bindings, 2, 0, [$performedAt]);
+
+        $sql = "UPDATE actions SET
+                status = ?,
+                updated_at = ?,
+                performed_at = CASE WHEN status = 'pending' THEN ? ELSE performed_at END
+            WHERE status = 'pending' AND (" . implode(' OR ', $whereConditions) . ")";
+
+        Log::debug('[BatchDatabaseService] batchUpdateSameStatus executing', ['sql' => $sql, 'bindings_preview' => array_slice($bindings, 0, 8), 'conditions_count' => count($whereConditions)]);
+
+        $updated = DB::connection()->affectingStatement($sql, $bindings);
+
+        // If some updates didn't affect rows because actions were missing, insert missing rows
+        // Build INSERT IGNORE for the same (order_id, user_id) pairs to create missing actions.
+        // Use performed_at = now for status updates where appropriate. Use a sensible default for type.
+        $inserted = 0;
+        try {
+            $insertValues = [];
+            $insertBindings = [];
+            $typeDefault = 'follow';
+            foreach ($conditions as $cond) {
+                $insertValues[] = '(?, ?, ?, ?, ?, ?)';
+                // order_id, user_id, type, status, performed_at, created_at (use same timestamp for created/updated)
+                $insertBindings[] = $cond['order_id'];
+                $insertBindings[] = $cond['user_id'];
+                $insertBindings[] = $typeDefault;
+                $insertBindings[] = $status;
+                $insertBindings[] = $nowStr; // performed_at
+                $insertBindings[] = $nowStr; // created_at (updated_at handled by DB default or separate column)
+            }
+
+            if (!empty($insertValues)) {
+                // Note: use INSERT IGNORE to avoid duplicate key errors if row was created concurrently
+                $insSql = "INSERT IGNORE INTO actions (order_id, user_id, type, status, performed_at, created_at) VALUES " . implode(',', $insertValues);
+                Log::debug('[BatchDatabaseService] batchUpdateSameStatus insertFallback', ['sql' => $insSql, 'bindings_preview' => array_slice($insertBindings, 0, 8)]);
+                $inserted = DB::connection()->affectingStatement($insSql, $insertBindings);
+            }
+        } catch (\Throwable $e) {
+            // If insert fallback fails, log and continue — we don't want to abort the whole transaction here
+            Log::warning('[BatchDatabaseService] insertFallback failed', ['error' => $e->getMessage()]);
         }
 
-    // performed_at should be the same timestamp string we already bound for updated_at
-    // so insert it at position 3 (index 2)
-    $performedAt = $nowStr;
-    array_splice($bindings, 2, 0, [$performedAt]);
-
-    $sql = "UPDATE actions SET
-            status = ?,
-            updated_at = ?,
-            performed_at = CASE WHEN status = 'pending' THEN ? ELSE performed_at END
-        WHERE status = 'pending' AND (" . implode(' OR ', $whereConditions) . ")";
-
-    Log::debug('[BatchDatabaseService] batchUpdateSameStatus executing', ['sql' => $sql, 'bindings_preview' => array_slice($bindings, 0, 8), 'conditions_count' => count($whereConditions)]);
-
-    $updated = DB::connection()->affectingStatement($sql, $bindings);
-
-    // If some updates didn't affect rows because actions were missing, insert missing rows
-    // Build INSERT IGNORE for the same (order_id, user_id) pairs to create missing actions.
-    // Use performed_at = now for status updates where appropriate. Use a sensible default for type.
-    $inserted = 0;
-    try {
-        $insertValues = [];
-        $insertBindings = [];
-        $typeDefault = 'follow';
-        foreach ($conditions as $cond) {
-            $insertValues[] = '(?, ?, ?, ?, ?, ?)';
-            // order_id, user_id, type, status, performed_at, created_at (use same timestamp for created/updated)
-            $insertBindings[] = $cond['order_id'];
-            $insertBindings[] = $cond['user_id'];
-            $insertBindings[] = $typeDefault;
-            $insertBindings[] = $status;
-            $insertBindings[] = $nowStr; // performed_at
-            $insertBindings[] = $nowStr; // created_at (updated_at handled by DB default or separate column)
-        }
-
-        if (!empty($insertValues)) {
-            // Note: use INSERT IGNORE to avoid duplicate key errors if row was created concurrently
-            $insSql = "INSERT IGNORE INTO actions (order_id, user_id, type, status, performed_at, created_at) VALUES " . implode(',', $insertValues);
-            Log::debug('[BatchDatabaseService] batchUpdateSameStatus insertFallback', ['sql' => $insSql, 'bindings_preview' => array_slice($insertBindings, 0, 8)]);
-            $inserted = DB::connection()->affectingStatement($insSql, $insertBindings);
-        }
-    } catch (\Throwable $e) {
-        // If insert fallback fails, log and continue — we don't want to abort the whole transaction here
-        Log::warning('[BatchDatabaseService] insertFallback failed', ['error' => $e->getMessage()]);
-    }
-
-    return $updated + $inserted;
+        return $updated + $inserted;
     }
 
     /**
