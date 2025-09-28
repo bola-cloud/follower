@@ -159,7 +159,10 @@ class BatchDatabaseService
 
         // Build WHERE clause with OR conditions
         $whereConditions = [];
-        $bindings = [$status, now()];
+
+        // Bindings must follow the order of placeholders in the SQL above.
+        // SQL placeholders order: status, updated_at, performed_at, then all condition values.
+        $bindings = [$status, now(), /* performed_at placeholder will be bound below */];
 
         foreach ($conditions as $condition) {
             $whereConditions[] = '(order_id = ? AND user_id = ?)';
@@ -167,13 +170,16 @@ class BatchDatabaseService
             $bindings[] = $condition['user_id'];
         }
 
+        // performed_at should be the same as the timestamp we already bound for updated_at
+        // so insert it at position 3 (index 2)
+        $performedAt = now();
+        array_splice($bindings, 2, 0, [$performedAt]);
+
         $sql = "UPDATE actions SET
                     status = ?,
                     updated_at = ?,
                     performed_at = CASE WHEN status = 'pending' THEN ? ELSE performed_at END
                 WHERE status = 'pending' AND (" . implode(' OR ', $whereConditions) . ")";
-
-        $bindings[] = now(); // for performed_at
 
         return DB::connection()->affectingStatement($sql, $bindings);
     }
