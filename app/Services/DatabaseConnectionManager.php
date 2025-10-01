@@ -13,6 +13,7 @@ class DatabaseConnectionManager
     private const MAX_CONNECTIONS = 10;
     private const CONNECTION_TIMEOUT = 30;
 
+    
     /**
      * Get a dedicated connection for batch operations
      */
