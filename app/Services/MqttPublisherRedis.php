@@ -61,11 +61,27 @@ class MqttPublisherRedis
 
             // Diagnostic info (ERROR level so it appears in production logs)
             try {
+                $resolvedEnvKey = env('MQTT_QUEUE_KEY') ?: env('REDIS_QUEUE_KEY') ?: $this->key;
+                // Try to read the selected DB index from the active connection if possible
+                $selectedDb = null;
+                try {
+                    if (method_exists($redisConn, 'getConnection')) {
+                        $conn = $redisConn->getConnection();
+                        if (is_object($conn) && method_exists($conn, 'getDatabase')) {
+                            $selectedDb = $conn->getDatabase();
+                        }
+                    }
+                } catch (\Throwable $__db) {
+                    // best-effort only
+                    $selectedDb = null;
+                }
+
                 $diag = [
                     'redis_host' => env('REDIS_HOST') ?: null,
                     'redis_port' => env('REDIS_PORT') ?: null,
-                    'redis_db' => env('REDIS_DB') ?: null,
-                    'env_queue_key' => env('MQTT_QUEUE_KEY') ?: $this->key,
+                    'redis_db_env' => env('REDIS_DB') ?: null,
+                    'redis_db_selected' => $selectedDb,
+                    'env_queue_key' => $resolvedEnvKey,
                     'using_connection' => $usedConnection,
                     'pipeline_started_at' => time(),
                 ];
