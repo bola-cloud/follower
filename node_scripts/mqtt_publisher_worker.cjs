@@ -97,6 +97,12 @@ function publishWithTimeout(client, topic, payload, opts) {
 // ---------- WORKER LOOP ----------
 async function workerLoop(id) {
   console.log(`${now()} [worker-${id}] started`);
+  if (id === 1) {
+    // Log resolved runtime config once for visibility
+    try {
+      console.log(`${now()} [config] REDIS_URL=${REDIS_URL} REDIS_QUEUE_KEY=${REDIS_QUEUE_KEY} DEAD_LETTER_KEY=${DEAD_LETTER_KEY} MQTT_BROKER=${MQTT_BROKER} CLIENT_POOL=${CLIENT_POOL}`);
+    } catch (e) {}
+  }
   while (running) {
     try {
       const res = await redis.brpop(REDIS_QUEUE_KEY, 5); // 5s
@@ -161,6 +167,8 @@ async function workerLoop(id) {
       try {
         await publishWithTimeout(client, topic, payload, { qos, retain });
         publishCount++;
+        // Small success log to make publishes visible in pm2 logs
+        try { console.log(`${now()} [worker-${id}] published topic=${topic}`); } catch (e) {}
       } catch (err) {
         errorCount++;
         meta._retries += 1;

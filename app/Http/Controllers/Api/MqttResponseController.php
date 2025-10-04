@@ -451,6 +451,84 @@ class MqttResponseController extends Controller
         ]);
     }
 
+    /**
+     * 🚀 BATCH ENDPOINT: Process multiple ping responses at once (5000+ req/min capable)
+     * Accepts array of ping responses and dispatches to bulk queue for processing
+     */
+    public function triggerOrderBatch(Request $request)
+    {
+        $validated = $request->validate([
+            'batch_id' => 'required|string',
+            'responses' => 'required|array|min:1|max:500', // Max 500 per batch
+            'responses.*.order_id' => 'required|numeric',
+            'responses.*.user_id' => 'required|numeric',
+            'responses.*.type' => 'required|string',
+            'responses.*.message_id' => 'sometimes|string',
+        ]);
+
+        $batchId = $validated['batch_id'];
+        $responses = $validated['responses'];
+        $totalResponses = count($responses);
+
+        Log::info('[MqttResponseController] Batch ping request received', [
+            'batch_id' => $batchId,
+            'total_responses' => $totalResponses
+        ]);
+
+        // Normalize types and cast IDs
+        $normalizedResponses = [];
+        foreach ($responses as $response) {
+            $orderId = (int) $response['order_id'];
+            $userId = (int) $response['user_id'];
+            $incomingType = strtolower($response['type']);
+            
+            // Normalize type: 'resume' stays 'resume', everything else becomes 'create'
+            $type = in_array($incomingType, ['resume']) ? 'resume' : 'create';
+
+            $normalizedResponses[] = [
+                'order_id' => $orderId,
+                'user_id' => $userId,
+                'type' => $type,
+                'message_id' => $response['message_id'] ?? null,
+            ];
+        }
+
+        // Dispatch to bulk queue (6 workers from supervisor config)
+        try {
+            \App\Jobs\ProcessPingBatchJob::dispatch($normalizedResponses, $batchId);
+
+            // Update batch metrics
+            try {
+                $metricsKey = 'ping_batch_received:' . gmdate('YmdH');
+                \Illuminate\Support\Facades\Redis::hincrby($metricsKey, 'batches', 1);
+                \Illuminate\Support\Facades\Redis::hincrby($metricsKey, 'responses', $totalResponses);
+                \Illuminate\Support\Facades\Redis::expire($metricsKey, 7200);
+            } catch (\Throwable $e) {
+                // Ignore metrics errors
+            }
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Batch queued for processing',
+                'batch_id' => $batchId,
+                'total_responses' => $totalResponses
+            ], 202); // 202 Accepted
+
+        } catch (\Throwable $e) {
+            Log::error('[MqttResponseController] Failed to dispatch batch job', [
+                'batch_id' => $batchId,
+                'total_responses' => $totalResponses,
+                'error' => $e->getMessage()
+            ]);
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Failed to queue batch',
+                'error' => $e->getMessage()
+            ], 500);
+        }
+    }
+
     public function triggerOrder(Request $request)
     {
         // Remove noisy stray debug; add structured trace for visibility

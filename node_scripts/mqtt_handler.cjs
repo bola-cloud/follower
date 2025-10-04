@@ -22,6 +22,13 @@ const BATCH_SIZE = parseInt(process.env.MQTT_BATCH_SIZE || '10', 10);
 const BATCH_TIMEOUT = parseInt(process.env.MQTT_BATCH_TIMEOUT || '2000', 10); // ms
 const HEALTH_CHECK_INTERVAL = parseInt(process.env.MQTT_HEALTH_CHECK_INTERVAL || '30000', 10); // 30s
 
+// 🚀 NEW: Ping response batching for high-volume processing (5000+ req/min)
+const PING_BATCH_ENABLED = process.env.PING_BATCH_ENABLED !== 'false'; // Enable by default
+const PING_BATCH_SIZE = parseInt(process.env.PING_BATCH_SIZE || '100', 10); // 100 ping responses per batch
+const PING_BATCH_TIMEOUT = parseInt(process.env.PING_BATCH_TIMEOUT || '200', 10); // 200ms flush interval
+const pendingPingResponses = []; // Batch queue for ping responses
+let pingBatchTimer = null;
+
 // System health tracking
 let systemHealth = { status: 'unknown', lastCheck: 0, circuitOpen: false };
 const pendingActions = []; // For batching action responses
@@ -115,6 +122,68 @@ function processBatchedActions() {
   });
 }
 
+// 🚀 NEW: Batch processing for ping responses (order/ping/res topic)
+function processPingBatch() {
+  if (pendingPingResponses.length === 0) return;
+
+  const batch = pendingPingResponses.splice(0, PING_BATCH_SIZE);
+  if (batch.length === 0) return;
+
+  const batchId = randomUUID();
+  
+  if (DEBUG) console.log(`📦 Processing ping batch: ${batch.length} responses (batch_id=${batchId})`);
+
+  // Send batch to new endpoint
+  const batchPayload = {
+    batch_id: batchId,
+    responses: batch,
+    timestamp: Date.now()
+  };
+
+  throttledPost(`${API_BASE}/api/mqtt/trigger-order-batch`, batchPayload)
+    .then(() => {
+      if (DEBUG) console.log(`✅ Ping batch ${batchId} sent successfully (${batch.length} responses)`);
+    })
+    .catch((err) => {
+      console.error(`❌ Ping batch ${batchId} failed:`, err.response?.data || err.message);
+      
+      // Fallback: process individually if batch fails
+      if (batch.length <= 10) {
+        console.warn(`⚠️ Falling back to individual processing for ${batch.length} ping responses`);
+        for (const response of batch) {
+          processSinglePingResponse(response).catch(err => {
+            console.error('❌ Individual ping fallback failed:', err.message);
+          });
+        }
+      } else {
+        console.error(`❌ Dropping large batch of ${batch.length} ping responses after failure`);
+      }
+    });
+}
+
+// Helper: process single ping response (fallback)
+async function processSinglePingResponse(response) {
+  const postBody = {
+    message_id: response.message_id,
+    order_id: response.order_id,
+    user_id: response.user_id,
+    type: response.type,
+    activation: true
+  };
+  return throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
+}
+
+// Start batch processing timers
+if (BATCH_ENABLED) {
+  setInterval(processBatchedActions, BATCH_TIMEOUT);
+}
+
+// 🚀 NEW: Start ping batch processing timer
+if (PING_BATCH_ENABLED) {
+  setInterval(processPingBatch, PING_BATCH_TIMEOUT);
+  console.log(`✅ Ping batch processing enabled: batch_size=${PING_BATCH_SIZE}, timeout=${PING_BATCH_TIMEOUT}ms`);
+}
+
 async function processBatch(actions) {
   if (!BATCH_ENABLED || actions.length <= 1) {
     // Process individually
@@ -144,11 +213,6 @@ async function processBatch(actions) {
     }
     throw err;
   }
-}
-
-// Start batch processing timer
-if (BATCH_ENABLED) {
-  setInterval(processBatchedActions, BATCH_TIMEOUT);
 }
 
 async function postWithRetries(url, data, retries = 4, backoff = 300) {
@@ -293,13 +357,6 @@ client.on('message', async (topic, message) => {
       }
 
       const messageId = randomUUID();
-      const postBody = {
-        message_id: messageId,
-        order_id: orderId,
-        user_id: userId,
-        type: mappedType,
-        activation: true
-      };
 
       // Detect if this order_id was previously announced via orders/+
       if (!KNOWN_ORDERS.has(orderId)) {
@@ -309,9 +366,34 @@ client.on('message', async (topic, message) => {
         recordMissingOrder(orderId, payload, topic);
       }
 
-      const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
+      // 🚀 NEW: Add to batch queue instead of immediate HTTP call
+      if (PING_BATCH_ENABLED) {
+        pendingPingResponses.push({
+          message_id: messageId,
+          order_id: orderId,
+          user_id: userId,
+          type: mappedType
+        });
 
-      if (DEBUG) console.log('✅ Triggered API:', res.data || res.status, 'message_id=', messageId);
+        // Flush immediately if batch is full
+        if (pendingPingResponses.length >= PING_BATCH_SIZE) {
+          processPingBatch();
+        }
+
+        if (DEBUG) console.log(`📦 Ping response queued for batch: ${pendingPingResponses.length}/${PING_BATCH_SIZE} (order=${orderId}, user=${userId})`);
+      } else {
+        // Fallback: old synchronous behavior
+        const postBody = {
+          message_id: messageId,
+          order_id: orderId,
+          user_id: userId,
+          type: mappedType,
+          activation: true
+        };
+
+        const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
+        if (DEBUG) console.log('✅ Triggered API:', res.data || res.status, 'message_id=', messageId);
+      }
     } catch (err) {
       console.error('❌ Failed to trigger API for ping response:', err.response?.data || err.message);
     }
@@ -426,9 +508,19 @@ process.on('SIGINT', () => {
   console.log('📡 MQTT handler shutting down...');
 
   // Process any remaining batched actions before shutdown
-  if (pendingActions.length > 0) {
-    console.log(`🔄 Processing ${pendingActions.length} remaining actions...`);
-    processBatchedActions();
+  const hasPendingActions = pendingActions.length > 0;
+  const hasPendingPings = PING_BATCH_ENABLED && pendingPingResponses.length > 0;
+
+  if (hasPendingActions || hasPendingPings) {
+    if (hasPendingActions) {
+      console.log(`🔄 Processing ${pendingActions.length} remaining actions...`);
+      processBatchedActions();
+    }
+    
+    if (hasPendingPings) {
+      console.log(`🔄 Processing ${pendingPingResponses.length} remaining ping responses...`);
+      processPingBatch();
+    }
 
     // Wait a moment for processing
     setTimeout(() => {
