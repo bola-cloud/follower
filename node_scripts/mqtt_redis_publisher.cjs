@@ -2,9 +2,10 @@
 const mqtt = require('mqtt');
 const Redis = require('ioredis');
 
-const BROKER = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
-const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379/2'; // use queues DB
-const QUEUE_KEY = process.env.MQTT_QUEUE_KEY || 'mqtt:publish';
+// Resolve broker, Redis URL and queue key with multiple fallback env names
+const BROKER = process.env.MQTT_BROKER || process.env.MQTT_BROKER_URL || 'mqtt://109.199.112.65:1883';
+const REDIS_URL = process.env.REDIS_URL || process.env.REDIS_MQTT_URL || process.env.REDIS_MQTT || 'redis://127.0.0.1:6379/2'; // use queues DB
+const QUEUE_KEY = process.env.MQTT_QUEUE_KEY || process.env.MQTT_PUBLISH_QUEUE_KEY || process.env.REDIS_QUEUE_KEY || process.env.MQTT_PUBLISH_QUEUE || 'mqtt:publish';
 
 const redis = new Redis(REDIS_URL, { lazyConnect: false, maxRetriesPerRequest: null });
 const client = mqtt.connect(BROKER, { reconnectPeriod: 1000, keepalive: 30 });
@@ -13,6 +14,13 @@ client.on('connect', () => console.log('✅ MQTT publisher connected to', BROKER
 client.on('reconnect', () => console.log('🔁 MQTT reconnecting'));
 client.on('error', (e) => console.error('❌ MQTT error:', e && e.message ? e.message : e));
 redis.on('error', (e) => console.error('❌ Redis error:', e && e.message ? e.message : e));
+
+// Diagnostic startup info
+console.log('🔎 mqtt_redis_publisher startup config:', {
+  BROKER,
+  REDIS_URL,
+  QUEUE_KEY
+});
 
 async function loop() {
   while (true) {
