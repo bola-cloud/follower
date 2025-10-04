@@ -48,13 +48,6 @@ class PublishOrderAnnouncementBatchJob implements ShouldQueue
     public $tries = 2;
 
     /**
-     * Queue name - use 'high' queue for urgent order announcements
-     * 
-     * @var string
-     */
-    public $queue = 'high';
-
-    /**
      * Order ID
      * 
      * @var int

@@ -210,7 +210,7 @@ class OrderService
                     $order->target_url,
                     $chunk,
                     "order_{$order->id}_chunk_{$index}"
-                );
+                )->onQueue('high');
 
                 // Small delay between chunk dispatches to avoid Redis overload
                 if (($index + 1) % 10 === 0) {

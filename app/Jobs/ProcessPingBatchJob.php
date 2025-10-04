@@ -257,7 +257,7 @@ class ProcessPingBatchJob implements ShouldQueue
                     $order->target_url,
                     $chunk,
                     "{$this->batchId}_publish_chunk_{$chunkIndex}"
-                );
+                )->onQueue('high');
 
                 // Small delay between chunk dispatches to prevent Redis overload
                 if (($chunkIndex + 1) % 10 === 0) {
