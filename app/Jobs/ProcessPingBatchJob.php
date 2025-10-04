@@ -135,6 +135,11 @@ class ProcessPingBatchJob implements ShouldQueue
         }
 
         if ($order->status !== 'active') {
+            Log::warning('[ProcessPingBatchJob] Order not active', [
+                'batch_id' => $this->batchId,
+                'order_id' => $orderId,
+                'status' => $order->status
+            ]);
             return ['processed' => 0, 'failed' => count($userIds)];
         }
 
@@ -163,6 +168,14 @@ class ProcessPingBatchJob implements ShouldQueue
         $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
 
         if ($remaining <= 0) {
+            Log::warning('[ProcessPingBatchJob] No remaining capacity', [
+                'batch_id' => $this->batchId,
+                'order_id' => $orderId,
+                'total_count' => $order->total_count,
+                'done_count' => $actualDoneCount,
+                'pending_count' => $recentPendingCount,
+                'remaining' => $remaining
+            ]);
             return ['processed' => 0, 'failed' => count($userIds)];
         }
 
@@ -174,6 +187,14 @@ class ProcessPingBatchJob implements ShouldQueue
         }
 
         if (empty($eligibleUserIds)) {
+            Log::warning('[ProcessPingBatchJob] No eligible users found', [
+                'batch_id' => $this->batchId,
+                'order_id' => $orderId,
+                'type' => $type,
+                'total_user_ids' => count($userIds),
+                'users_found' => $users->count(),
+                'remaining_capacity' => $remaining
+            ]);
             return ['processed' => 0, 'failed' => count($userIds)];
         }
 
