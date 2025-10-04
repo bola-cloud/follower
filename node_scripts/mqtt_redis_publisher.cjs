@@ -22,7 +22,24 @@ console.log('🔎 mqtt_redis_publisher startup config:', {
   QUEUE_KEY
 });
 
+// Env-driven debug and wait-for-connect controls
+const DEBUG = process.env.DEBUG_MQTT_PUBLISHER === '1' || process.env.DEBUG_MQTT_PUBLISHER === 'true';
+const WAIT_FOR_MQTT = process.env.WAIT_FOR_MQTT === '1' || process.env.WAIT_FOR_MQTT === 'true';
+const PUSH_FAILS_TO_RETRY = process.env.MQTT_PUSH_FAILS_TO_RETRY === '1' || process.env.MQTT_PUSH_FAILS_TO_RETRY === 'true';
+
+if (DEBUG) console.log('⚙️ mqtt_redis_publisher debug enabled');
+
 async function loop() {
+  // Optionally wait for MQTT connect before consuming jobs to avoid popping jobs when publisher offline
+  if (WAIT_FOR_MQTT) {
+    if (client.connected) {
+      if (DEBUG) console.log('MQTT already connected, starting consumer loop');
+    } else {
+      if (DEBUG) console.log('Waiting for MQTT connection before consuming queue...');
+      await new Promise((resolve) => client.once('connect', resolve));
+    }
+  }
+
   while (true) {
     // BRPOP blocks until an item is available (no busy polling)
     const res = await redis.brpop(QUEUE_KEY, 0);
@@ -30,7 +47,10 @@ async function loop() {
     const [, raw] = res;
 
     let job;
-    try { job = JSON.parse(raw); } catch { continue; }
+    try { job = JSON.parse(raw); } catch (err) {
+      console.error('❌ Invalid JSON job popped from queue, skipping', err && err.message);
+      continue;
+    }
 
     const topic  = job.topic;
     const payload = typeof job.payload === 'string' ? job.payload : JSON.stringify(job.payload);
@@ -39,12 +59,23 @@ async function loop() {
       retain: Boolean(job.retain ?? false)
     };
 
+    if (DEBUG) console.log('📤 popped job', { topic, opts, rawSnippet: raw.slice(0, 200) });
+
+    // publish with a callback; don't block other operations but ensure we log failures
     await new Promise((resolve) => {
-      client.publish(topic, payload, opts, (err) => {
+      client.publish(topic, payload, opts, async (err) => {
         if (err) {
-          console.error('❌ Publish failed:', topic, err.message);
-          // Optional: push to a retry queue
-          // redis.lpush(`${QUEUE_KEY}:retry`, raw).catch(()=>{});
+          console.error('❌ Publish failed:', topic, err && err.message ? err.message : err);
+          if (PUSH_FAILS_TO_RETRY) {
+            try {
+              await redis.lpush(`${QUEUE_KEY}:retry`, raw);
+              console.log('🔁 pushed failing job to retry list');
+            } catch (e) {
+              console.error('❌ Failed to push to retry list', e && e.message ? e.message : e);
+            }
+          }
+        } else if (DEBUG) {
+          console.log('✅ Published', topic);
         }
         resolve();
       });
