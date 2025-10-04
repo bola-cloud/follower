@@ -163,10 +163,28 @@ class OrderService
                 'skipped' => $result['skipped']
             ]);
 
-            // After actions are created, publish order announcements in chunks
-            // This prevents overwhelming the system with 1000+ individual publish jobs
+            // After actions are created, publish order announcements to inform MQTT handler
+            // This ensures devices know about the order before they receive pings
             if ($result['inserted'] > 0) {
-                $this->enqueueChunkedOrderAnnouncements($order, $userIds);
+                // Publish announcements to first 50 users synchronously
+                // This ensures MQTT handler records known orders before ping is sent
+                $syncChunk = array_slice($userIds, 0, 50);
+                foreach ($syncChunk as $uid) {
+                    try {
+                        $this->publishOrderAnnouncement($uid, $order->id, $order->type, $order->target_url);
+                    } catch (\Throwable $je) {
+                        Log::warning('[OrderService] Failed to publish synchronous order announcement', [
+                            'order_id' => $order->id,
+                            'user_id' => $uid,
+                            'error' => $je->getMessage()
+                        ]);
+                    }
+                }
+
+                Log::error('[OrderService] Synchronously announced order to initial users', [
+                    'order_id' => $order->id,
+                    'announced_count' => count($syncChunk)
+                ]);
             }
 
         } catch (\Throwable $e) {
@@ -177,62 +195,6 @@ class OrderService
             ]);
             throw $e;
         }
-    }
-
-    /**
-     * Enqueue order announcements in chunks to avoid overwhelming the system
-     * 
-     * Instead of enqueuing 1000+ individual publish jobs, chunk users into
-     * batches of 80-200 and enqueue each chunk as a single job.
-     * 
-     * @param \App\Models\Order $order
-     * @param array $userIds
-     * @return void
-     */
-    private function enqueueChunkedOrderAnnouncements($order, array $userIds)
-    {
-        $chunkSize = (int) env('MQTT_PUBLISH_CHUNK_SIZE', 100);
-        $userChunks = array_chunk($userIds, $chunkSize);
-        
-        Log::info('[OrderService] Enqueuing chunked order announcements', [
-            'order_id' => $order->id,
-            'total_users' => count($userIds),
-            'chunk_size' => $chunkSize,
-            'total_chunks' => count($userChunks)
-        ]);
-
-        foreach ($userChunks as $index => $chunk) {
-            try {
-                // Dispatch batch publish job to 'high' queue (16 workers)
-                \App\Jobs\PublishOrderAnnouncementBatchJob::dispatch(
-                    $order->id,
-                    $order->type,
-                    $order->target_url,
-                    $chunk,
-                    "order_{$order->id}_chunk_{$index}"
-                )->onQueue('high');
-
-                // Small delay between chunk dispatches to avoid Redis overload
-                if (($index + 1) % 10 === 0) {
-                    usleep(5000); // 5ms pause every 10 chunks
-                }
-
-            } catch (\Throwable $e) {
-                Log::error('[OrderService] Failed to enqueue announcement chunk', [
-                    'order_id' => $order->id,
-                    'chunk_index' => $index,
-                    'chunk_size' => count($chunk),
-                    'error' => $e->getMessage()
-                ]);
-                
-                // Continue with remaining chunks even if one fails
-            }
-        }
-
-        Log::info('[OrderService] Chunked announcements enqueued successfully', [
-            'order_id' => $order->id,
-            'chunks_enqueued' => count($userChunks)
-        ]);
     }
 
     /**
