@@ -202,6 +202,19 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             return false;
         }
 
+        // ✅ Check if user has done/external actions on OTHER orders with same target_url
+        $hasSameTargetAction = DB::table('actions')
+            ->join('orders', 'actions.order_id', '=', 'orders.id')
+            ->where('orders.target_url', $order->target_url)
+            ->where('orders.id', '!=', $order->id) // Different order, same target URL
+            ->where('actions.user_id', $user->id)
+            ->whereIn('actions.status', ['done', 'external']) // Exclude done/external, allow pending
+            ->exists();
+
+        if ($hasSameTargetAction) {
+            return false;
+        }
+
         return true;
     }
 
