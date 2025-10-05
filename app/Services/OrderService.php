@@ -128,14 +128,14 @@ class OrderService
                     ->where('o1.user_id', $order->user_id);
             })
             // ✅ Exclude users who have done/external actions on OTHER orders with same target_url
-            ->whereNotIn('id', function ($sub) use ($order) {
-                $sub->select('user_id')
-                    ->from('actions')
-                    ->join('orders', 'actions.order_id', '=', 'orders.id')
-                    ->where('orders.target_url', $order->target_url)
-                    ->where('orders.id', '!=', $order->id) // Different order, same target URL
-                    ->whereIn('actions.status', ['done', 'external']); // Exclude done/external, allow pending
-            })
+            // ->whereNotIn('id', function ($sub) use ($order) {
+            //     $sub->select('user_id')
+            //         ->from('actions')
+            //         ->join('orders', 'actions.order_id', '=', 'orders.id')
+            //         ->where('orders.target_url', $order->target_url)
+            //         ->where('orders.id', '!=', $order->id) // Different order, same target URL
+            //         ->whereIn('actions.status', ['done', 'external']); // Exclude done/external, allow pending
+            // })
             // ->limit($remaining)
             ->get();
 
