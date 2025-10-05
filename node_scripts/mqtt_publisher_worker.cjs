@@ -10,8 +10,17 @@ const mqtt = require('mqtt');
 const IORedis = require('ioredis');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
+// Base queue key (from env). Worker will attempt BRPOP on multiple candidate keys
 const REDIS_QUEUE_KEY = process.env.REDIS_QUEUE_KEY || 'mqtt:publish';
-const DEAD_LETTER_KEY = `${REDIS_QUEUE_KEY}:dead`;
+// Redis key prefix used by Laravel (if any). Defaults to 'egf:' in this project.
+const REDIS_PREFIX = process.env.REDIS_PREFIX || 'egf:';
+// Candidate keys to poll: raw key, single-prefixed, double-prefixed (handles accidental double-prefixing)
+const REDIS_QUEUE_KEYS = [
+  REDIS_QUEUE_KEY,
+  `${REDIS_PREFIX}${REDIS_QUEUE_KEY}`,
+  `${REDIS_PREFIX}${REDIS_PREFIX}${REDIS_QUEUE_KEY}`,
+].filter((v, i, a) => a.indexOf(v) === i);
+// dead letter keys will be computed from the actual popped key dynamically
 const MQTT_BROKER = process.env.MQTT_BROKER || 'mqtt://109.199.112.65:1883';
 const CONCURRENCY = parseInt(process.env.CONCURRENCY || '50', 10);
 const MQTT_PUBLISH_TIMEOUT_MS = parseInt(process.env.MQTT_PUBLISH_TIMEOUT_MS || '5000', 10);
@@ -105,10 +114,12 @@ async function workerLoop(id) {
   }
   while (running) {
     try {
-      const res = await redis.brpop(REDIS_QUEUE_KEY, 5); // 5s
+      // BRPOP across candidate keys; res[0] will be the key popped from, res[1] the value
+      const res = await redis.brpop(REDIS_QUEUE_KEYS, 5); // 5s
       loopCount++;
       if (!res) continue;
 
+      const poppedKey = res[0];
       const payloadRaw = res[1];
       if (process.env.DEBUG_MQTT_WORKER) {
         try { console.error(`${now()} [worker-${id}] BRPOP raw:`, payloadRaw); } catch(e) {}
@@ -150,16 +161,18 @@ async function workerLoop(id) {
         await new Promise(r => setTimeout(r, 200));
       }
       if (connectedClients === 0) {
-        await redis.lpush(REDIS_QUEUE_KEY, payloadRaw); // requeue
-        console.warn(`${now()} [worker-${id}] no mqtt connection, requeued`);
+        // Requeue back to the same key we popped from
+        await redis.lpush(poppedKey, payloadRaw); // requeue
+        console.warn(`${now()} [worker-${id}] no mqtt connection, requeued to ${poppedKey}`);
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
 
       const client = pickConnectedClient();
       if (!client) {
-        await redis.lpush(REDIS_QUEUE_KEY, payloadRaw);
-        console.warn(`${now()} [worker-${id}] pool has no connected client, requeued`);
+        // Requeue back to the same key we popped from
+        await redis.lpush(poppedKey, payloadRaw);
+        console.warn(`${now()} [worker-${id}] pool has no connected client, requeued to ${poppedKey}`);
         await new Promise(r => setTimeout(r, 500));
         continue;
       }
@@ -176,12 +189,14 @@ async function workerLoop(id) {
 
         if (meta._retries > MAX_RETRIES) {
           const dead = JSON.stringify({ job, reason: err.message, failedAt: now() });
-          await redis.lpush(DEAD_LETTER_KEY, dead);
+          // push to DLQ derived from the key we popped from
+          await redis.lpush(`${poppedKey}:dead`, dead);
           console.error(`${now()} [worker-${id}] publish failed, DLQ (retries=${meta._retries}):`, err.message);
         } else {
           const requeue = JSON.stringify(job);
-          await redis.rpush(REDIS_QUEUE_KEY, requeue);
-          console.warn(`${now()} [worker-${id}] publish failed, requeued (retries=${meta._retries}):`, err.message);
+          // requeue to the same key we popped from
+          await redis.rpush(poppedKey, requeue);
+          console.warn(`${now()} [worker-${id}] publish failed, requeued to ${poppedKey} (retries=${meta._retries}):`, err.message);
         }
         await new Promise(r => setTimeout(r, 200));
       }
@@ -202,8 +217,12 @@ for (let i = 0; i < CONCURRENCY; i++) {
 // Metrics
 const metricsTimer = setInterval(async () => {
   try {
-    const qlen = await redis.llen(REDIS_QUEUE_KEY);
-    const dlen = await redis.llen(DEAD_LETTER_KEY);
+    // sum lengths across candidate keys for visibility
+    const qlens = await Promise.all(REDIS_QUEUE_KEYS.map(k => redis.llen(k).catch(() => 0)));
+    const qlen = qlens.reduce((a, b) => a + (Number(b) || 0), 0);
+    // sum dead-letter lengths across candidate keys
+    const dlens = await Promise.all(REDIS_QUEUE_KEYS.map(k => redis.llen(`${k}:dead`).catch(() => 0)));
+    const dlen = dlens.reduce((a, b) => a + (Number(b) || 0), 0);
     console.log(`${now()} [metrics] qlen=${qlen} dlq=${dlen} publish=${publishCount} errors=${errorCount} loops=${loopCount} connected=${connectedClients}`);
   } catch (e) {
     console.error(`${now()} [metrics] qlen failed:`, e?.message || e);
