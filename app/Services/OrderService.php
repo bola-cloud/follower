@@ -156,34 +156,20 @@ class OrderService
             // Use batch service for optimized insertion
             $result = $batchService->batchInsertPendingAction($order, $userIds);
 
-            Log::error('[OrderService] Batch pending actions created', [
+            Log::info('[OrderService] Created batch pending actions', [
                 'order_id' => $order->id,
                 'eligible_users_count' => count($userIds),
                 'inserted' => $result['inserted'],
                 'skipped' => $result['skipped']
             ]);
 
-            // After actions are created, publish order announcements to inform MQTT handler
-            // This ensures devices know about the order before they receive pings
+            // ✅ NO PUBLISHING HERE: Order announcements will be sent by ProcessPingResponseBatchJob
+            // after devices respond to ping requests. This prevents duplicate publishing.
             if ($result['inserted'] > 0) {
-                // Publish announcements to first 50 users synchronously
-                // This ensures MQTT handler records known orders before ping is sent
-                $syncChunk = array_slice($userIds, 0, 50);
-                foreach ($syncChunk as $uid) {
-                    try {
-                        $this->publishOrderAnnouncement($uid, $order->id, $order->type, $order->target_url);
-                    } catch (\Throwable $je) {
-                        Log::warning('[OrderService] Failed to publish synchronous order announcement', [
-                            'order_id' => $order->id,
-                            'user_id' => $uid,
-                            'error' => $je->getMessage()
-                        ]);
-                    }
-                }
-
-                Log::error('[OrderService] Synchronously announced order to initial users', [
+                Log::info('[OrderService] Actions created, batch job will handle announcements', [
                     'order_id' => $order->id,
-                    'announced_count' => count($syncChunk)
+                    'action_count' => $result['inserted'],
+                    'note' => 'Announcements will be sent after ping responses processed'
                 ]);
             }
 
@@ -350,30 +336,14 @@ class OrderService
             $result = $resumeService->batchInsertPendingAction($order, [$user->id]);
 
             if ($result['inserted'] > 0) {
-                    // Add focused logging immediately before publish so we can trace topics and payloads
-                    $topic = "orders/{$user->id}";
-                    $pingTopic = 'order/ping/req';
-                    $expectedResTopic = 'order/ping/res';
-                    $payload = [
-                        'user_id' => $user->id,
-                        'url' => $order->target_url,
-                        'order_id' => $order->id,
-                        'type' => $order->type,
-                    ];
-
-                    Log::error('[OrderService] About to publish announcement from handle', [
-                        'order_id' => $order->id,
-                        'user_id' => $user->id,
-                        'topic' => $topic,
-                        'payload' => $payload,
-                        'publish_mode' => env('MQTT_PUBLISH_MODE', 'sync'),
-                        'ping_topic' => $pingTopic,
-                        'expected_response_topic' => $expectedResTopic,
-                    ]);
-
-                    // Publish synchronously for this user
-                    $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                return ['message' => 'User processed successfully and announcement published.'];
+                // ✅ NO PUBLISHING HERE: Order announcements will be sent by ProcessPingResponseBatchJob
+                // after devices respond to ping requests. This prevents duplicate publishing.
+                Log::info('[OrderService] Action created for user, batch job will handle announcement', [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'note' => 'Announcement will be sent after ping response processed'
+                ]);
+                return ['message' => 'User processed successfully. Order announcement will be sent via batch job.'];
             }
 
             return ['message' => 'Action already exists or was handled concurrently.'];

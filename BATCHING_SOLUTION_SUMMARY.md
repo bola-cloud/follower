@@ -19,30 +19,30 @@ Your system was experiencing critical issues when handling concurrent ping respo
 
 ---
 
-## Solution Architecture
+## Solution Overview
 
-Implemented a **3-tier batching system** to handle 5000+ concurrent ping responses:
+We implemented a **3-tier batching architecture** that handles both:
+1. **Order activation (ping responses)** - `order/ping/res` topic
+2. **Order completion responses** - `order/res/{order_id}/{user_id}` topic
 
-### Tier 1: MQTT Handler - Response Accumulator
-**File**: `node_scripts/mqtt_handler.cjs`
+### Key Architectural Decision: Single Publishing Source
 
-**What changed**:
-- Added `pingResponseBatch[]` accumulator array
-- Ping responses collected for 500ms or until 100 responses
-- Batch sent to new `/api/mqtt/trigger-order-batch` endpoint instead of individual calls
+**Important**: Order announcements (`orders/{user_id}`) are published **ONLY** by `ProcessPingResponseBatchJob` to prevent duplicate messages.
 
-**Benefits**:
-- **99% reduction** in HTTP calls (1000 responses → 10 API calls)
-- Handles burst traffic without overwhelming API
-- Configurable batch size and timeout
+**Flow**:
+1. Service (OrderService/ResumeOrderService) creates pending action in database
+2. Service sends MQTT ping to devices (`order/ping/req`)
+3. Devices respond on `order/ping/res`
+4. mqtt_handler batches responses and sends to API
+5. ProcessPingResponseBatchJob processes batch:
+   - Inserts/updates pending actions
+   - **Publishes order announcements** ← **ONLY PUBLISH POINT**
+6. Devices receive single order notification on `orders/{user_id}`
+7. Devices complete order and send status on `order/res/{order_id}/{user_id}`
 
-**Configuration**:
-```bash
-PING_BATCH_ENABLED=true          # Enable batching
-PING_BATCH_SIZE=100              # Flush after 100 responses
-PING_BATCH_TIMEOUT=500           # Or flush after 500ms
-PING_BATCH_MAX_SIZE=1000         # Emergency flush threshold
-```
+**Previous Issue**: Both services AND batch job were publishing, causing duplicate `orders/{user_id}` messages, which led to duplicate `order/res` responses and duplicate database updates.
+
+**Fixed**: Services no longer publish. Only the batch job publishes after processing ping responses.
 
 ---
 

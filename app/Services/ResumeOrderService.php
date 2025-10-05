@@ -68,11 +68,14 @@ class ResumeOrderService
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
-                // Dispatch queued MQTT publish job instead of synchronous publish
-                // Trace log for produced publish attempt
-                Log::error('[ResumeOrderService] dispatching publish for existing pending action [TRACE]', ['order_id' => $order->id, 'user_id' => $user->id]);
-                $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                return ['message' => 'Pending action re-dispatched for this user.'];
+                // ✅ NO PUBLISHING HERE: Order announcements will be sent by ProcessPingResponseBatchJob
+                // after devices respond to ping requests. This prevents duplicate publishing.
+                Log::info('[ResumeOrderService] Pending action exists, batch job will handle announcement', [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'note' => 'Announcement will be sent after ping response processed'
+                ]);
+                return ['message' => 'Pending action exists. Announcement will be sent via batch job.'];
             }
             // Block if status is done or external
             if (in_array($existingAction->status, ['done', 'external'])) {
@@ -86,11 +89,14 @@ class ResumeOrderService
             $result = $this->batchInsertPendingAction($order, [$user->id]);
 
                 if ($result['inserted'] > 0) {
-                    // Trace log for produced publish attempt
-                    Log::error('[ResumeOrderService] publish job enqueued after insertion [TRACE]', ['order_id' => $order->id, 'user_id' => $user->id]);
-                    // Dispatch queued MQTT publish job after successful insertion
-                    $this->publishOrderAnnouncement($user->id, $order->id, $order->type, $order->target_url);
-                    return ['message' => 'User processed successfully.'];
+                    // ✅ NO PUBLISHING HERE: Order announcements will be sent by ProcessPingResponseBatchJob
+                    // after devices respond to ping requests. This prevents duplicate publishing.
+                    Log::info('[ResumeOrderService] Action inserted, batch job will handle announcement', [
+                        'order_id' => $order->id,
+                        'user_id' => $user->id,
+                        'note' => 'Announcement will be sent after ping response processed'
+                    ]);
+                    return ['message' => 'User processed successfully. Announcement will be sent via batch job.'];
                 } else {
                     return ['message' => 'Action already exists or was handled concurrently.'];
                 }
