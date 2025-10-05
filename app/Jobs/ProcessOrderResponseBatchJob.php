@@ -13,10 +13,10 @@ use Illuminate\Support\Facades\Redis;
 
 /**
  * ProcessOrderResponseBatchJob
- * 
+ *
  * Processes batches of order/res responses (done/external status) from MQTT devices.
  * Updates existing actions in the database in chunks to prevent deadlocks and improve performance.
- * 
+ *
  * Flow:
  * 1. Receive batch of {order_id, user_id, status} responses
  * 2. Group by status (done/external)
@@ -25,7 +25,7 @@ use Illuminate\Support\Facades\Redis;
  * 5. Update order done_count for 'done' status updates
  * 6. Mark orders as completed when done_count >= total_count
  * 7. Record per-minute metrics in Redis
- * 
+ *
  * Performance:
  * - Handles 1000+ concurrent responses with <3s processing time
  * - Reduces DB queries by 99%: 1000 individual UPDATEs → 12 chunked batch UPDATEs

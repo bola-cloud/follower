@@ -16,14 +16,14 @@ class MqttResponseController extends Controller
 {
     /**
      * ⚠️ DEPRECATED: Single order response handler
-     * 
+     *
      * This method is deprecated in favor of batch processing (handleBatch).
      * Use batch endpoint for all order responses to achieve better performance.
-     * 
+     *
      * Performance comparison:
      * - Single: 1000 responses = 1000 HTTP calls + 1000 DB queries
      * - Batch: 1000 responses = 10 HTTP calls + 12 DB queries (99% reduction)
-     * 
+     *
      * @deprecated Use handleBatch() instead for better performance and scalability
      */
     public function handle(Request $request)
@@ -213,7 +213,7 @@ class MqttResponseController extends Controller
     /**
      * 🚀 BATCH HANDLER: Process batches of order/res responses efficiently
      * Groups responses by status and dispatches background jobs for chunked processing
-     * 
+     *
      * Handles 1000+ concurrent order completion responses with <3s processing
      * Reduces DB queries by 99%: 1000 individual UPDATEs → 12 chunked batch UPDATEs
      */
