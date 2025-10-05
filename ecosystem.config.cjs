@@ -22,6 +22,16 @@ module.exports = {
         MQTT_BATCH_SIZE: '20',
         MQTT_BATCH_TIMEOUT: '3000',
         MQTT_HEALTH_CHECK_INTERVAL: '30000',
+        // Ping response batching (for order/ping/res)
+        PING_BATCH_ENABLED: 'true',
+        PING_BATCH_SIZE: '100',
+        PING_BATCH_TIMEOUT: '500',
+        PING_BATCH_MAX_SIZE: '1000',
+        // Order response batching (for order/res/{order_id}/{user_id})
+        ORDER_RES_BATCH_ENABLED: 'true',
+        ORDER_RES_BATCH_SIZE: '50',
+        ORDER_RES_BATCH_TIMEOUT: '500',
+        ORDER_RES_BATCH_MAX_SIZE: '500',
         DEBUG: 'false'
       },
 
@@ -35,6 +45,16 @@ module.exports = {
         MQTT_BATCH_SIZE: '10',
         MQTT_BATCH_TIMEOUT: '2000',
         MQTT_HEALTH_CHECK_INTERVAL: '15000',
+        // Ping response batching (for order/ping/res)
+        PING_BATCH_ENABLED: 'true',
+        PING_BATCH_SIZE: '50',
+        PING_BATCH_TIMEOUT: '1000',
+        PING_BATCH_MAX_SIZE: '500',
+        // Order response batching (for order/res/{order_id}/{user_id})
+        ORDER_RES_BATCH_ENABLED: 'true',
+        ORDER_RES_BATCH_SIZE: '25',
+        ORDER_RES_BATCH_TIMEOUT: '1000',
+        ORDER_RES_BATCH_MAX_SIZE: '250',
         DEBUG: 'true'
       },
 
@@ -48,6 +68,16 @@ module.exports = {
         MQTT_BATCH_SIZE: '20',
         MQTT_BATCH_TIMEOUT: '3000',
         MQTT_HEALTH_CHECK_INTERVAL: '30000',
+        // Ping response batching (for order/ping/res)
+        PING_BATCH_ENABLED: 'true',
+        PING_BATCH_SIZE: '100',
+        PING_BATCH_TIMEOUT: '500',
+        PING_BATCH_MAX_SIZE: '1000',
+        // Order response batching (for order/res/{order_id}/{user_id})
+        ORDER_RES_BATCH_ENABLED: 'true',
+        ORDER_RES_BATCH_SIZE: '50',
+        ORDER_RES_BATCH_TIMEOUT: '500',
+        ORDER_RES_BATCH_MAX_SIZE: '500',
         DEBUG: 'false'
       },
 
@@ -61,6 +91,16 @@ module.exports = {
         MQTT_BATCH_SIZE: '30',
         MQTT_BATCH_TIMEOUT: '1500',
         MQTT_HEALTH_CHECK_INTERVAL: '10000',
+        // Ping response batching (for order/ping/res)
+        PING_BATCH_ENABLED: 'true',
+        PING_BATCH_SIZE: '150',
+        PING_BATCH_TIMEOUT: '300',
+        PING_BATCH_MAX_SIZE: '1500',
+        // Order response batching (for order/res/{order_id}/{user_id})
+        ORDER_RES_BATCH_ENABLED: 'true',
+        ORDER_RES_BATCH_SIZE: '75',
+        ORDER_RES_BATCH_TIMEOUT: '300',
+        ORDER_RES_BATCH_MAX_SIZE: '750',
         DEBUG: 'true'
       },
 

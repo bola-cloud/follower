@@ -32,6 +32,15 @@ const PING_BATCH_MAX_SIZE = parseInt(process.env.PING_BATCH_MAX_SIZE || '1000', 
 const pingResponseBatch = []; // Accumulator for ping responses
 let pingBatchTimer = null;
 
+// ✅ ORDER RESPONSE BATCHING: Accumulate order/res responses for batch processing
+const ORDER_RES_BATCH_ENABLED = process.env.ORDER_RES_BATCH_ENABLED !== 'false';
+const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '50', 10); // Max actions per batch
+const ORDER_RES_BATCH_TIMEOUT = parseInt(process.env.ORDER_RES_BATCH_TIMEOUT || '500', 10); // Max wait time in ms
+const ORDER_RES_BATCH_MAX_SIZE = parseInt(process.env.ORDER_RES_BATCH_MAX_SIZE || '500', 10); // Emergency flush threshold
+
+const orderResponseBatch = []; // Accumulator for order/res responses
+let orderResBatchTimer = null;
+
 // System health tracking
 let systemHealth = { status: 'unknown', lastCheck: 0, circuitOpen: false };
 const pendingActions = []; // For batching action responses
@@ -216,6 +225,65 @@ async function flushPingResponseBatch(reason = 'timer') {
 // Start ping batch flush timer
 if (PING_BATCH_ENABLED) {
   setInterval(() => flushPingResponseBatch('timer'), PING_BATCH_TIMEOUT);
+}
+
+// ✅ ORDER RESPONSE BATCH PROCESSING: Flush accumulated order/res responses
+async function flushOrderResponseBatch(reason = 'timer') {
+  if (orderResponseBatch.length === 0) return;
+
+  // Clear timer if active
+  if (orderResBatchTimer) {
+    clearTimeout(orderResBatchTimer);
+    orderResBatchTimer = null;
+  }
+
+  const batch = orderResponseBatch.splice(0, ORDER_RES_BATCH_MAX_SIZE);
+  const batchId = randomUUID();
+  const batchSize = batch.length;
+
+  if (DEBUG) console.log(`📦 Flushing order response batch: ${batchSize} actions (reason: ${reason})`);
+
+  try {
+    const response = await axios.post(
+      `${API_BASE}/api/mqtt/response-batch`,
+      {
+        batch_id: batchId,
+        actions: batch,
+        timestamp: Date.now()
+      },
+      { timeout: HTTP_TIMEOUT * 2 } // Allow longer timeout for batches
+    );
+
+    if (DEBUG) {
+      console.log(`✅ Order response batch processed: ${batchSize} actions`, {
+        batch_id: batchId,
+        jobs_dispatched: response.data?.jobs_dispatched,
+        skipped_busy: response.data?.skipped_busy,
+        duration_ms: response.data?.duration_ms
+      });
+    }
+
+  } catch (err) {
+    console.error(`❌ Order response batch failed (${batchSize} actions):`, err.response?.data || err.message);
+
+    // If batch endpoint fails, fall back to individual processing for this batch
+    if (err.response?.status === 404 || err.response?.status === 500) {
+      console.warn(`⚠️ Falling back to individual processing for ${batchSize} order responses`);
+
+      for (const action of batch) {
+        try {
+          await throttledPost(`${API_BASE}/api/mqtt/response`, action);
+        } catch (individualErr) {
+          console.error('❌ Individual order response fallback failed:', individualErr.message, action);
+        }
+      }
+    }
+  }
+}
+
+// Start order response batch flush timer
+if (ORDER_RES_BATCH_ENABLED) {
+  setInterval(() => flushOrderResponseBatch('timer'), ORDER_RES_BATCH_TIMEOUT);
 }
 
 async function postWithRetries(url, data, retries = 4, backoff = 300) {
@@ -463,44 +531,70 @@ client.on('message', async (topic, message) => {
       return;
     }
 
-      // If device reports 'busy' on the final response topic, silently ignore it.
-      // Final responses are expected to be 'done' or 'external' only.
-      if (String(status).toLowerCase() === 'busy') {
-        if (DEBUG) console.log(`⏭️ Ignoring final 'busy' response for order ${order_id} user ${user_id}`);
-        // Optionally record to a lightweight log for post-mortem without calling API
-        try {
-          // Keep a small local log file for debugging missing orders, but avoid heavy I/O in hot paths
-          fs.appendFileSync('ignored_busy_responses.log', JSON.stringify({ ts: new Date().toISOString(), order_id, user_id, status }) + '\n', { encoding: 'utf8' });
-        } catch (e) {
-          if (DEBUG) console.warn('Failed to write ignored_busy_responses.log:', e.message);
-        }
-        return;
-      }
-
-      const actionData = { order_id, user_id, status };
-
-      // Use batching if enabled and system is healthy
-      if (BATCH_ENABLED && !systemHealth.circuitOpen && systemHealth.status === 'healthy') {
-        pendingActions.push(actionData);
-
-        // Process immediately if batch is full
-        if (pendingActions.length >= BATCH_SIZE) {
-          processBatchedActions();
-        }
-
-        if (DEBUG) console.log(`📦 Action queued for batch: ${pendingActions.length}/${BATCH_SIZE}`);
-        return;
-      }
-
-      // Process immediately (non-batched or system degraded)
+    // If device reports 'busy' on the final response topic, silently ignore it.
+    // Final responses are expected to be 'done' or 'external' only.
+    if (String(status).toLowerCase() === 'busy') {
+      if (DEBUG) console.log(`⏭️ Ignoring final 'busy' response for order ${order_id} user ${user_id}`);
+      // Optionally record to a lightweight log for post-mortem without calling API
       try {
-        const res = await throttledPost(`${API_BASE}/api/mqtt/response`, actionData);
-        if (DEBUG) console.log('✅ Action updated:', res.data || res.status);
-      } catch (err) {
-        console.error('❌ Failed to update action:', err.response?.data || err.message);
+        // Keep a small local log file for debugging missing orders, but avoid heavy I/O in hot paths
+        fs.appendFileSync('ignored_busy_responses.log', JSON.stringify({ ts: new Date().toISOString(), order_id, user_id, status }) + '\n', { encoding: 'utf8' });
+      } catch (e) {
+        if (DEBUG) console.warn('Failed to write ignored_busy_responses.log:', e.message);
+      }
+      return;
+    }
+
+    const actionData = { order_id, user_id, status };
+
+    // ✅ BATCH MODE: Accumulate order responses for batch processing
+    if (ORDER_RES_BATCH_ENABLED) {
+      orderResponseBatch.push(actionData);
+
+      // Flush immediately if batch is full
+      if (orderResponseBatch.length >= ORDER_RES_BATCH_SIZE) {
+        flushOrderResponseBatch('size_limit');
+      }
+      // Emergency flush if batch is extremely large
+      else if (orderResponseBatch.length >= ORDER_RES_BATCH_MAX_SIZE) {
+        console.warn(`⚠️ Emergency flush: order response batch exceeded ${ORDER_RES_BATCH_MAX_SIZE}`);
+        flushOrderResponseBatch('emergency');
+      }
+      // Schedule timer flush if not already scheduled
+      else if (!orderResBatchTimer) {
+        orderResBatchTimer = setTimeout(() => flushOrderResponseBatch('timer'), ORDER_RES_BATCH_TIMEOUT);
+      }
+
+      if (DEBUG && orderResponseBatch.length % 25 === 0) {
+        console.log(`📊 Order response batch accumulator: ${orderResponseBatch.length} actions`);
       }
 
       return;
+    }
+
+    // FALLBACK: Legacy batching (old method, less efficient)
+    // Use batching if enabled and system is healthy
+    if (BATCH_ENABLED && !systemHealth.circuitOpen && systemHealth.status === 'healthy') {
+      pendingActions.push(actionData);
+
+      // Process immediately if batch is full
+      if (pendingActions.length >= BATCH_SIZE) {
+        processBatchedActions();
+      }
+
+      if (DEBUG) console.log(`📦 Action queued for legacy batch: ${pendingActions.length}/${BATCH_SIZE}`);
+      return;
+    }
+
+    // Process immediately (non-batched or system degraded)
+    try {
+      const res = await throttledPost(`${API_BASE}/api/mqtt/response`, actionData);
+      if (DEBUG) console.log('✅ Action updated:', res.data || res.status);
+    } catch (err) {
+      console.error('❌ Failed to update action:', err.response?.data || err.message);
+    }
+
+    return;
   }
 
   // device activation v2
@@ -526,6 +620,14 @@ process.on('SIGINT', () => {
     console.log(`🔄 Flushing ${pingResponseBatch.length} remaining ping responses...`);
     flushPingResponseBatch('shutdown').catch(err => {
       console.error('❌ Failed to flush ping responses on shutdown:', err.message);
+    });
+  }
+
+  // Process any remaining order response batches
+  if (orderResponseBatch.length > 0) {
+    console.log(`🔄 Flushing ${orderResponseBatch.length} remaining order responses...`);
+    flushOrderResponseBatch('shutdown').catch(err => {
+      console.error('❌ Failed to flush order responses on shutdown:', err.message);
     });
   }
 
