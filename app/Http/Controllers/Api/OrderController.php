@@ -72,6 +72,11 @@ class OrderController extends Controller
         try {
             DB::beginTransaction();
 
+            // ✅ Admin users get free orders
+            if ($user->type === 'admin') {
+                $cost = 0;
+            }
+
             // Check if user has enough points before proceeding
             if ($user->points < $cost) {
                 return response()->json(['error' => 'Insufficient points.'], 403);
@@ -95,19 +100,6 @@ class OrderController extends Controller
             // Ensure order is created
             if (!$order) {
                 return response()->json(['error' => 'Failed to create order.'], 500);
-            }
-
-            // Create pending actions in batch and send announcements
-            try {
-                $orderService = app(\App\Services\OrderService::class);
-                $orderService->handleOrderCreated($order);
-                Log::info('[OrderController] Batch actions created for new order', ['order_id' => $order->id]);
-            } catch (\Throwable $e) {
-                Log::error('[OrderController] Failed to create batch actions', [
-                    'order_id' => $order->id,
-                    'error' => $e->getMessage()
-                ]);
-                // Don't fail the order creation, but log the issue
             }
 
             if ($user->points === 0) {
@@ -177,8 +169,13 @@ class OrderController extends Controller
         $user = $request->user();
         $order = Order::with('user')->find($orderId);
 
-        if (!$user || !$order || $order->user_id !== $user->id) {
+        if (!$user || !$order || ($user->type !== 'admin' && $order->user_id !== $user->id)) {
             return response()->json(['error' => 'Unauthorized or invalid order.'], 401);
+        }
+
+        // ✅ Check if order is already completed
+        if ($order->status === 'completed') {
+            return response()->json(['error' => 'Cannot complete an already completed order.'], 409);
         }
 
         // ✅ Check if order is paused
