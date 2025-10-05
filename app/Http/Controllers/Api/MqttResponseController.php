@@ -588,6 +588,117 @@ class MqttResponseController extends Controller
     }
 
     /**
+     * 🚀 BATCH TRIGGER: Process multiple ping responses at once for high throughput
+     * Handles 5000+ concurrent ping responses by batching them
+     */
+    public function triggerOrderBatch(Request $request)
+    {
+        $startTime = microtime(true);
+
+        try {
+            $validated = $request->validate([
+                'batch_id' => 'required|string',
+                'responses' => 'required|array|min:1|max:5000',
+                'responses.*.order_id' => 'required|numeric',
+                'responses.*.user_id' => 'required|numeric',
+                'responses.*.type' => 'required|string',
+            ]);
+
+            $batchId = $validated['batch_id'];
+            $responses = $validated['responses'];
+            $totalResponses = count($responses);
+
+            Log::info('[MqttResponseController] batch trigger received', [
+                'batch_id' => $batchId,
+                'count' => $totalResponses
+            ]);
+
+            // Group responses by order_id and type for efficient processing
+            $grouped = [];
+            foreach ($responses as $response) {
+                $orderId = (int) $response['order_id'];
+                $userId = (int) $response['user_id'];
+                $type = strtolower($response['type']);
+
+                // Normalize type
+                if ($type === 'resume') {
+                    $type = 'resume';
+                } else {
+                    $type = 'create';
+                }
+
+                $key = "{$orderId}:{$type}";
+                if (!isset($grouped[$key])) {
+                    $grouped[$key] = [
+                        'order_id' => $orderId,
+                        'type' => $type,
+                        'user_ids' => []
+                    ];
+                }
+                $grouped[$key]['user_ids'][] = $userId;
+            }
+
+            // Dispatch batch jobs for each order group
+            $jobsDispatched = 0;
+            foreach ($grouped as $key => $group) {
+                // Deduplicate user_ids
+                $uniqueUserIds = array_unique($group['user_ids']);
+                $count = count($uniqueUserIds);
+
+                if ($count === 0) continue;
+
+                // Dispatch job to process this batch
+                $jobBatchId = $batchId . '_' . $key;
+                \App\Jobs\ProcessPingResponseBatchJob::dispatch(
+                    $group['order_id'],
+                    $group['type'],
+                    array_values($uniqueUserIds),
+                    $jobBatchId
+                );
+
+                $jobsDispatched++;
+
+                Log::info('[MqttResponseController] batch job dispatched', [
+                    'batch_id' => $jobBatchId,
+                    'order_id' => $group['order_id'],
+                    'type' => $group['type'],
+                    'user_count' => $count
+                ]);
+            }
+
+            $duration = round((microtime(true) - $startTime) * 1000, 2);
+
+            return response()->json([
+                'success' => true,
+                'batch_id' => $batchId,
+                'total_responses' => $totalResponses,
+                'jobs_dispatched' => $jobsDispatched,
+                'duration_ms' => $duration
+            ]);
+
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            Log::warning('[MqttResponseController] batch validation failed', [
+                'errors' => $e->errors()
+            ]);
+            return response()->json([
+                'success' => false,
+                'error' => 'Invalid batch request',
+                'details' => $e->errors()
+            ], 422);
+
+        } catch (\Throwable $e) {
+            Log::error('[MqttResponseController] batch trigger failed', [
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+            return response()->json([
+                'success' => false,
+                'error' => 'Batch processing failed'
+            ], 500);
+        }
+    }
+
+    /**
      * Clean up stale pending actions older than 15 minutes
      * This can be called periodically to prevent accumulation of old pending actions
      */

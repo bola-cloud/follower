@@ -1,6 +1,7 @@
 // Robust mqtt_handler.cjs
 // Accepts both { activation_order_id } and { order_id } payload shapes
 // Adds retries and configurable concurrency for API calls
+// ✅ BATCHING: Accumulates ping responses and processes in batches for 5000+ concurrent handling
 
 const mqtt = require('mqtt');
 const axios = require('axios');
@@ -21,6 +22,15 @@ const BATCH_ENABLED = process.env.MQTT_BATCH_ENABLED !== 'false';
 const BATCH_SIZE = parseInt(process.env.MQTT_BATCH_SIZE || '10', 10);
 const BATCH_TIMEOUT = parseInt(process.env.MQTT_BATCH_TIMEOUT || '2000', 10); // ms
 const HEALTH_CHECK_INTERVAL = parseInt(process.env.MQTT_HEALTH_CHECK_INTERVAL || '30000', 10); // 30s
+
+// ✅ PING RESPONSE BATCHING: Accumulate ping responses for batch processing
+const PING_BATCH_ENABLED = process.env.PING_BATCH_ENABLED !== 'false';
+const PING_BATCH_SIZE = parseInt(process.env.PING_BATCH_SIZE || '100', 10); // Max responses per batch
+const PING_BATCH_TIMEOUT = parseInt(process.env.PING_BATCH_TIMEOUT || '500', 10); // Max wait time in ms
+const PING_BATCH_MAX_SIZE = parseInt(process.env.PING_BATCH_MAX_SIZE || '1000', 10); // Emergency flush threshold
+
+const pingResponseBatch = []; // Accumulator for ping responses
+let pingBatchTimer = null;
 
 // System health tracking
 let systemHealth = { status: 'unknown', lastCheck: 0, circuitOpen: false };
@@ -151,6 +161,63 @@ if (BATCH_ENABLED) {
   setInterval(processBatchedActions, BATCH_TIMEOUT);
 }
 
+// ✅ PING BATCH PROCESSING: Flush accumulated ping responses
+async function flushPingResponseBatch(reason = 'timer') {
+  if (pingResponseBatch.length === 0) return;
+
+  // Clear timer if active
+  if (pingBatchTimer) {
+    clearTimeout(pingBatchTimer);
+    pingBatchTimer = null;
+  }
+
+  const batch = pingResponseBatch.splice(0, PING_BATCH_MAX_SIZE);
+  const batchId = randomUUID();
+  const batchSize = batch.length;
+
+  if (DEBUG) console.log(`📦 Flushing ping batch: ${batchSize} responses (reason: ${reason})`);
+
+  try {
+    const response = await axios.post(
+      `${API_BASE}/api/mqtt/trigger-order-batch`,
+      {
+        batch_id: batchId,
+        responses: batch
+      },
+      { timeout: HTTP_TIMEOUT * 2 } // Allow longer timeout for batches
+    );
+
+    if (DEBUG) {
+      console.log(`✅ Ping batch processed: ${batchSize} responses`, {
+        batch_id: batchId,
+        jobs_dispatched: response.data?.jobs_dispatched,
+        duration_ms: response.data?.duration_ms
+      });
+    }
+
+  } catch (err) {
+    console.error(`❌ Ping batch failed (${batchSize} responses):`, err.response?.data || err.message);
+
+    // If batch endpoint fails, fall back to individual processing for this batch
+    if (err.response?.status === 404 || err.response?.status === 500) {
+      console.warn(`⚠️ Falling back to individual processing for ${batchSize} responses`);
+
+      for (const response of batch) {
+        try {
+          await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, response);
+        } catch (individualErr) {
+          console.error('❌ Individual fallback failed:', individualErr.message, response);
+        }
+      }
+    }
+  }
+}
+
+// Start ping batch flush timer
+if (PING_BATCH_ENABLED) {
+  setInterval(() => flushPingResponseBatch('timer'), PING_BATCH_TIMEOUT);
+}
+
 async function postWithRetries(url, data, retries = 4, backoff = 300) {
   // Check system health before making requests
   const now = Date.now();
@@ -276,22 +343,59 @@ client.on('message', async (topic, message) => {
       return;
     }
 
+    // Map device-level types (follow/like/...) to API-allowed types (create/resume)
+    let mappedType = 'create';
+    if (typeof type === 'string') {
+      const t = type.toLowerCase();
+      if (t === 'resume') mappedType = 'resume';
+      else mappedType = 'create';
+    }
+
+    // If the device didn't provide a user_id, skip
+    if (userId === null) {
+      console.warn('⚠️ Ping response missing user_id, skipping:', payload);
+      return;
+    }
+
+    // Detect if this order_id was previously announced via orders/+
+    if (!KNOWN_ORDERS.has(orderId)) {
+      const msg = `⚠️ Received ping response for unknown order ${orderId} (user ${userId})`;
+      console.warn(msg, { original: payload });
+      recordMissingOrder(orderId, payload, topic);
+    }
+
+    // ✅ BATCH MODE: Accumulate ping responses for batch processing
+    if (PING_BATCH_ENABLED) {
+      pingResponseBatch.push({
+        order_id: orderId,
+        user_id: userId,
+        type: mappedType,
+        activation: true
+      });
+
+      // Flush immediately if batch is full
+      if (pingResponseBatch.length >= PING_BATCH_SIZE) {
+        flushPingResponseBatch('size_limit');
+      }
+      // Emergency flush if batch is extremely large
+      else if (pingResponseBatch.length >= PING_BATCH_MAX_SIZE) {
+        console.warn(`⚠️ Emergency flush: ping batch exceeded ${PING_BATCH_MAX_SIZE}`);
+        flushPingResponseBatch('emergency');
+      }
+      // Schedule timer flush if not already scheduled
+      else if (!pingBatchTimer) {
+        pingBatchTimer = setTimeout(() => flushPingResponseBatch('timer'), PING_BATCH_TIMEOUT);
+      }
+
+      if (DEBUG && pingResponseBatch.length % 50 === 0) {
+        console.log(`📊 Ping batch accumulator: ${pingResponseBatch.length} responses`);
+      }
+
+      return;
+    }
+
+    // FALLBACK: Individual processing (legacy mode if batching disabled)
     try {
-      // Map device-level types (follow/like/...) to API-allowed types (create/resume)
-      let mappedType = 'create';
-      if (typeof type === 'string') {
-        const t = type.toLowerCase();
-        if (t === 'resume') mappedType = 'resume';
-        else mappedType = 'create';
-      }
-
-      // If the device didn't provide a user_id, skip calling trigger-order because
-      // the Laravel endpoint requires a numeric user_id (required|integer).
-      if (userId === null) {
-        console.warn('⚠️ Ping response missing user_id, skipping trigger-order:', payload);
-        return;
-      }
-
       const messageId = randomUUID();
       const postBody = {
         message_id: messageId,
@@ -300,14 +404,6 @@ client.on('message', async (topic, message) => {
         type: mappedType,
         activation: true
       };
-
-      // Detect if this order_id was previously announced via orders/+
-      if (!KNOWN_ORDERS.has(orderId)) {
-        const msg = `⚠️ Received ping response for unknown order ${orderId} (user ${userId})`;
-        console.warn(msg, { original: payload });
-        // append to local log for later inspection
-        recordMissingOrder(orderId, payload, topic);
-      }
 
       const res = await throttledPost(`${API_BASE}/api/mqtt/trigger-order`, postBody);
 
@@ -424,6 +520,14 @@ client.on('message', async (topic, message) => {
 
 process.on('SIGINT', () => {
   console.log('📡 MQTT handler shutting down...');
+
+  // Process any remaining ping response batches
+  if (pingResponseBatch.length > 0) {
+    console.log(`🔄 Flushing ${pingResponseBatch.length} remaining ping responses...`);
+    flushPingResponseBatch('shutdown').catch(err => {
+      console.error('❌ Failed to flush ping responses on shutdown:', err.message);
+    });
+  }
 
   // Process any remaining batched actions before shutdown
   if (pendingActions.length > 0) {

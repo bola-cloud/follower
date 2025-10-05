@@ -55,6 +55,7 @@ Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController:
 Route::post('/mqtt/response-batch', [\App\Http\Controllers\Api\MqttResponseController::class, 'handleBatch']);
 Route::post('/mqtt/recalculate-orders', [\App\Http\Controllers\Api\MqttResponseController::class, 'recalculateAllOrders']);
 Route::post('/mqtt/trigger-order', [\App\Http\Controllers\Api\MqttResponseController::class, 'triggerOrder']);
+Route::post('/mqtt/trigger-order-batch', [\App\Http\Controllers\Api\MqttResponseController::class, 'triggerOrderBatch']);
 Route::post('/mqtt/cleanup-stale-actions', [\App\Http\Controllers\Api\MqttResponseController::class, 'cleanupStaleActions']);
 // routes/api.php
 Route::post('/mqtt/device-activation', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handle']);
