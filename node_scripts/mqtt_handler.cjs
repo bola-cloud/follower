@@ -15,7 +15,8 @@ const HTTP_TIMEOUT = parseInt(process.env.MQTT_HTTP_TIMEOUT || '20000', 10); // 
 
 // Concurrency control
 let inflightRequests = 0;
-const MAX_INFLIGHT = parseInt(process.env.MQTT_MAX_INFLIGHT || '50', 10);
+// Allow higher default concurrency for high-throughput environments; can be tuned via MQTT_MAX_INFLIGHT
+const MAX_INFLIGHT = parseInt(process.env.MQTT_MAX_INFLIGHT || '200', 10);
 
 // High-volume processing support
 const BATCH_ENABLED = process.env.MQTT_BATCH_ENABLED !== 'false';
@@ -34,8 +35,9 @@ let pingBatchTimer = null;
 
 // Device activation batching
 const DEVICE_ACT_BATCH_ENABLED = process.env.DEVICE_ACT_BATCH_ENABLED !== 'false';
-const DEVICE_ACT_BATCH_SIZE = parseInt(process.env.DEVICE_ACT_BATCH_SIZE || '200', 10);
-const DEVICE_ACT_BATCH_TIMEOUT = parseInt(process.env.DEVICE_ACT_BATCH_TIMEOUT || '1000', 10);
+// Larger batch defaults to reduce HTTP pressure and handle spikes (tune with env vars)
+const DEVICE_ACT_BATCH_SIZE = parseInt(process.env.DEVICE_ACT_BATCH_SIZE || '1000', 10);
+const DEVICE_ACT_BATCH_TIMEOUT = parseInt(process.env.DEVICE_ACT_BATCH_TIMEOUT || '500', 10);
 let deviceActBatch = [];
 let deviceActTimer = null;
 
