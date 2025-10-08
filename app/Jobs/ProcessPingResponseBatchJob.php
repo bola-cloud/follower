@@ -52,7 +52,7 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
         try {
             // Load order once
-            $order = Order::select('id', 'total_count', 'done_count', 'status', 'type', 'target_url', 'user_id')
+            $order = Order::select('id', 'total_count', 'done_count', 'status', 'type', 'target_url', 'user_id', 'mediaId', 'userPk')
                 ->find($this->orderId);
 
             if (!$order) {
@@ -278,6 +278,8 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             'url' => $order->target_url,
             'order_id' => $order->id,
             'type' => $order->type,
+            'mediaId' => $order->mediaId ?? null,
+            'userPk' => $order->userPk ?? null,
         ];
 
         // Batch publish via Redis pipeline for speed
