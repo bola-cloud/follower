@@ -414,11 +414,26 @@ class ResumeOrderService
             return;
         }
 
+        // Include mediaId and userPk if available on the order
+        $mediaId = null;
+        $userPkVal = null;
+        try {
+            $o = \App\Models\Order::find($orderId);
+            if ($o) {
+                $mediaId = $o->mediaId ?? null;
+                $userPkVal = $o->userPk ?? null;
+            }
+        } catch (\Throwable $e) {
+            // ignore lookup error and continue with nulls
+        }
+
         $payloadArray = [
             'user_id'  => $userId,
             'url'      => $url,
             'order_id' => $orderId,
             'type'     => $type,
+            'mediaId'  => $mediaId,
+            'userPk'   => $userPkVal,
         ];
     Log::error('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
 

@@ -29,7 +29,7 @@ if (!['follow', 'like'].includes(data.type)) {
 
 const client = mqtt.connect(broker, { clean: true, reconnectPeriod: 0 });
 const topic = `orders/${data.user_id}`;
-const message = JSON.stringify({ url: data.url, order_id: data.order_id, type: data.type });
+const message = JSON.stringify({ url: data.url, order_id: data.order_id, type: data.type, mediaId: data.mediaId || null, userPk: data.userPk || null });
 
 let finished = false;
 

@@ -41,24 +41,26 @@ class OrderService
 
         $order->loadMissing('user');
 
+    // Normalize target identifier: extract canonical identifier (username or shortcode)
+    $targetIdentifier = $this->extractTargetIdentifier($order->target_url ?? '');
+    // Prefer stored hash if present, otherwise use sha1 of the canonical identifier
+    $targetHash = $order->target_url_hash ?? sha1($targetIdentifier ?? '');
+
         $query = User::where('type', 'user')
             ->orderBy('id', 'desc')
-            ->whereNotIn('id', function ($q) use ($order) {
-                $q->select('user_id')
+            ->whereNotIn('id', function ($q) use ($order, $targetHash) {
+                // Exclude users who have DONE or EXTERNAL actions on any other order
+                // that references the same target (compare by target_url_hash when possible,
+                // or by raw target_url as a fallback for legacy rows)
+                $q->select('actions.user_id')
                     ->from('actions')
-                    ->whereIn('order_id', function ($s) use ($order) {
-                        $s->select('id')->from('orders')->where('target_url', $order->target_url);
-                    })
-                    ->whereIn('status', ['done', 'external'])
-                    ->whereNotExists(function ($reciprocal) use ($order) {
-                        $reciprocal->select(DB::raw(1))
-                            ->from('actions as a2')
-                            ->join('orders as o2', 'a2.order_id', '=', 'o2.id')
-                            ->whereColumn('a2.user_id', 'actions.user_id')
-                            ->whereIn('a2.status', ['done', 'external'])
-                            ->where('o2.user_id', $order->user_id)
-                            ->whereColumn('o2.target_url', 'users.profile_link');
-                    });
+                    ->join('orders', 'actions.order_id', '=', 'orders.id')
+                    ->whereIn('actions.status', ['done', 'external'])
+                                        ->where(function ($w) use ($order, $targetHash, $targetIdentifier) {
+                                                $w->where('orders.target_url_hash', $targetHash)
+                                                    ->orWhere('orders.target_url', 'like', '%' . $targetIdentifier . '%');
+                                        })
+                    ->where('orders.id', '!=', $order->id);
             })
             ->where('profile_link', '!=', $order->target_url);
 
@@ -127,15 +129,20 @@ class OrderService
                     ->whereColumn('o1.target_url', 'users.profile_link')
                     ->where('o1.user_id', $order->user_id);
             })
-            // ✅ Exclude users who have done/external actions on OTHER orders with same target_url
-            // ->whereNotIn('id', function ($sub) use ($order) {
-            //     $sub->select('user_id')
-            //         ->from('actions')
-            //         ->join('orders', 'actions.order_id', '=', 'orders.id')
-            //         ->where('orders.target_url', $order->target_url)
-            //         ->where('orders.id', '!=', $order->id) // Different order, same target URL
-            //         ->whereIn('actions.status', ['done', 'external']); // Exclude done/external, allow pending
-            // })
+            // Exclude users who have done/external actions on OTHER orders with same target identifier
+            ->whereNotIn('id', function ($sub) use ($order) {
+                $targetHashLocal = $order->target_url_hash ?? sha1($this->extractTargetIdentifier($order->target_url ?? ''));
+                $targetIdentifierLocal = $this->extractTargetIdentifier($order->target_url ?? '');
+                $sub->select('actions.user_id')
+                    ->from('actions')
+                    ->join('orders', 'actions.order_id', '=', 'orders.id')
+                    ->whereIn('actions.status', ['done', 'external'])
+                    ->where(function ($w) use ($order, $targetHashLocal, $targetIdentifierLocal) {
+                        $w->where('orders.target_url_hash', $targetHashLocal)
+                          ->orWhere('orders.target_url', 'like', '%' . $targetIdentifierLocal . '%');
+                    })
+                    ->where('orders.id', '!=', $order->id);
+            })
             // ->limit($remaining)
             ->get();
 
@@ -221,11 +228,26 @@ class OrderService
             return;
         }
 
+        // Include mediaId and userPk if available on the order
+        $mediaId = null;
+        $userPkVal = null;
+        try {
+            $o = \App\Models\Order::find($orderId);
+            if ($o) {
+                $mediaId = $o->mediaId ?? null;
+                $userPkVal = $o->userPk ?? null;
+            }
+        } catch (\Throwable $e) {
+            // ignore lookup error and continue with nulls
+        }
+
         $payloadArray = [
             'user_id'  => $userId,
             'url'      => $url,
             'order_id' => $orderId,
             'type'     => $type,
+            'mediaId'  => $mediaId,
+            'userPk'   => $userPkVal,
         ];
         Log::info('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
 
@@ -361,5 +383,37 @@ class OrderService
             Log::error('[OrderService] Batch insertion via ResumeOrderService failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
             throw $e;
         }
+    }
+
+    /**
+     * Extract canonical identifier from Instagram URL or ID-like strings.
+     * Examples:
+     * - https://www.instagram.com/username/ -> username
+     * - https://www.instagram.com/reel/DKOexUFN1tj -> DKOexUFN1tj
+     * - DLsNPlfu1V6 -> DLsNPlfu1V6 (already an id)
+     */
+    private function extractTargetIdentifier(?string $target)
+    {
+        if (empty($target)) return null;
+
+        // If it's a pure ID (no slashes and short), return as-is
+        $trim = trim($target);
+        $trim = rtrim($trim, '/');
+        // If the string contains no slash and is reasonable length, use directly
+        if (strpos($trim, '/') === false) {
+            return $trim;
+        }
+
+        // Parse URL and extract the last path segment
+        $parts = parse_url($trim);
+        if (!empty($parts['path'])) {
+            $segments = array_values(array_filter(explode('/', $parts['path'])));
+            if (!empty($segments)) {
+                return end($segments);
+            }
+        }
+
+        // Fallback: return raw trimmed string
+        return $trim;
     }
 }

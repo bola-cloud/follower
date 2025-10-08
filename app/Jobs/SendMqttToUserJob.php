@@ -36,11 +36,26 @@ class SendMqttToUserJob implements ShouldQueue
     public function handle()
     {
         // 🚀 ULTRA-FAST EXECUTION - No delays, no blocking operations
+        // Include mediaId and userPk if available
+        $mediaId = null;
+        $userPk = null;
+        try {
+            $order = \App\Models\Order::find($this->orderId);
+            if ($order) {
+                $mediaId = $order->mediaId ?? null;
+                $userPk = $order->userPk ?? null;
+            }
+        } catch (\Throwable $e) {
+            // ignore
+        }
+
         $payloadArray = [
             'user_id' => $this->userId,
             'url' => $this->url,
             'order_id' => $this->orderId,
             'type' => $this->type,
+            'mediaId' => $mediaId,
+            'userPk' => $userPk,
         ];
 
         $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);

@@ -63,9 +63,15 @@ Route::post('/mqtt/cleanup-stale-actions', [\App\Http\Controllers\Api\MqttRespon
 Route::post('/mqtt/device-activation', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handle']);
 // routes/api.php
 Route::get('/device-activation-count', function () {
-    return response()->json([
-        'count' => Cache::get('device_activations_count', 0),
-    ]);
+    try {
+        $count = (int) \Illuminate\Support\Facades\Redis::scard('device_activations_set');
+        return response()->json(['count' => $count]);
+    } catch (\Throwable $e) {
+        // Fallback to cache
+        return response()->json([
+            'count' => Cache::get('device_activations_count', 0),
+        ]);
+    }
 });
 
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
