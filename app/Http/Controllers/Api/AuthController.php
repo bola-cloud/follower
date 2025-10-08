@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class AuthController extends Controller
 {
@@ -219,5 +221,80 @@ class AuthController extends Controller
             'message' => 'Account disconnected successfully. You can no longer log in with this Google or Instagram account.',
             'status' => true,
         ], 200);
+    }
+
+    /**
+     * Update the authenticated user's cookies.
+     *
+     * Payload: { cookies: { ... } }
+     */
+    public function updateCookies(Request $request)
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return response()->json([
+                'message' => 'User not authenticated',
+                'status' => false,
+            ], 401);
+        }
+
+        // Accept either an array (JSON) or a cookie header string
+        $validator = Validator::make($request->all(), [
+            'cookies' => 'required',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation errors',
+                'status' => false,
+                'data' => $validator->errors(),
+            ], 422);
+        }
+
+        try {
+            $raw = $request->input('cookies');
+
+            // If a string is provided (cookie header format), parse it into an associative array
+            if (is_string($raw)) {
+                $cookies = [];
+                // Split by semicolon and parse key=value pairs
+                $pairs = array_filter(array_map('trim', explode(';', $raw)));
+                foreach ($pairs as $pair) {
+                    // Some cookies may contain '=' in the value, so limit to 2 parts
+                    $parts = explode('=', $pair, 2);
+                    if (count($parts) === 2) {
+                        $k = trim($parts[0]);
+                        $v = trim($parts[1]);
+                        // URL decode values like %3A
+                        $v = rawurldecode($v);
+                        $cookies[$k] = $v;
+                    }
+                }
+            } elseif (is_array($raw)) {
+                $cookies = $raw;
+            } else {
+                // Unsupported format
+                return response()->json([
+                    'message' => 'Unsupported cookies format',
+                    'status' => false,
+                ], 422);
+            }
+
+            $user->cookies = $cookies;
+            $user->save();
+
+            return response()->json([
+                'message' => 'Cookies updated',
+                'status' => true,
+                'data' => ['user_id' => $user->id, 'cookies' => $cookies],
+            ], 200);
+        } catch (\Throwable $e) {
+            Log::error('Failed to update user cookies', ['user_id' => $user->id, 'error' => $e->getMessage()]);
+            return response()->json([
+                'message' => 'Failed to update cookies',
+                'status' => false,
+            ], 500);
+        }
     }
 }

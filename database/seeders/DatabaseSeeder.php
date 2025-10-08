@@ -12,11 +12,14 @@ class DatabaseSeeder extends Seeder
      */
     public function run(): void
     {
-        // \App\Models\User::factory(10)->create();
+        // Small example seeder (kept for backwards compatibility)
+        $this->call(UsersTableSeeder::class);
 
-        // \App\Models\User::factory()->create([
-        //     'name' => 'Test User',
-        //     'email' => 'test@example.com',
-        // ]);
+        // Bulk users seeder (20k users). Disabled by default to avoid accidental long runs.
+        // To run it locally set APP_ENV=local and RUN_BULK_SEED=true or run the seeder directly:
+        // php artisan db:seed --class=Database\\Seeders\\BulkUsersSeeder
+        if (env('APP_ENV') === 'local' && env('RUN_BULK_SEED', false)) {
+            $this->call(BulkUsersSeeder::class);
+        }
     }
 }

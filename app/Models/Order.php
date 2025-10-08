@@ -18,9 +18,11 @@ class Order extends Model
         'target_url',
         'target_url_hash', // ✅ ADD THIS
         'user_id',
+        'mediaId',
+        'userPk',
     ];
 
-        public function user()
+    public function user()
     {
         return $this->belongsTo(User::class);
     }

@@ -32,6 +32,7 @@ class User extends Authenticatable
         'points',
         'type',
         'timer',
+        'cookies',
     ];
 
     public function orders()
@@ -55,6 +56,8 @@ class User extends Authenticatable
         'remember_token',
         'two_factor_recovery_codes',
         'two_factor_secret',
+        // cookies may contain sensitive session data for another app
+        'cookies',
     ];
 
     /**
@@ -65,6 +68,8 @@ class User extends Authenticatable
     protected $casts = [
         'email_verified_at' => 'datetime',
         'timer' => 'datetime', // ✅ This is required!
+        // store cookies as JSON decoded to array when reading
+        'cookies' => 'array',
     ];
 
     /**

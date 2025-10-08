@@ -43,6 +43,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::get('/orders', [OrderController::class, 'index']);
     Route::post('/orders/{orderId}/complete', [OrderController::class, 'complete']);
     Route::post('logout', [AuthController::class, 'logout']);
+    // Update authenticated user's cookies
+    Route::post('/user/update-cookies', [AuthController::class, 'updateCookies']);
     Route::get('/active-users-count', [SoketiTestController::class, 'getActiveUsersCount']);
     Route::post('/user/profile-link', [AuthController::class, 'updateProfileLink']);
     Route::post('/promocode/redeem', [PromocodeController::class, 'redeem']);
