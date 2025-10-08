@@ -32,6 +32,13 @@ const PING_BATCH_MAX_SIZE = parseInt(process.env.PING_BATCH_MAX_SIZE || '1000', 
 const pingResponseBatch = []; // Accumulator for ping responses
 let pingBatchTimer = null;
 
+// Device activation batching
+const DEVICE_ACT_BATCH_ENABLED = process.env.DEVICE_ACT_BATCH_ENABLED !== 'false';
+const DEVICE_ACT_BATCH_SIZE = parseInt(process.env.DEVICE_ACT_BATCH_SIZE || '200', 10);
+const DEVICE_ACT_BATCH_TIMEOUT = parseInt(process.env.DEVICE_ACT_BATCH_TIMEOUT || '1000', 10);
+let deviceActBatch = [];
+let deviceActTimer = null;
+
 // ✅ ORDER RESPONSE BATCHING: Accumulate order/res responses for batch processing
 const ORDER_RES_BATCH_ENABLED = process.env.ORDER_RES_BATCH_ENABLED !== 'false';
 const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '50', 10); // Max actions per batch
@@ -359,6 +366,19 @@ async function throttledPost(url, data) {
   }
 }
 
+async function postDeviceActivationBatch(batch) {
+  if (!Array.isArray(batch) || batch.length === 0) return;
+  try {
+    const payload = { activations: batch };
+    const res = await throttledPost(`${API_BASE}/api/mqtt/device-activation-batch`, payload);
+    if (DEBUG) console.log(`✅ Posted device activation batch (${batch.length})`, res.data || res.status);
+    return res;
+  } catch (err) {
+    console.error('❌ postDeviceActivationBatch failed:', err.response?.data || err.message);
+    throw err;
+  }
+}
+
 const client = mqtt.connect(broker);
 
 client.on('connect', () => {
@@ -602,7 +622,24 @@ client.on('message', async (topic, message) => {
     const { device_id, status } = payload;
     if (!device_id || !status) return console.warn('⚠️ Missing device_id or status:', payload);
     try {
-      await axios.post(`${API_BASE}/api/mqtt/device-activation`, { device_id, status });
+      if (DEVICE_ACT_BATCH_ENABLED) {
+        // accumulate and flush in batches
+        deviceActBatch.push({ device_id: String(device_id), status });
+
+        if (deviceActBatch.length >= DEVICE_ACT_BATCH_SIZE) {
+          // flush immediately
+          const toSend = deviceActBatch.splice(0, DEVICE_ACT_BATCH_SIZE);
+          postDeviceActivationBatch(toSend).catch(e => console.error('❌ Batch post failed:', e.message));
+        } else if (!deviceActTimer) {
+          deviceActTimer = setTimeout(() => {
+            const toSend = deviceActBatch.splice(0, deviceActBatch.length);
+            deviceActTimer = null;
+            if (toSend.length > 0) postDeviceActivationBatch(toSend).catch(e => console.error('❌ Batch post failed:', e.message));
+          }, DEVICE_ACT_BATCH_TIMEOUT);
+        }
+      } else {
+        await axios.post(`${API_BASE}/api/mqtt/device-activation`, { device_id, status });
+      }
     } catch (err) {
       console.error('❌ Failed to store activation:', err.response?.data || err.message);
     }

@@ -61,6 +61,7 @@ Route::post('/mqtt/trigger-order-batch', [\App\Http\Controllers\Api\MqttResponse
 Route::post('/mqtt/cleanup-stale-actions', [\App\Http\Controllers\Api\MqttResponseController::class, 'cleanupStaleActions']);
 // routes/api.php
 Route::post('/mqtt/device-activation', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handle']);
+Route::post('/mqtt/device-activation-batch', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handleBatch']);
 // routes/api.php
 Route::get('/device-activation-count', function () {
     try {

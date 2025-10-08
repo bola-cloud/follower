@@ -55,4 +55,38 @@ class MqttDeviceController extends Controller
         }
     }
 
+    /**
+     * Batch handler: accept multiple activations in one request for high-throughput ingestion
+     * Payload: { activations: [ { device_id: '123', status: 'active' }, ... ] }
+     */
+    public function handleBatch(Request $request)
+    {
+        $validated = $request->validate([
+            'activations' => 'required|array|min:1|max:5000',
+            'activations.*.device_id' => 'required|string',
+            'activations.*.status' => 'required|in:active',
+        ]);
+
+        $setKey = 'device_activations_set';
+        $deviceIds = array_unique(array_map(function($a){ return $a['device_id']; }, $validated['activations']));
+
+        try {
+            // Use Redis pipeline for efficient bulk SADD
+            $pipe = \Illuminate\Support\Facades\Redis::pipeline();
+            foreach ($deviceIds as $did) {
+                $pipe->sadd($setKey, $did);
+            }
+            // ensure TTL is set
+            $pipe->expire($setKey, 600);
+            $pipe->exec();
+
+            $count = \Illuminate\Support\Facades\Redis::scard($setKey);
+
+            return response()->json(['message' => 'Batch stored', 'count' => $count]);
+        } catch (\Throwable $e) {
+            \Log::error('[MqttDeviceController] handleBatch failed: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to store batch'], 500);
+        }
+    }
+
 }
