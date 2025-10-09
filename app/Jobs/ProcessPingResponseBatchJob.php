@@ -204,48 +204,72 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             $totalProcessed = 0;
             $totalPublished = 0;
 
-            foreach ($chunks as $chunkIndex => $chunkUserIds) {
-                try {
-                    if ($availableSlots <= 0) {
-                        // no slots left
-                        break;
-                    }
-
-                    // Respect available slots: trim chunk if needed
-                    $toProcess = $chunkUserIds;
-                    if (count($toProcess) > $availableSlots) {
-                        $toProcess = array_slice($toProcess, 0, $availableSlots);
-                    }
-
-                    // Insert pending actions for this chunk (trimmed)
-                    $inserted = $this->insertPendingActionsChunk($order, $toProcess);
-                    $totalProcessed += $inserted;
-
-                    // Publish order announcements for this chunk (only those we attempted to reserve)
-                    $published = $this->publishOrderAnnouncementsChunk($order, $toProcess);
-                    $totalPublished += $published;
-
-                    // Decrement available slots by how many were processed (use inserted as accurate count)
-                    $decrement = min($inserted, count($toProcess));
-                    $availableSlots = max(0, $availableSlots - $decrement);
-
-                    // Small delay between chunks to control publish rate
-                    if ($chunkIndex < count($chunks) - 1) {
-                        $delayMs = (int) env('PING_BATCH_CHUNK_DELAY_MS', 50);
-                        if ($delayMs > 0) {
-                            usleep($delayMs * 1000);
+                foreach ($chunks as $chunkIndex => $chunkUserIds) {
+                    try {
+                        if ($availableSlots <= 0) {
+                            // no slots left
+                            break;
                         }
-                    }
 
-                } catch (\Throwable $e) {
-                    Log::error('[ProcessPingResponseBatchJob] chunk processing failed', [
-                        'batch_id' => $this->batchId,
-                        'order_id' => $this->orderId,
-                        'chunk_index' => $chunkIndex,
-                        'error' => $e->getMessage()
-                    ]);
+                        // Trim chunk to availableSlots as a first guard
+                        $toAttempt = $chunkUserIds;
+                        if (count($toAttempt) > $availableSlots) {
+                            $toAttempt = array_slice($toAttempt, 0, $availableSlots);
+                        }
+
+                        // Insert pending actions (INSERT IGNORE). This is the authoritative step that creates/claims slots.
+                        $inserted = $this->insertPendingActionsChunk($order, $toAttempt);
+                        $totalProcessed += $inserted;
+
+                        // Determine which user_ids actually have actions now (pending/done/external)
+                        $existingUserIds = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->whereIn('user_id', $toAttempt)
+                            ->whereIn('status', ['pending', 'done', 'external'])
+                            ->pluck('user_id')
+                            ->toArray();
+
+                        if (empty($existingUserIds)) {
+                            // nothing to publish for this chunk
+                            continue;
+                        }
+
+                        // Publish only for user ids that now have actions
+                        $published = $this->publishOrderAnnouncementsChunk($order, $existingUserIds);
+                        $totalPublished += $published;
+
+                        // Recompute capacity after inserting this chunk to stay accurate under concurrent load
+                        $doneCount = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->where('status', 'done')
+                            ->count();
+
+                        $pendingCount = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->where('status', 'pending')
+                            ->where('created_at', '>=', now()->subMinutes(15))
+                            ->count();
+
+                        $remaining = $order->total_count - $doneCount;
+                        $availableSlots = max(0, $order->total_count - $doneCount - $pendingCount);
+
+                        // Small delay between chunks to control publish rate
+                        if ($chunkIndex < count($chunks) - 1) {
+                            $delayMs = (int) env('PING_BATCH_CHUNK_DELAY_MS', 50);
+                            if ($delayMs > 0) {
+                                usleep($delayMs * 1000);
+                            }
+                        }
+
+                    } catch (\Throwable $e) {
+                        Log::error('[ProcessPingResponseBatchJob] chunk processing failed', [
+                            'batch_id' => $this->batchId,
+                            'order_id' => $this->orderId,
+                            'chunk_index' => $chunkIndex,
+                            'error' => $e->getMessage()
+                        ]);
+                    }
                 }
-            }
 
             $duration = round((microtime(true) - $startTime) * 1000, 2);
 
