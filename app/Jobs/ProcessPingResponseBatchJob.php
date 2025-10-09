@@ -173,10 +173,8 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
             foreach ($chunks as $chunkIndex => $chunkUserIds) {
                 try {
-                    if ($remaining <= 0) break;
-
                     // Reserve slots atomically in Redis for this chunk (pre-publish reservation)
-                    $reservedUserIds = $this->reserveUsersRedis($order, $chunkUserIds, $remaining);
+                    $reservedUserIds = $this->reserveUsersRedis($order, $chunkUserIds, $doneCount);
 
                     if (empty($reservedUserIds)) {
                         Log::info('[ProcessPingResponseBatchJob] no reservations possible for chunk', [
@@ -190,10 +188,6 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                     // Insert pending actions only for reserved users
                     $inserted = $this->insertPendingActionsChunk($order, $reservedUserIds);
                     $totalProcessed += $inserted;
-
-                    // Reduce remaining capacity by number of reserved users (reserve = pending)
-                    $reservedCount = count($reservedUserIds);
-                    $remaining = max(0, $remaining - $reservedCount);
 
                     // Publish order announcements for reserved users only
                     $published = $this->publishOrderAnnouncementsChunk($order, $reservedUserIds);
@@ -399,76 +393,4 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             // Swallow metrics errors
         }
     }
-
-        /**
-         * Reserve a subset of requested userIds in Redis atomically to prevent oversubscription.
-         * Returns the array of userIds that were successfully reserved.
-         */
-        private function reserveUsersRedis(Order $order, array $userIds, int $currentRemaining): array
-        {
-                if (empty($userIds) || $currentRemaining <= 0) return [];
-
-                try {
-                        $redis = app('redis')->connection();
-                        $reservationsKey = "order:{$order->id}:reservations";
-                        $ttl = (int) env('PING_RESERVATION_TTL_SEC', 900); // 15 minutes
-
-                        // Lua script: try to SADD all requested ids, ensure set size <= currentRemaining, pop extras if needed, set TTL, return list of added & still-present ids
-                        $lua = <<<'LUA'
-local reservations = KEYS[1]
-local capacity = tonumber(ARGV[1])
-local ttl = tonumber(ARGV[2])
-local requested = {}
-for i=3,#ARGV do
-    requested[#requested+1] = ARGV[i]
-end
-
-local added = {}
-for i,uid in ipairs(requested) do
-    local ok = redis.call('SADD', reservations, uid)
-    if ok == 1 then
-        table.insert(added, uid)
-    end
-end
-
-local total = redis.call('SCARD', reservations)
-if total > capacity then
-    local toRemove = total - capacity
-    for i=1,toRemove do
-        redis.call('SPOP', reservations)
-    end
-end
-
-redis.call('EXPIRE', reservations, ttl)
-
-local result = {}
-for i,uid in ipairs(added) do
-    if redis.call('SISMEMBER', reservations, uid) == 1 then
-        table.insert(result, uid)
-    end
-end
-return result
-LUA;
-
-                        $args = array_merge([$reservationsKey, $currentRemaining, $ttl], array_map('strval', $userIds));
-                        $reserved = $redis->eval($lua, array_values($args), 1);
-
-                        $reservedIds = [];
-                        if (is_array($reserved)) {
-                                foreach ($reserved as $r) {
-                                        $reservedIds[] = (int) $r;
-                                }
-                        }
-
-                        if (!empty($reservedIds)) {
-                                Log::info('[ProcessPingResponseBatchJob] reserved users in redis', ['order_id' => $order->id, 'reserved' => count($reservedIds)]);
-                        }
-
-                        return $reservedIds;
-                } catch (\Throwable $e) {
-                        Log::error('[ProcessPingResponseBatchJob] redis reservation failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-                        // Fallback: return empty to avoid risking oversubscription when Redis is down
-                        return [];
-                }
-        }
 }
