@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Log;
 use App\Services\OrderService;
 use App\Services\ResumeOrderService;
 use App\Services\PingService;
+use App\Services\InstagramLookupService;
 
 class OrderController extends Controller
 {
@@ -80,6 +81,23 @@ class OrderController extends Controller
         $targetUrl = $targetId;
         $targetUrlHash = sha1($targetUrl);
 
+        // If mediaId/userPk are missing, try to resolve them using InstagramLookupService
+        try {
+            $resolver = app()->make(InstagramLookupService::class);
+            Log::info('[Admin\OrderController] calling InstagramLookupService::resolve', ['target' => $targetUrl, 'type' => $data['type'] ?? 'like'] );
+            $resolved = $resolver->resolve($targetUrl, $data['type'] ?? 'like', 5);
+            Log::info('[Admin\OrderController] InstagramLookupService::resolve returned', ['resolved' => $resolved]);
+            if ($resolved) {
+                if (($data['type'] ?? 'like') === 'like') {
+                    $data['mediaId'] = $data['mediaId'] ?? $resolved;
+                } else {
+                    $data['userPk'] = $data['userPk'] ?? $resolved;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[Admin\OrderController] Instagram resolver failed: ' . $e->getMessage());
+        }
+
         $pointsPerAction = function_exists('setting') ? setting("points_per_{$data['type']}", 1) : 1;
         $cost = $data['cost'] ?? ($data['total_count'] * $pointsPerAction);
 
@@ -105,6 +123,8 @@ class OrderController extends Controller
                 'target_url' => $targetUrl,
                 'target_url_hash' => $targetUrlHash,
                 'user_id' => $user->id,
+                'mediaId' => $data['mediaId'] ?? null,
+                'userPk' => $data['userPk'] ?? null,
             ]);
 
             if (!$order) {
@@ -153,6 +173,24 @@ class OrderController extends Controller
         if ($order->status === 'completed') {
             // Log::info("[OrderComplete] Attempt to complete an already completed order (ID: {$order->id})");
             return redirect()->back()->with('error', 'Cannot complete an already completed order.');
+        }
+
+        // If mediaId/userPk are missing on an existing order, try to resolve them before resuming
+        try {
+            $resolver = app()->make(InstagramLookupService::class);
+            Log::info('[Admin\OrderController::complete] calling InstagramLookupService::resolve', ['order_id' => $order->id, 'target' => $order->target_url, 'type' => $order->type ?? 'like']);
+            $resolved = $resolver->resolve($order->target_url, $order->type ?? 'like', 5);
+            Log::info('[Admin\OrderController::complete] InstagramLookupService::resolve returned', ['order_id' => $order->id, 'resolved' => $resolved]);
+            if ($resolved) {
+                if (($order->type ?? 'like') === 'like') {
+                    $order->mediaId = $order->mediaId ?? $resolved;
+                } else {
+                    $order->userPk = $order->userPk ?? $resolved;
+                }
+                $order->save();
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[Admin\OrderController::complete] Instagram resolver failed: ' . $e->getMessage());
         }
 
         try {

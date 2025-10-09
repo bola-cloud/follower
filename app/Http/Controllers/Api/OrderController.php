@@ -12,7 +12,6 @@ use App\Events\OrderCompleted;
 use Throwable;
 use App\Services\OrderService;
 use App\Services\PingService;
-use App\Services\InstagramLookupService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Log;
 use App\Models\User;
@@ -57,23 +56,6 @@ class OrderController extends Controller
         $targetUrl = $targetId;  // We overwrite it to store only the ID
         $targetUrlHash = sha1($targetUrl);
 
-        // If mediaId/userPk are missing, try to resolve them using InstagramLookupService
-        try {
-            $resolver = app()->make(InstagramLookupService::class);
-            Log::info('[OrderController] calling InstagramLookupService::resolve', ['target' => $targetUrl, 'type' => $data['type'] ?? 'like', 'mediaId_present' => isset($data['mediaId']), 'userPk_present' => isset($data['userPk'])]);
-            $resolved = $resolver->resolve($targetUrl, $data['type'] ?? 'like', 5);
-            Log::info('[OrderController] InstagramLookupService::resolve returned', ['resolved' => $resolved]);
-            if ($resolved) {
-                // Depending on type, set appropriate fields if not provided
-                if (($data['type'] ?? 'like') === 'like') {
-                    $data['mediaId'] = $data['mediaId'] ?? $resolved;
-                } else {
-                    $data['userPk'] = $data['userPk'] ?? $resolved;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[OrderController] Instagram resolver failed: ' . $e->getMessage());
-        }
 
 
         // Get point cost per action from settings (default = 1)
@@ -196,23 +178,6 @@ class OrderController extends Controller
             return response()->json(['error' => 'Unauthorized or invalid order.'], 401);
         }
 
-        // If mediaId/userPk are missing on an existing order, try to resolve them before resuming
-        try {
-            $resolver = app()->make(InstagramLookupService::class);
-            Log::info('[OrderController::complete] calling InstagramLookupService::resolve', ['order_id' => $order->id, 'target' => $order->target_url, 'type' => $order->type ?? 'like']);
-            $resolved = $resolver->resolve($order->target_url, $order->type ?? 'like', 5);
-            Log::info('[OrderController::complete] InstagramLookupService::resolve returned', ['order_id' => $order->id, 'resolved' => $resolved]);
-            if ($resolved) {
-                if (($order->type ?? 'like') === 'like') {
-                    $order->mediaId = $order->mediaId ?? $resolved;
-                } else {
-                    $order->userPk = $order->userPk ?? $resolved;
-                }
-                $order->save();
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[OrderController::complete] Instagram resolver failed: ' . $e->getMessage());
-        }
 
         // ✅ Check if order is already completed
         if ($order->status === 'completed') {
