@@ -173,24 +173,12 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
             foreach ($chunks as $chunkIndex => $chunkUserIds) {
                 try {
-                    // Reserve slots atomically in Redis for this chunk (pre-publish reservation)
-                    $reservedUserIds = $this->reserveUsersRedis($order, $chunkUserIds, $doneCount);
-
-                    if (empty($reservedUserIds)) {
-                        Log::info('[ProcessPingResponseBatchJob] no reservations possible for chunk', [
-                            'order_id' => $order->id,
-                            'chunk_index' => $chunkIndex,
-                            'requested' => count($chunkUserIds)
-                        ]);
-                        continue;
-                    }
-
-                    // Insert pending actions only for reserved users
-                    $inserted = $this->insertPendingActionsChunk($order, $reservedUserIds);
+                    // Insert pending actions for this chunk
+                    $inserted = $this->insertPendingActionsChunk($order, $chunkUserIds);
                     $totalProcessed += $inserted;
 
-                    // Publish order announcements for reserved users only
-                    $published = $this->publishOrderAnnouncementsChunk($order, $reservedUserIds);
+                    // Publish order announcements for this chunk
+                    $published = $this->publishOrderAnnouncementsChunk($order, $chunkUserIds);
                     $totalPublished += $published;
 
                     // Small delay between chunks to control publish rate
