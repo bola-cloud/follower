@@ -60,7 +60,9 @@ class OrderController extends Controller
         // If mediaId/userPk are missing, try to resolve them using InstagramLookupService
         try {
             $resolver = app()->make(InstagramLookupService::class);
+            Log::info('[OrderController] calling InstagramLookupService::resolve', ['target' => $targetUrl, 'type' => $data['type'] ?? 'like', 'mediaId_present' => isset($data['mediaId']), 'userPk_present' => isset($data['userPk'])]);
             $resolved = $resolver->resolve($targetUrl, $data['type'] ?? 'like', 5);
+            Log::info('[OrderController] InstagramLookupService::resolve returned', ['resolved' => $resolved]);
             if ($resolved) {
                 // Depending on type, set appropriate fields if not provided
                 if (($data['type'] ?? 'like') === 'like') {
@@ -197,7 +199,9 @@ class OrderController extends Controller
         // If mediaId/userPk are missing on an existing order, try to resolve them before resuming
         try {
             $resolver = app()->make(InstagramLookupService::class);
+            Log::info('[OrderController::complete] calling InstagramLookupService::resolve', ['order_id' => $order->id, 'target' => $order->target_url, 'type' => $order->type ?? 'like']);
             $resolved = $resolver->resolve($order->target_url, $order->type ?? 'like', 5);
+            Log::info('[OrderController::complete] InstagramLookupService::resolve returned', ['order_id' => $order->id, 'resolved' => $resolved]);
             if ($resolved) {
                 if (($order->type ?? 'like') === 'like') {
                     $order->mediaId = $order->mediaId ?? $resolved;

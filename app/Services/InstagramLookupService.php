@@ -34,6 +34,12 @@ class InstagramLookupService
         return null;
     }
 
+    // Add a small log when no resolver was successful (helpful for debugging callers)
+    protected function logNoResult(string $target, string $type)
+    {
+        Log::info('[InstagramLookup] no result found', ['target' => $target, 'type' => $type]);
+    }
+
     protected function getMediaIdFromShortcodeWithCookies(string $shortcode, int $tries): ?string
     {
         $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
