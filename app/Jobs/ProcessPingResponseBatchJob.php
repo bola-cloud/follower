@@ -164,6 +164,39 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                 'eligible_count' => $eligibleCount
             ]);
 
+            // Compute capacity counts before publishing (no locks)
+            $doneCount = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->where('status', 'done')
+                ->count();
+
+            $pendingCount = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->where('status', 'pending')
+                ->where('created_at', '>=', now()->subMinutes(15))
+                ->count();
+
+            $remaining = $order->total_count - $doneCount;
+            $availableSlots = $order->total_count - $doneCount - $pendingCount;
+
+            Log::info('[ProcessPingResponseBatchJob] capacity computed', [
+                'order_id' => $order->id,
+                'done_count' => $doneCount,
+                'pending_count' => $pendingCount,
+                'remaining' => $remaining,
+                'available_slots' => $availableSlots
+            ]);
+
+            if ($remaining <= 0) {
+                Log::info('[ProcessPingResponseBatchJob] Order already completed (after capacity check), skipping', ['order_id' => $order->id]);
+                return;
+            }
+
+            if ($availableSlots <= 0) {
+                Log::info('[ProcessPingResponseBatchJob] No available slots (pending fills capacity), skipping', ['order_id' => $order->id]);
+                return;
+            }
+
             // Process in chunks to control DB load and order publish rate
             $chunkSize = (int) env('PING_BATCH_PROCESS_CHUNK_SIZE', 80);
             $chunks = array_chunk($eligibleUserIds, $chunkSize);
@@ -173,13 +206,28 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
             foreach ($chunks as $chunkIndex => $chunkUserIds) {
                 try {
-                    // Insert pending actions for this chunk
-                    $inserted = $this->insertPendingActionsChunk($order, $chunkUserIds);
+                    if ($availableSlots <= 0) {
+                        // no slots left
+                        break;
+                    }
+
+                    // Respect available slots: trim chunk if needed
+                    $toProcess = $chunkUserIds;
+                    if (count($toProcess) > $availableSlots) {
+                        $toProcess = array_slice($toProcess, 0, $availableSlots);
+                    }
+
+                    // Insert pending actions for this chunk (trimmed)
+                    $inserted = $this->insertPendingActionsChunk($order, $toProcess);
                     $totalProcessed += $inserted;
 
-                    // Publish order announcements for this chunk
-                    $published = $this->publishOrderAnnouncementsChunk($order, $chunkUserIds);
+                    // Publish order announcements for this chunk (only those we attempted to reserve)
+                    $published = $this->publishOrderAnnouncementsChunk($order, $toProcess);
                     $totalPublished += $published;
+
+                    // Decrement available slots by how many were processed (use inserted as accurate count)
+                    $decrement = min($inserted, count($toProcess));
+                    $availableSlots = max(0, $availableSlots - $decrement);
 
                     // Small delay between chunks to control publish rate
                     if ($chunkIndex < count($chunks) - 1) {
