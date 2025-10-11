@@ -265,26 +265,62 @@ class MqttResponseController extends Controller
             'skipped_busy_count' => $skippedCount
         ]);
 
-        // Dispatch background jobs for each status group
+        // For very large batches (>500 actions), split into smaller sub-batches to prevent queue overload
+        // This ensures Redis queue doesn't get overwhelmed and jobs are distributed evenly
+        $subBatchSize = (int) env('ORDER_RES_SUB_BATCH_SIZE', 500);
+
+        // Dispatch background jobs for each status group with sub-batching for large groups
         $jobsDispatched = 0;
+        $delaySeconds = 0; // Stagger job dispatches to prevent queue spike
+
         foreach ($groupedByStatus as $status => $responses) {
             if (empty($responses)) continue;
 
-            $jobBatchId = $batchId . '_' . $status;
+            $totalResponses = count($responses);
 
-            // Dispatch job to process this status group
-            \App\Jobs\ProcessOrderResponseBatchJob::dispatch(
-                $responses,
-                $status,
-                $jobBatchId
-            );
+            // If responses exceed sub-batch size, split into multiple jobs
+            if ($totalResponses > $subBatchSize) {
+                $chunks = array_chunk($responses, $subBatchSize);
 
-            $jobsDispatched++;
+                \Log::info("[MQTT_API_BATCH] Splitting large status group into sub-batches", [
+                    'batch_id' => $batchId,
+                    'status' => $status,
+                    'total_responses' => $totalResponses,
+                    'sub_batch_count' => count($chunks),
+                    'sub_batch_size' => $subBatchSize
+                ]);
 
-            \Log::info("[MQTT_API_BATCH] Background job dispatched", [
-                'batch_id' => $jobBatchId,
+                foreach ($chunks as $chunkIndex => $chunk) {
+                    $jobBatchId = $batchId . '_' . $status . '_' . ($chunkIndex + 1);
+
+                    // Dispatch with staggered delay (1-2 seconds between large batches)
+                    \App\Jobs\ProcessOrderResponseBatchJob::dispatch(
+                        $chunk,
+                        $status,
+                        $jobBatchId
+                    )->delay(now()->addSeconds($delaySeconds));
+
+                    $jobsDispatched++;
+                    $delaySeconds += 1; // Add 1 second delay for each sub-batch
+                }
+            } else {
+                // Normal single job dispatch for smaller batches
+                $jobBatchId = $batchId . '_' . $status;
+
+                \App\Jobs\ProcessOrderResponseBatchJob::dispatch(
+                    $responses,
+                    $status,
+                    $jobBatchId
+                )->delay(now()->addSeconds($delaySeconds));
+
+                $jobsDispatched++;
+            }
+
+            \Log::info("[MQTT_API_BATCH] Background job(s) dispatched for status group", [
+                'batch_id' => $batchId,
                 'status' => $status,
-                'response_count' => count($responses)
+                'response_count' => $totalResponses,
+                'jobs_dispatched' => $jobsDispatched
             ]);
         }
 

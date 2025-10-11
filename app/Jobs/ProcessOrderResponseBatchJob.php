@@ -59,13 +59,15 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
     protected string $status;
 
     /**
-     * Chunk size for DB operations (process 80 actions at a time)
+     * Chunk size for DB operations (process actions at a time)
      * Lower values = safer for DB, higher values = faster processing
+     * Default: 150 for high throughput with minimal DB overhead
      */
     protected int $chunkSize;
 
     /**
      * Delay between chunks in milliseconds to prevent DB overload
+     * Set to 0 for maximum throughput when using Redis queue workers
      */
     protected int $chunkDelayMs;
 
@@ -81,8 +83,11 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
         $this->responses = $responses;
         $this->status = $status;
         $this->batchId = $batchId;
-        $this->chunkSize = (int) env('ORDER_RES_BATCH_CHUNK_SIZE', 80);
-        $this->chunkDelayMs = (int) env('ORDER_RES_BATCH_CHUNK_DELAY_MS', 50);
+        // Increased chunk size from 80 to 150 for better throughput
+        // With 16 queue workers, can process 2400 actions per second
+        $this->chunkSize = (int) env('ORDER_RES_BATCH_CHUNK_SIZE', 150);
+        // Reduced delay from 50ms to 0ms - queue workers provide natural pacing
+        $this->chunkDelayMs = (int) env('ORDER_RES_BATCH_CHUNK_DELAY_MS', 0);
 
         // Use high-priority queue for order completions
         $this->onQueue('high');
@@ -107,8 +112,22 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
         ]);
 
         try {
+            // Deduplicate responses using Redis to prevent processing the same action multiple times
+            // This is critical during high load when multiple batches may contain overlapping actions
+            $responses = $this->deduplicateResponses($this->responses);
+            $deduplicatedCount = $totalResponses - count($responses);
+
+            if ($deduplicatedCount > 0) {
+                Log::info('[ProcessOrderResponseBatchJob] Deduplicated responses', [
+                    'batch_id' => $this->batchId,
+                    'original_count' => $totalResponses,
+                    'deduplicated_count' => $deduplicatedCount,
+                    'remaining_count' => count($responses)
+                ]);
+            }
+
             // Group responses by order_id for efficient processing
-            $orderGroups = $this->groupResponsesByOrder($this->responses);
+            $orderGroups = $this->groupResponsesByOrder($responses);
 
             Log::info('[ProcessOrderResponseBatchJob] Grouped responses', [
                 'batch_id' => $this->batchId,
@@ -470,6 +489,55 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
                 'error' => $e->getMessage()
             ]);
         }
+    }
+
+    /**
+     * Deduplicate responses using Redis to prevent duplicate processing during high load
+     * Uses a Redis set with 5-minute TTL to track processed actions
+     *
+     * @param array $responses
+     * @return array Deduplicated responses
+     */
+    protected function deduplicateResponses(array $responses): array
+    {
+        if (empty($responses)) {
+            return [];
+        }
+
+        $deduplicated = [];
+        $pipe = Redis::pipeline();
+        $keys = [];
+
+        // Build Redis keys for each response
+        foreach ($responses as $index => $response) {
+            $orderId = $response['order_id'];
+            $userId = $response['user_id'];
+            $key = "action_processing:{$orderId}:{$userId}:{$this->status}";
+            $keys[$index] = $key;
+
+            // Try to set key with NX (only if not exists) and 5-minute expiry
+            $pipe->set($key, time(), 'EX', 300, 'NX');
+        }
+
+        $results = $pipe->execute();
+
+        // Keep only responses where Redis SET succeeded (returns true)
+        foreach ($responses as $index => $response) {
+            if ($results[$index] === true || $results[$index] === 'OK') {
+                // Key was newly created, so this action hasn't been processed recently
+                $deduplicated[] = $response;
+            } else {
+                // Key already exists, action is being/was recently processed - skip
+                Log::debug('[ProcessOrderResponseBatchJob] Skipping duplicate action', [
+                    'batch_id' => $this->batchId,
+                    'order_id' => $response['order_id'],
+                    'user_id' => $response['user_id'],
+                    'status' => $this->status
+                ]);
+            }
+        }
+
+        return $deduplicated;
     }
 
     /**

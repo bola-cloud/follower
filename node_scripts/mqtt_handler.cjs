@@ -43,9 +43,9 @@ let deviceActTimer = null;
 
 // ✅ ORDER RESPONSE BATCHING: Accumulate order/res responses for batch processing
 const ORDER_RES_BATCH_ENABLED = process.env.ORDER_RES_BATCH_ENABLED !== 'false';
-const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '50', 10); // Max actions per batch
-const ORDER_RES_BATCH_TIMEOUT = parseInt(process.env.ORDER_RES_BATCH_TIMEOUT || '500', 10); // Max wait time in ms
-const ORDER_RES_BATCH_MAX_SIZE = parseInt(process.env.ORDER_RES_BATCH_MAX_SIZE || '500', 10); // Emergency flush threshold
+const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '300', 10); // Max actions per batch (increased from 50)
+const ORDER_RES_BATCH_TIMEOUT = parseInt(process.env.ORDER_RES_BATCH_TIMEOUT || '200', 10); // Max wait time in ms (reduced from 500 for faster flushing)
+const ORDER_RES_BATCH_MAX_SIZE = parseInt(process.env.ORDER_RES_BATCH_MAX_SIZE || '1000', 10); // Emergency flush threshold (increased from 500)
 
 const orderResponseBatch = []; // Accumulator for order/res responses
 let orderResBatchTimer = null;
