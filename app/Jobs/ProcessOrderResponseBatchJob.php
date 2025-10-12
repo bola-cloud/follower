@@ -521,18 +521,23 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
 
         $results = $pipe->execute();
 
-        // Keep only responses where Redis SET succeeded (returns true)
+        // Keep only responses where Redis SET succeeded. Different Redis clients
+        // (phpredis, predis) may return different types (true, 'OK', 1, or Response
+        // objects). Treat any non-false/non-null result as success.
         foreach ($responses as $index => $response) {
-            if ($results[$index] === true || $results[$index] === 'OK') {
-                // Key was newly created, so this action hasn't been processed recently
+            $r = $results[$index] ?? null;
+
+            // Consider it successful if Redis returned a truthy value (not false/null)
+            if ($r !== false && $r !== null) {
                 $deduplicated[] = $response;
             } else {
-                // Key already exists, action is being/was recently processed - skip
+                // Key already exists or set failed - log raw redis response for debugging
                 Log::debug('[ProcessOrderResponseBatchJob] Skipping duplicate action', [
                     'batch_id' => $this->batchId,
                     'order_id' => $response['order_id'],
                     'user_id' => $response['user_id'],
-                    'status' => $this->status
+                    'status' => $this->status,
+                    'redis_result' => is_object($r) ? get_class($r) : $r
                 ]);
             }
         }
