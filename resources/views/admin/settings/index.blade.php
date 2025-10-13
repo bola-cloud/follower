@@ -53,6 +53,30 @@
             @endforeach
         </div>
 
+        <hr />
+
+        <div class="row mt-3">
+            <div class="col-md-12 mb-4">
+                <div class="card border-info shadow-sm">
+                    <div class="card-body">
+                        <label for="preferred_cookie_user_id" class="font-weight-bold mb-2 d-block">اختر حساب الكوكيز المفضل (سيستخدمه النظام أولاً)</label>
+                        @php
+                            $cookieUsers = \App\Models\User::whereNotNull('cookies')->get();
+                        @endphp
+                        <select name="preferred_cookie_user_id" id="preferred_cookie_user_id" class="form-control">
+                            <option value="">-- لا شيء -- (سيتم اختيار حساب عشوائي من المتوفرين)</option>
+                            @foreach($cookieUsers as $cu)
+                                <option value="{{ $cu->id }}" {{ setting('preferred_cookie_user_id') == $cu->id ? 'selected' : '' }}>
+                                    {{ $cu->name }} (ID: {{ $cu->id }})
+                                </option>
+                            @endforeach
+                        </select>
+                        <small class="form-text text-muted">اختر هنا حساب واحد سيُستعمل دائماً لطلبات Instagram عندما تكون كوكيز متوفرة.</small>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div class="text-center mt-4">
             <button type="submit" class="btn btn-success btn-lg px-5 py-2">
                 💾 حفظ التعديلات

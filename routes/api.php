@@ -55,6 +55,7 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
 Route::post('/mqtt/response-batch', [\App\Http\Controllers\Api\MqttResponseController::class, 'handleBatch']);
+Route::post('/mqtt/response-batch-drain', [\App\Http\Controllers\Api\MqttResponseController::class, 'handleBatchDrain']);
 Route::post('/mqtt/recalculate-orders', [\App\Http\Controllers\Api\MqttResponseController::class, 'recalculateAllOrders']);
 Route::post('/mqtt/trigger-order', [\App\Http\Controllers\Api\MqttResponseController::class, 'triggerOrder']);
 Route::post('/mqtt/trigger-order-batch', [\App\Http\Controllers\Api\MqttResponseController::class, 'triggerOrderBatch']);

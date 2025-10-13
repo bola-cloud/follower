@@ -28,6 +28,7 @@ class SettingController extends Controller
             'mandatory' => 'required|boolean',
             'build_number' => 'required|integer',
             'added_points' => 'required|integer',
+            'preferred_cookie_user_id' => 'nullable|integer|exists:users,id',
         ]);
 
         foreach ($validated as $key => $value) {

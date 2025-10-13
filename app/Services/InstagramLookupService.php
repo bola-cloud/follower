@@ -42,8 +42,30 @@ class InstagramLookupService
 
     protected function getMediaIdFromShortcodeWithCookies(string $shortcode, int $tries): ?string
     {
-        $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+        // First attempt to use the admin-preferred cookie user if configured
+        $preferredId = setting('preferred_cookie_user_id');
+        if ($preferredId) {
+            $u = User::find($preferredId);
+            if ($u && $u->cookies) {
+                Log::info('[InstagramLookup] trying preferred user for mediaId', ['user_id' => $u->id]);
+                $cookieHeader = $this->buildCookieHeader($u->cookies);
+                $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
+                if ($cookieHeader && $csrf) {
+                    // reuse the same request code path below by running a single-item loop
+                    $users = collect([$u]);
+                } else {
+                    Log::warning('[InstagramLookup] preferred user missing cookie/csrf, falling back', ['user_id' => $u->id]);
+                    $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+                }
+            } else {
+                $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+            }
+        } else {
+            $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+        }
+
         Log::info('[InstagramLookup] getMediaIdFromShortcodeWithCookies users_found', ['count' => $users->count(), 'shortcode' => $shortcode]);
+
         foreach ($users as $u) {
             Log::info('[InstagramLookup] trying user for mediaId', ['user_id' => $u->id]);
             $cookieHeader = $this->buildCookieHeader($u->cookies);
@@ -111,8 +133,29 @@ class InstagramLookupService
 
     protected function getUserPkWithCookies(string $username, int $tries): ?string
     {
-        $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+        // Prefer admin-selected cookie user if present and valid
+        $preferredId = setting('preferred_cookie_user_id');
+        if ($preferredId) {
+            $u = User::find($preferredId);
+            if ($u && $u->cookies) {
+                Log::info('[InstagramLookup] trying preferred user for userPk', ['user_id' => $u->id]);
+                $cookieHeader = $this->buildCookieHeader($u->cookies);
+                $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
+                if ($cookieHeader) {
+                    $users = collect([$u]);
+                } else {
+                    Log::warning('[InstagramLookup] preferred user missing cookie header, falling back', ['user_id' => $u->id]);
+                    $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+                }
+            } else {
+                $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+            }
+        } else {
+            $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+        }
+
         Log::info('[InstagramLookup] getUserPkWithCookies users_found', ['count' => $users->count(), 'username' => $username]);
+
         foreach ($users as $u) {
             Log::info('[InstagramLookup] trying user for userPk', ['user_id' => $u->id]);
             $cookieHeader = $this->buildCookieHeader($u->cookies);

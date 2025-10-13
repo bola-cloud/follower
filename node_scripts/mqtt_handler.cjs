@@ -43,9 +43,9 @@ let deviceActTimer = null;
 
 // ✅ ORDER RESPONSE BATCHING: Accumulate order/res responses for batch processing
 const ORDER_RES_BATCH_ENABLED = process.env.ORDER_RES_BATCH_ENABLED !== 'false';
-const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '300', 10); // Max actions per batch (increased from 50)
+const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '200', 10); // Reduced from 300 for faster drain
 const ORDER_RES_BATCH_TIMEOUT = parseInt(process.env.ORDER_RES_BATCH_TIMEOUT || '200', 10); // Max wait time in ms (reduced from 500 for faster flushing)
-const ORDER_RES_BATCH_MAX_SIZE = parseInt(process.env.ORDER_RES_BATCH_MAX_SIZE || '1000', 10); // Emergency flush threshold (increased from 500)
+const ORDER_RES_BATCH_MAX_SIZE = parseInt(process.env.ORDER_RES_BATCH_MAX_SIZE || '500', 10); // Reduced from 1000 - flush more frequently
 
 const orderResponseBatch = []; // Accumulator for order/res responses
 let orderResBatchTimer = null;
@@ -253,8 +253,9 @@ async function flushOrderResponseBatch(reason = 'timer') {
   if (DEBUG) console.log(`📦 Flushing order response batch: ${batchSize} actions (reason: ${reason})`);
 
   try {
+    // ✅ USE DRAIN ENDPOINT for guaranteed zero-loss processing
     const response = await axios.post(
-      `${API_BASE}/api/mqtt/response-batch`,
+      `${API_BASE}/api/mqtt/response-batch-drain`,
       {
         batch_id: batchId,
         actions: batch,
@@ -264,21 +265,37 @@ async function flushOrderResponseBatch(reason = 'timer') {
     );
 
     if (DEBUG) {
-      console.log(`✅ Order response batch processed: ${batchSize} actions`, {
+      console.log(`✅ Order response batch queued to drain: ${batchSize} actions`, {
         batch_id: batchId,
-        jobs_dispatched: response.data?.jobs_dispatched,
+        queued: response.data?.queued,
         skipped_busy: response.data?.skipped_busy,
-        duration_ms: response.data?.duration_ms
+        duration_ms: response.data?.duration_ms,
+        mode: response.data?.mode
       });
     }
 
   } catch (err) {
     console.error(`❌ Order response batch failed (${batchSize} actions):`, err.response?.data || err.message);
 
-    // If batch endpoint fails, fall back to individual processing for this batch
-    if (err.response?.status === 404 || err.response?.status === 500) {
-      console.warn(`⚠️ Falling back to individual processing for ${batchSize} order responses`);
+    // Fallback to regular batch endpoint if drain endpoint fails
+    try {
+      console.warn(`⚠️ Falling back to regular batch endpoint for ${batchSize} order responses`);
+      const fallbackResponse = await axios.post(
+        `${API_BASE}/api/mqtt/response-batch`,
+        {
+          batch_id: batchId,
+          actions: batch,
+          timestamp: Date.now()
+        },
+        { timeout: HTTP_TIMEOUT * 2 }
+      );
 
+      console.log(`✅ Fallback batch processed: ${batchSize} actions`);
+    } catch (fallbackErr) {
+      console.error(`❌ Fallback batch also failed:`, fallbackErr.response?.data || fallbackErr.message);
+
+      // Last resort: individual processing
+      console.warn(`⚠️ Final fallback to individual processing for ${batchSize} order responses`);
       for (const action of batch) {
         try {
           await throttledPost(`${API_BASE}/api/mqtt/response`, action);
