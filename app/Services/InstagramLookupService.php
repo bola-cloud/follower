@@ -51,8 +51,9 @@ class InstagramLookupService
                 $cookieHeader = $this->buildCookieHeader($u->cookies);
                 $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
                 if ($cookieHeader && $csrf) {
-                    // reuse the same request code path below by running a single-item loop
-                    $users = collect([$u]);
+                    // try preferred user first, then fall back to other cookie users if preferred fails
+                    $others = User::whereNotNull('cookies')->where('id', '<>', $u->id)->inRandomOrder()->limit(max(0, $tries - 1))->get();
+                    $users = collect([$u])->merge($others);
                 } else {
                     Log::warning('[InstagramLookup] preferred user missing cookie/csrf, falling back', ['user_id' => $u->id]);
                     $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
@@ -113,6 +114,13 @@ class InstagramLookupService
                 Log::info('[InstagramLookup] mediaId request completed', ['user_id' => $u->id, 'status' => $resp->status(), 'duration_ms' => $duration]);
                 if ($resp->ok()) {
                     $json = $resp->json();
+                    // If GraphQL returned errors, log truncated message and try next user
+                    if (!empty($json['errors'])) {
+                        $err = null;
+                        try { $err = json_encode($json['errors']); } catch (\Throwable $_) { $err = null; }
+                        Log::warning('[InstagramLookup] graphql errors in mediaId response', ['user_id' => $u->id, 'errors_trunc' => $err ? substr($err, 0, 200) : null]);
+                        continue; // try next cookie user
+                    }
                     // Attempt to extract media id using multiple possible keys (GraphQL responses vary)
                     $mediaId = null;
                     // Common keys observed: xdt_shortcode_media, shortcode_media, media, item, shortcode_media.edge_media_to_caption
@@ -191,7 +199,8 @@ class InstagramLookupService
                 $cookieHeader = $this->buildCookieHeader($u->cookies);
                 $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
                 if ($cookieHeader) {
-                    $users = collect([$u]);
+                    $others = User::whereNotNull('cookies')->where('id', '<>', $u->id)->inRandomOrder()->limit(max(0, $tries - 1))->get();
+                    $users = collect([$u])->merge($others);
                 } else {
                     Log::warning('[InstagramLookup] preferred user missing cookie header, falling back', ['user_id' => $u->id]);
                     $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
@@ -238,6 +247,12 @@ class InstagramLookupService
                 Log::info('[InstagramLookup] userPk request completed', ['user_id' => $u->id, 'status' => $resp->status(), 'duration_ms' => $duration]);
                 if ($resp->ok()) {
                     $json = $resp->json();
+                    if (!empty($json['errors'])) {
+                        $err = null;
+                        try { $err = json_encode($json['errors']); } catch (\Throwable $_) { $err = null; }
+                        Log::warning('[InstagramLookup] graphql errors in userPk response', ['user_id' => $u->id, 'errors_trunc' => $err ? substr($err, 0, 200) : null]);
+                        continue;
+                    }
                     $userPk = $json['data']['user']['id'] ?? null;
                     if ($userPk) {
                         Log::info('[InstagramLookup] userPk found', ['user_id' => $u->id, 'userPk' => $userPk]);
