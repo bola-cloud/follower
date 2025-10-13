@@ -150,12 +150,24 @@ class InstagramLookupService
                         Log::info('[InstagramLookup] mediaId found', ['user_id' => $u->id, 'mediaId' => $mediaId]);
                         return (string)$mediaId;
                     }
-                    // If not found, log a compact sample of response keys for debugging (no sensitive data)
-                    $topKeys = [];
-                    if (is_array($json) && isset($json['data']) && is_array($json['data'])) {
-                        $topKeys = array_keys($json['data']);
+                    // If not found, log diagnostic info so we can see why (keep logs compact and avoid leaking cookies)
+                    $jsonTopKeys = [];
+                    if (is_array($json)) {
+                        $jsonTopKeys = array_keys($json);
                     }
-                    Log::warning('[InstagramLookup] mediaId not found in response', ['user_id' => $u->id, 'response_top_keys' => $topKeys]);
+                    $bodyLength = null;
+                    try {
+                        $body = $resp->body();
+                        $bodyLength = is_string($body) ? strlen($body) : null;
+                    } catch (\Throwable $e) {
+                        $bodyLength = null;
+                    }
+                    Log::warning('[InstagramLookup] mediaId not found in response', [
+                        'user_id' => $u->id,
+                        'status' => $resp->status(),
+                        'response_json_top_keys' => $jsonTopKeys,
+                        'response_body_length' => $bodyLength,
+                    ]);
                 } else {
                     Log::warning('[InstagramLookup] mediaId request non-OK', ['user_id' => $u->id, 'status' => $resp->status()]);
                 }
