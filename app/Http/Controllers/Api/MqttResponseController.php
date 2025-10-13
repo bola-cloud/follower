@@ -15,16 +15,19 @@ use Illuminate\Support\Facades\Log;
 class MqttResponseController extends Controller
 {
     /**
-     * ⚠️ DEPRECATED: Single order response handler
+     * ⚠️ FALLBACK ONLY: Single order response handler
      *
-     * This method is deprecated in favor of batch processing (handleBatch).
+     * This method is deprecated in favor of batch processing (handleBatch/handleBatchDrain).
      * Use batch endpoint for all order responses to achieve better performance.
      *
      * Performance comparison:
      * - Single: 1000 responses = 1000 HTTP calls + 1000 DB queries
      * - Batch: 1000 responses = 10 HTTP calls + 12 DB queries (99% reduction)
      *
-     * @deprecated Use handleBatch() instead for better performance and scalability
+     * This handler is kept as a last-resort fallback only when batch processing fails.
+     * Heavy use of this endpoint indicates a problem with the batch system.
+     *
+     * @deprecated Use handleBatchDrain() for zero-loss guaranteed processing
      */
     public function handle(Request $request)
     {
@@ -35,13 +38,19 @@ class MqttResponseController extends Controller
             'ip' => $request->ip()
         ]);
 
-        // Return deprecation message
-        return response()->json([
-            'error' => 'This endpoint is deprecated. Please use /api/mqtt/response-batch for batch processing.',
-            'deprecated' => true,
-            'recommended_endpoint' => '/api/mqtt/response-batch',
-            'documentation' => 'See ORDER_RESPONSE_BATCHING.md for migration guide'
-        ], 410); // 410 Gone - indicates the resource is no longer available
+        // Validate request
+        $validated = $request->validate([
+            'order_id' => 'required|integer',
+            'user_id' => 'required|integer',
+            'status' => 'required|string|in:done,external,busy'
+        ]);
+
+        // Process as fallback (but still works to prevent data loss)
+        return $this->legacyProcessAction(
+            $validated['order_id'],
+            $validated['user_id'],
+            $validated['status']
+        );
     }
 
     /**
