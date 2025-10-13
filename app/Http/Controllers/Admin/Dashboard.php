@@ -16,13 +16,17 @@ class Dashboard extends Controller
 {
     public function index(Request $request)
     {
-        // ✅ 1. Clear previous activation set every time dashboard is opened (use Redis for atomic ops)
-        try {
-            \Illuminate\Support\Facades\Redis::del('device_activations_set');
-        } catch (\Throwable $e) {
-            // Fallback to cache forget if Redis is unavailable
-            Cache::forget('device_activations_set');
-            Cache::forget('device_activations_count');
+        // Note: don't clear the activation set on every dashboard load -
+        // doing so makes the UI show 0 while devices respond. Instead,
+        // only clear when explicitly requested via ?force_ping=1.
+        if ($request->query('force_ping') == '1') {
+            try {
+                \Illuminate\Support\Facades\Redis::del('device_activations_set');
+            } catch (\Throwable $e) {
+                // Fallback to cache forget if Redis is unavailable
+                Cache::forget('device_activations_set');
+                Cache::forget('device_activations_count');
+            }
         }
 
         // ✅ 2. Run the Node.js script to trigger MQTT

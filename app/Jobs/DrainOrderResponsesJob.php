@@ -214,7 +214,7 @@ class DrainOrderResponsesJob implements ShouldQueue
     {
         if (empty($userIds)) return 0;
 
-        $chunkSize = 100; // Process 100 users at a time
+        $chunkSize = 200; // Process 200 users at a time (increased from 100 for better throughput)
         $totalUpdated = 0;
 
         foreach (array_chunk($userIds, $chunkSize) as $chunk) {
