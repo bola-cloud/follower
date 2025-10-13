@@ -127,6 +127,6 @@ def main(start_id, end_id):
 # Example: Simulate devices with uIds from 5000 to 5100
 if __name__ == "__main__":
     start_id = 15648  # Your start ID
-    end_id = 25647  # Your end ID
+    end_id = 18647  # Your end ID
     main(start_id, end_id)
 #end_id = 15634

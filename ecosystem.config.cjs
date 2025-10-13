@@ -73,11 +73,11 @@ module.exports = {
         PING_BATCH_SIZE: '100',
         PING_BATCH_TIMEOUT: '500',
         PING_BATCH_MAX_SIZE: '1000',
-        // Order response batching (for order/res/{order_id}/{user_id})
+        // Order response batching (for order/res/{order_id}/{user_id}) - OPTIMIZED FOR DRAIN QUEUE
         ORDER_RES_BATCH_ENABLED: 'true',
-        ORDER_RES_BATCH_SIZE: '50',
-        ORDER_RES_BATCH_TIMEOUT: '500',
-        ORDER_RES_BATCH_MAX_SIZE: '500',
+        ORDER_RES_BATCH_SIZE: '200',        // Changed from 50 - reduces HTTP overhead
+        ORDER_RES_BATCH_TIMEOUT: '200',     // Changed from 500 - faster flush to drain queue
+        ORDER_RES_BATCH_MAX_SIZE: '500',    // OK as-is - emergency flush threshold
         DEBUG: 'false'
       },
 
