@@ -113,12 +113,49 @@ class InstagramLookupService
                 Log::info('[InstagramLookup] mediaId request completed', ['user_id' => $u->id, 'status' => $resp->status(), 'duration_ms' => $duration]);
                 if ($resp->ok()) {
                     $json = $resp->json();
-                    // Attempt to extract media id similar to the Flutter code
-                    $mediaId = $json['data']['xdt_shortcode_media']['id'] ?? null;
+                    // Attempt to extract media id using multiple possible keys (GraphQL responses vary)
+                    $mediaId = null;
+                    // Common keys observed: xdt_shortcode_media, shortcode_media, media, item, shortcode_media.edge_media_to_caption
+                    $candidates = [
+                        $json['data']['xdt_shortcode_media'] ?? null,
+                        $json['data']['shortcode_media'] ?? null,
+                        $json['data']['media'] ?? null,
+                        $json['data']['item'] ?? null,
+                    ];
+
+                    foreach ($candidates as $cand) {
+                        if (is_array($cand) && !empty($cand['id'])) {
+                            $mediaId = $cand['id'];
+                            break;
+                        }
+                    }
+
+                    // Fallback: shallow scan for first "id" field under data
+                    if (!$mediaId && is_array($json)) {
+                        $found = null;
+                        if (isset($json['data']) && is_array($json['data'])) {
+                            array_walk_recursive($json['data'], function($v, $k) use (&$found) {
+                                if ($found) return;
+                                if ($k === 'id' && is_scalar($v)) {
+                                    $found = $v;
+                                }
+                            });
+                        }
+                        if ($found) {
+                            $mediaId = $found;
+                        }
+                    }
+
                     if ($mediaId) {
                         Log::info('[InstagramLookup] mediaId found', ['user_id' => $u->id, 'mediaId' => $mediaId]);
                         return (string)$mediaId;
                     }
+                    // If not found, log a compact sample of response keys for debugging (no sensitive data)
+                    $topKeys = [];
+                    if (is_array($json) && isset($json['data']) && is_array($json['data'])) {
+                        $topKeys = array_keys($json['data']);
+                    }
+                    Log::warning('[InstagramLookup] mediaId not found in response', ['user_id' => $u->id, 'response_top_keys' => $topKeys]);
                 } else {
                     Log::warning('[InstagramLookup] mediaId request non-OK', ['user_id' => $u->id, 'status' => $resp->status()]);
                 }
