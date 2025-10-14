@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Redis;
+use Illuminate\Support\Facades\Log;
 
 class MqttDeviceController extends Controller
 {
@@ -23,6 +24,7 @@ class MqttDeviceController extends Controller
         $redis = \Illuminate\Support\Facades\Redis::connection('queue');
 
         try {
+            Log::info('[MqttDeviceController] handle() received activation', ['device_id' => $deviceId, 'connection' => 'queue']);
             // Use Redis SET to store unique device ids atomically and efficiently
             $redis->sadd($setKey, $deviceId);
 
@@ -31,13 +33,15 @@ class MqttDeviceController extends Controller
 
             $count = $redis->scard($setKey);
 
+            Log::info('[MqttDeviceController] handle() stored activation', ['device_id' => $deviceId, 'set' => $setKey, 'count' => $count]);
+
             return response()->json([
                 'message' => 'Stored',
                 'count' => $count,
             ]);
         } catch (\Throwable $e) {
             // Fallback to cache-based behavior if Redis is unavailable
-            \Log::error('[MqttDeviceController] Redis unavailable, falling back to Cache: ' . $e->getMessage());
+            Log::error('[MqttDeviceController] Redis unavailable, falling back to Cache', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
 
             $cacheSetKey = 'device_activations_set';
             $cacheCountKey = 'device_activations_count';
@@ -48,6 +52,9 @@ class MqttDeviceController extends Controller
                 $existingDevices[] = $deviceId;
                 Cache::put($cacheSetKey, $existingDevices); // No expiration time
                 Cache::put($cacheCountKey, count($existingDevices)); // No expiration time
+                Log::warning('[MqttDeviceController] handle() cache fallback stored device', ['device_id' => $deviceId, 'count' => count($existingDevices)]);
+            } else {
+                Log::info('[MqttDeviceController] handle() cache fallback already contains device', ['device_id' => $deviceId]);
             }
 
             return response()->json([
@@ -73,8 +80,10 @@ class MqttDeviceController extends Controller
         $deviceIds = array_unique(array_map(function($a){ return $a['device_id']; }, $validated['activations']));
 
         try {
+            Log::info('[MqttDeviceController] handleBatch() received batch', ['incoming' => count($validated['activations']), 'unique' => count($deviceIds)]);
             // Use Redis pipeline for efficient bulk SADD
-            $pipe = \Illuminate\Support\Facades\Redis::pipeline();
+            $redis = \Illuminate\Support\Facades\Redis::connection('queue');
+            $pipe = $redis->pipeline();
             foreach ($deviceIds as $did) {
                 $pipe->sadd($setKey, $did);
             }
@@ -82,11 +91,12 @@ class MqttDeviceController extends Controller
             $pipe->expire($setKey, 600);
             $pipe->exec();
 
-            $count = \Illuminate\Support\Facades\Redis::scard($setKey);
+            $count = $redis->scard($setKey);
+            Log::info('[MqttDeviceController] handleBatch() stored batch', ['set' => $setKey, 'count' => $count]);
 
             return response()->json(['message' => 'Batch stored', 'count' => $count]);
         } catch (\Throwable $e) {
-            \Log::error('[MqttDeviceController] handleBatch failed: ' . $e->getMessage());
+            Log::error('[MqttDeviceController] handleBatch failed', ['error' => $e->getMessage(), 'trace' => $e->getTraceAsString()]);
             return response()->json(['error' => 'Failed to store batch'], 500);
         }
     }

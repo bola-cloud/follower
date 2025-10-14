@@ -68,6 +68,7 @@ Route::get('/device-activation-count', function () {
     try {
         $redisQueue = \Illuminate\Support\Facades\Redis::connection('queue');
         $count = (int) $redisQueue->scard('device_activations_set');
+        \Illuminate\Support\Facades\Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
         return response()->json(['count' => $count]);
     } catch (\Throwable $e) {
         // Fallback to cache

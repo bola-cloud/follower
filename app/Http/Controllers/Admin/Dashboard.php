@@ -51,6 +51,7 @@ class Dashboard extends Controller
         try {
             $redisQueue = \Illuminate\Support\Facades\Redis::connection('queue');
             $activationCount = (int) $redisQueue->scard('device_activations_set');
+            \Illuminate\Support\Facades\Log::info('[Dashboard] activationCount read', ['connection' => 'queue', 'count' => $activationCount]);
         } catch (\Throwable $e) {
             $activationCount = (int) Cache::get('device_activations_count', 0);
         }
