@@ -144,7 +144,7 @@ function processBatchedActions() {
 }
 
 async function processBatch(actions) {
-  if (!BATCH_ENABLED || actions.length <= 1) {
+  if (!BATCH_ENABLED || !Array.isArray(actions) || actions.length <= 1) {
     // Process individually
     for (const action of actions) {
       await throttledPost(`${API_BASE}/api/mqtt/response`, action);
@@ -190,6 +190,10 @@ async function flushPingResponseBatch(reason = 'timer') {
   }
 
   const batch = pingResponseBatch.splice(0, PING_BATCH_MAX_SIZE);
+  if (!Array.isArray(batch) || batch.length === 0) {
+    console.warn('⚠️ Attempted to flush empty ping response batch, skipping');
+    return;
+  }
   const batchId = randomUUID();
   const batchSize = batch.length;
 
@@ -214,7 +218,11 @@ async function flushPingResponseBatch(reason = 'timer') {
     }
 
   } catch (err) {
-    console.error(`❌ Ping batch failed (${batchSize} responses):`, err.response?.data || err.message);
+    const status = err.response?.status;
+    console.error(`❌ Ping batch failed (${batchSize} responses) status=${status}:`, err.response?.data || err.message);
+    if (status === 504 || err.code === 'ETIMEDOUT') {
+      console.error('🔔 Detected HTTP 504 or timeout when sending ping response batch', { batch_id: batchId, batchSize, status, error: err.message });
+    }
 
     // If batch endpoint fails, fall back to individual processing for this batch
     if (err.response?.status === 404 || err.response?.status === 500) {
@@ -247,6 +255,11 @@ async function flushOrderResponseBatch(reason = 'timer') {
   }
 
   const batch = orderResponseBatch.splice(0, ORDER_RES_BATCH_MAX_SIZE);
+  // Guard: do not send an empty actions array - log and return
+  if (!Array.isArray(batch) || batch.length === 0) {
+    console.warn('⚠️ Attempted to flush empty order response batch, skipping');
+    return;
+  }
   const batchId = randomUUID();
   const batchSize = batch.length;
 
@@ -275,7 +288,12 @@ async function flushOrderResponseBatch(reason = 'timer') {
     }
 
   } catch (err) {
-    console.error(`❌ Order response batch failed (${batchSize} actions):`, err.response?.data || err.message);
+    // Log more detail and detect timeouts (504) to help debug 504/timeouts
+    const status = err.response?.status;
+    console.error(`❌ Order response batch failed (${batchSize} actions) status=${status}:`, err.response?.data || err.message);
+    if (status === 504 || err.code === 'ETIMEDOUT') {
+      console.error('🔔 Detected HTTP 504 or timeout when sending order response batch', { batch_id: batchId, batchSize, status, error: err.message });
+    }
 
     // Fallback to regular batch endpoint if drain endpoint fails
     try {
