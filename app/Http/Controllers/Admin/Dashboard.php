@@ -47,12 +47,21 @@ class Dashboard extends Controller
         $ordersTotalCount = \DB::table('orders')->sum('total_count');
         $ordersRemainingTotal = max(0, $ordersTotalCount - $ordersDoneTotal);
 
+        // Activation count: attempt to read from Redis, fallback to cache
+        try {
+            $redisQueue = \Illuminate\Support\Facades\Redis::connection('queue');
+            $activationCount = (int) $redisQueue->scard('device_activations_set');
+        } catch (\Throwable $e) {
+            $activationCount = (int) Cache::get('device_activations_count', 0);
+        }
+
         return view('admin.dashboard', compact(
             'usersCount',
             'orders',
             'ordersTotal',
             'ordersCompleted',
-            'ordersPending'
+            'ordersPending',
+            'activationCount'
         ));
     }
 

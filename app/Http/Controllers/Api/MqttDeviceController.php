@@ -19,15 +19,17 @@ class MqttDeviceController extends Controller
         $deviceId = $validated['device_id'];
         $setKey = 'device_activations_set';
 
+        // Use the 'queue' Redis connection which is configured to use the logical DB for queue/worker data (typically DB 2)
+        $redis = \Illuminate\Support\Facades\Redis::connection('queue');
+
         try {
             // Use Redis SET to store unique device ids atomically and efficiently
-            Redis::sadd($setKey, $deviceId);
+            $redis->sadd($setKey, $deviceId);
 
             // Optionally set a TTL to avoid indefinite growth (e.g., 10 minutes)
-            // Only set TTL if key is new
-            Redis::expire($setKey, 600);
+            $redis->expire($setKey, 600);
 
-            $count = Redis::scard($setKey);
+            $count = $redis->scard($setKey);
 
             return response()->json([
                 'message' => 'Stored',

@@ -100,9 +100,9 @@
                 <div class="card-body">
                     <div class="media d-flex">
                         <div class="media-body text-left">
-                            <h3 class="danger" id="activation-count">0</h3>
-                            <h6>الأجهزة المفعلة</h6>
-                        </div>
+                                <h3 class="danger" id="activation-count">{{ $activationCount ?? 0 }}</h3>
+                                <h6>الأجهزة المفعلة</h6>
+                            </div>
                         <div>
                             <i class="icon-screen-tablet danger font-large-2 float-left"></i>
                         </div>

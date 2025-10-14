@@ -66,7 +66,8 @@ Route::post('/mqtt/device-activation-batch', [\App\Http\Controllers\Api\MqttDevi
 // routes/api.php
 Route::get('/device-activation-count', function () {
     try {
-        $count = (int) \Illuminate\Support\Facades\Redis::scard('device_activations_set');
+        $redisQueue = \Illuminate\Support\Facades\Redis::connection('queue');
+        $count = (int) $redisQueue->scard('device_activations_set');
         return response()->json(['count' => $count]);
     } catch (\Throwable $e) {
         // Fallback to cache
