@@ -48,13 +48,21 @@ class Dashboard extends Controller
         $ordersRemainingTotal = max(0, $ordersTotalCount - $ordersDoneTotal);
 
         // Activation count: attempt to read from Redis, fallback to cache
-        try {
-            $redisQueue = \Illuminate\Support\Facades\Redis::connection('queue');
-            $activationCount = (int) $redisQueue->scard('device_activations_set');
+            // read the activations count from queue redis
+            $activationCount = 0;
+            try {
+                $redis = \Illuminate\Support\Facades\Redis::connection('queue');
+                try {
+                    $redisConfig = config('database.redis.queue');
+                    \Illuminate\Support\Facades\Log::info('[Dashboard] redis.queue.config', $redisConfig);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Log::warning('[Dashboard] failed to read redis.queue.config', ['error' => $e->getMessage()]);
+                }
+                $activationCount = $redis->scard('device_activations_set');
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::warning('[Dashboard] failed to read device_activations_set', ['error' => $e->getMessage()]);
+            }
             \Illuminate\Support\Facades\Log::info('[Dashboard] activationCount read', ['connection' => 'queue', 'count' => $activationCount]);
-        } catch (\Throwable $e) {
-            $activationCount = (int) Cache::get('device_activations_count', 0);
-        }
 
         return view('admin.dashboard', compact(
             'usersCount',
