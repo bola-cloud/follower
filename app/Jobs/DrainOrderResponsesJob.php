@@ -60,7 +60,7 @@ class DrainOrderResponsesJob implements ShouldQueue
     public function __construct(string $status = 'done')
     {
         $this->status = $status;
-        $this->batchSize = (int) env('DRAIN_BATCH_SIZE', 200);
+        $this->batchSize = (int) env('DRAIN_BATCH_SIZE', 1000); // Increased from 200 to 1000 for faster processing
         $this->queueKey = "order_responses:drain_queue:{$status}";
 
         // Use high-priority queue
@@ -117,21 +117,16 @@ class DrainOrderResponsesJob implements ShouldQueue
                 'duration_ms' => $duration
             ]);
 
-            // Check if more items remain in queue and reschedule
+            // Check if more items remain in queue (no need to reschedule - queue workers handle it)
             $remainingCount = $this->getQueueLength();
 
             if ($remainingCount > 0) {
-                // Calculate adaptive delay based on queue depth
-                $delay = $this->calculateDelay($remainingCount);
-
-                Log::info('[DrainOrderResponsesJob] Rescheduling drain job', [
+                Log::info('[DrainOrderResponsesJob] Queue still has items, workers will continue processing', [
                     'status' => $this->status,
-                    'remaining_count' => $remainingCount,
-                    'delay_seconds' => $delay
+                    'remaining_count' => $remainingCount
                 ]);
-
-                // Dispatch next drain cycle
-                static::dispatch($this->status)->delay(now()->addSeconds($delay));
+                // REMOVED: Self-rescheduling loop that caused infinite blocking
+                // Queue workers will pick up naturally if new items arrive
             }
 
         } catch (\Throwable $e) {
@@ -214,7 +209,7 @@ class DrainOrderResponsesJob implements ShouldQueue
     {
         if (empty($userIds)) return 0;
 
-        $chunkSize = 200; // Process 200 users at a time (increased from 100 for better throughput)
+        $chunkSize = 500; // Increased from 200 to 500 for faster bulk updates
         $totalUpdated = 0;
 
         foreach (array_chunk($userIds, $chunkSize) as $chunk) {
@@ -230,10 +225,8 @@ class DrainOrderResponsesJob implements ShouldQueue
 
             $totalUpdated += $updated;
 
-            // Small delay between chunks to prevent DB spike
-            if (count($chunk) >= $chunkSize) {
-                usleep(10000); // 10ms
-            }
+            // REMOVED: usleep delay - no need to slow down processing
+            // DB can handle the load with proper indexing
         }
 
         return $totalUpdated;
@@ -286,21 +279,13 @@ class DrainOrderResponsesJob implements ShouldQueue
 
     /**
      * Calculate adaptive delay based on queue depth
-     * - Large queue (>1000): process immediately
-     * - Medium queue (200-1000): 1 second delay
-     * - Small queue (<200): 2 second delay
+     * REMOVED: All delays for maximum throughput
      *
      * @param int $queueLength
      * @return int Delay in seconds
      */
     protected function calculateDelay(int $queueLength): int
     {
-        if ($queueLength > 1000) {
-            return 0; // Process immediately for large backlog
-        } elseif ($queueLength > 200) {
-            return 1; // 1 second for medium backlog
-        } else {
-            return 2; // 2 seconds for small backlog (normal pace)
-        }
+        return 0; // Always process immediately - no delays needed
     }
 }
