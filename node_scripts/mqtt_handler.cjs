@@ -20,13 +20,13 @@ const MAX_INFLIGHT = parseInt(process.env.MQTT_MAX_INFLIGHT || '200', 10);
 
 // High-volume processing support
 const BATCH_ENABLED = process.env.MQTT_BATCH_ENABLED !== 'false';
-const BATCH_SIZE = parseInt(process.env.MQTT_BATCH_SIZE || '10', 10);
+const BATCH_SIZE = parseInt(process.env.MQTT_BATCH_SIZE || '1000', 10);
 const BATCH_TIMEOUT = parseInt(process.env.MQTT_BATCH_TIMEOUT || '2000', 10); // ms
 const HEALTH_CHECK_INTERVAL = parseInt(process.env.MQTT_HEALTH_CHECK_INTERVAL || '30000', 10); // 30s
 
 // ✅ PING RESPONSE BATCHING: Accumulate ping responses for batch processing
 const PING_BATCH_ENABLED = process.env.PING_BATCH_ENABLED !== 'false';
-const PING_BATCH_SIZE = parseInt(process.env.PING_BATCH_SIZE || '100', 10); // Max responses per batch
+const PING_BATCH_SIZE = parseInt(process.env.PING_BATCH_SIZE || '1000', 1000); // Max responses per batch
 const PING_BATCH_TIMEOUT = parseInt(process.env.PING_BATCH_TIMEOUT || '500', 10); // Max wait time in ms
 const PING_BATCH_MAX_SIZE = parseInt(process.env.PING_BATCH_MAX_SIZE || '1000', 10); // Emergency flush threshold
 
@@ -43,9 +43,9 @@ let deviceActTimer = null;
 
 // ✅ ORDER RESPONSE BATCHING: Accumulate order/res responses for batch processing
 const ORDER_RES_BATCH_ENABLED = process.env.ORDER_RES_BATCH_ENABLED !== 'false';
-const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '200', 10); // Reduced from 300 for faster drain
+const ORDER_RES_BATCH_SIZE = parseInt(process.env.ORDER_RES_BATCH_SIZE || '1000', 1000); // Reduced from 300 for faster drain
 const ORDER_RES_BATCH_TIMEOUT = parseInt(process.env.ORDER_RES_BATCH_TIMEOUT || '200', 10); // Max wait time in ms (reduced from 500 for faster flushing)
-const ORDER_RES_BATCH_MAX_SIZE = parseInt(process.env.ORDER_RES_BATCH_MAX_SIZE || '500', 10); // Reduced from 1000 - flush more frequently
+const ORDER_RES_BATCH_MAX_SIZE = parseInt(process.env.ORDER_RES_BATCH_MAX_SIZE || '1000', 1000); // Reduced from 1000 - flush more frequently
 
 const orderResponseBatch = []; // Accumulator for order/res responses
 let orderResBatchTimer = null;
