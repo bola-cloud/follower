@@ -19,19 +19,23 @@ module.exports = {
         MQTT_HTTP_TIMEOUT: '30000',
         MQTT_MAX_INFLIGHT: '75',
         MQTT_BATCH_ENABLED: 'true',
-        MQTT_BATCH_SIZE: '20',
+        MQTT_BATCH_SIZE: '1000',
         MQTT_BATCH_TIMEOUT: '3000',
         MQTT_HEALTH_CHECK_INTERVAL: '30000',
         // Ping response batching (for order/ping/res)
         PING_BATCH_ENABLED: 'true',
-        PING_BATCH_SIZE: '100',
+        PING_BATCH_SIZE: '1000',
         PING_BATCH_TIMEOUT: '500',
         PING_BATCH_MAX_SIZE: '1000',
+        // Device activation batching
+        DEVICE_ACT_BATCH_ENABLED: 'true',
+        DEVICE_ACT_BATCH_SIZE: '1000',
+        DEVICE_ACT_BATCH_TIMEOUT: '500',
         // Order response batching (for order/res/{order_id}/{user_id})
         ORDER_RES_BATCH_ENABLED: 'true',
-        ORDER_RES_BATCH_SIZE: '50',
+        ORDER_RES_BATCH_SIZE: '1000',
         ORDER_RES_BATCH_TIMEOUT: '500',
-        ORDER_RES_BATCH_MAX_SIZE: '500',
+        ORDER_RES_BATCH_MAX_SIZE: '1000',
         DEBUG: 'false'
       },
 
@@ -42,19 +46,23 @@ module.exports = {
         MQTT_HTTP_TIMEOUT: '20000',
         MQTT_MAX_INFLIGHT: '30',
         MQTT_BATCH_ENABLED: 'true',
-        MQTT_BATCH_SIZE: '10',
+        MQTT_BATCH_SIZE: '1000',
         MQTT_BATCH_TIMEOUT: '2000',
         MQTT_HEALTH_CHECK_INTERVAL: '15000',
         // Ping response batching (for order/ping/res)
         PING_BATCH_ENABLED: 'true',
-        PING_BATCH_SIZE: '50',
+        PING_BATCH_SIZE: '1000',
         PING_BATCH_TIMEOUT: '1000',
-        PING_BATCH_MAX_SIZE: '500',
+        PING_BATCH_MAX_SIZE: '1000',
+        // Device activation batching
+        DEVICE_ACT_BATCH_ENABLED: 'true',
+        DEVICE_ACT_BATCH_SIZE: '1000',
+        DEVICE_ACT_BATCH_TIMEOUT: '500',
         // Order response batching (for order/res/{order_id}/{user_id})
         ORDER_RES_BATCH_ENABLED: 'true',
-        ORDER_RES_BATCH_SIZE: '25',
+        ORDER_RES_BATCH_SIZE: '1000',
         ORDER_RES_BATCH_TIMEOUT: '1000',
-        ORDER_RES_BATCH_MAX_SIZE: '250',
+        ORDER_RES_BATCH_MAX_SIZE: '1000',
         DEBUG: 'true'
       },
 
@@ -65,19 +73,23 @@ module.exports = {
         MQTT_HTTP_TIMEOUT: '30000',
         MQTT_MAX_INFLIGHT: '75',
         MQTT_BATCH_ENABLED: 'true',
-        MQTT_BATCH_SIZE: '20',
+        MQTT_BATCH_SIZE: '1000',
         MQTT_BATCH_TIMEOUT: '3000',
         MQTT_HEALTH_CHECK_INTERVAL: '30000',
         // Ping response batching (for order/ping/res)
         PING_BATCH_ENABLED: 'true',
-        PING_BATCH_SIZE: '100',
+        PING_BATCH_SIZE: '1000',
         PING_BATCH_TIMEOUT: '500',
         PING_BATCH_MAX_SIZE: '1000',
+        // Device activation batching
+        DEVICE_ACT_BATCH_ENABLED: 'true',
+        DEVICE_ACT_BATCH_SIZE: '1000',
+        DEVICE_ACT_BATCH_TIMEOUT: '500',
         // Order response batching (for order/res/{order_id}/{user_id}) - OPTIMIZED FOR DRAIN QUEUE
         ORDER_RES_BATCH_ENABLED: 'true',
-        ORDER_RES_BATCH_SIZE: '200',        // Changed from 50 - reduces HTTP overhead
-        ORDER_RES_BATCH_TIMEOUT: '200',     // Changed from 500 - faster flush to drain queue
-        ORDER_RES_BATCH_MAX_SIZE: '500',    // OK as-is - emergency flush threshold
+        ORDER_RES_BATCH_SIZE: '1000',        // Increased to 1000
+        ORDER_RES_BATCH_TIMEOUT: '200',     // Keep timeout low for fast flush to drain queue
+        ORDER_RES_BATCH_MAX_SIZE: '1000',    // Emergency flush threshold
         DEBUG: 'false'
       },
 
@@ -88,19 +100,23 @@ module.exports = {
         MQTT_HTTP_TIMEOUT: '45000',
         MQTT_MAX_INFLIGHT: '100',
         MQTT_BATCH_ENABLED: 'true',
-        MQTT_BATCH_SIZE: '30',
+        MQTT_BATCH_SIZE: '1000',
         MQTT_BATCH_TIMEOUT: '1500',
         MQTT_HEALTH_CHECK_INTERVAL: '10000',
         // Ping response batching (for order/ping/res)
         PING_BATCH_ENABLED: 'true',
-        PING_BATCH_SIZE: '150',
+        PING_BATCH_SIZE: '1000',
         PING_BATCH_TIMEOUT: '300',
-        PING_BATCH_MAX_SIZE: '1500',
+        PING_BATCH_MAX_SIZE: '1000',
+        // Device activation batching
+        DEVICE_ACT_BATCH_ENABLED: 'true',
+        DEVICE_ACT_BATCH_SIZE: '1000',
+        DEVICE_ACT_BATCH_TIMEOUT: '500',
         // Order response batching (for order/res/{order_id}/{user_id})
         ORDER_RES_BATCH_ENABLED: 'true',
-        ORDER_RES_BATCH_SIZE: '75',
+        ORDER_RES_BATCH_SIZE: '1000',
         ORDER_RES_BATCH_TIMEOUT: '300',
-        ORDER_RES_BATCH_MAX_SIZE: '750',
+        ORDER_RES_BATCH_MAX_SIZE: '1000',
         DEBUG: 'true'
       },
 
