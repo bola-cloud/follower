@@ -25,15 +25,25 @@ class MqttDeviceController extends Controller
 
         try {
             Log::info('[MqttDeviceController] handle() received activation', ['device_id' => $deviceId, 'connection' => 'queue']);
+
+            // Log Redis queue config for debugging
+            try {
+                $redisConfig = config('database.redis.queue');
+                Log::info('[MqttDeviceController] redis.queue.config', $redisConfig);
+            } catch (\Throwable $e) {
+                Log::warning('[MqttDeviceController] failed to read redis.queue.config', ['error' => $e->getMessage()]);
+            }
+
             // Use Redis SET to store unique device ids atomically and efficiently
-            $redis->sadd($setKey, $deviceId);
+            $saddResult = $redis->sadd($setKey, $deviceId);
 
             // Optionally set a TTL to avoid indefinite growth (e.g., 10 minutes)
-            $redis->expire($setKey, 600);
+            $expireResult = $redis->expire($setKey, 600);
 
+            // Read raw scard
             $count = $redis->scard($setKey);
 
-            Log::info('[MqttDeviceController] handle() stored activation', ['device_id' => $deviceId, 'set' => $setKey, 'count' => $count]);
+            Log::info('[MqttDeviceController] handle() stored activation', ['device_id' => $deviceId, 'set' => $setKey, 'sadd' => $saddResult, 'expire' => $expireResult, 'count' => $count]);
 
             return response()->json([
                 'message' => 'Stored',
@@ -81,6 +91,12 @@ class MqttDeviceController extends Controller
 
         try {
             Log::info('[MqttDeviceController] handleBatch() received batch', ['incoming' => count($validated['activations']), 'unique' => count($deviceIds)]);
+            try {
+                $redisConfig = config('database.redis.queue');
+                Log::info('[MqttDeviceController] redis.queue.config', $redisConfig);
+            } catch (\Throwable $e) {
+                Log::warning('[MqttDeviceController] failed to read redis.queue.config', ['error' => $e->getMessage()]);
+            }
             // Use Redis pipeline for efficient bulk SADD
             $redis = \Illuminate\Support\Facades\Redis::connection('queue');
             $pipe = $redis->pipeline();
@@ -89,7 +105,10 @@ class MqttDeviceController extends Controller
             }
             // ensure TTL is set
             $pipe->expire($setKey, 600);
-            $pipe->exec();
+            $execResults = $pipe->exec();
+
+            // Log raw pipeline exec results for debugging (array of replies)
+            Log::info('[MqttDeviceController] handleBatch() pipeline.exec results', ['results' => $execResults]);
 
             $count = $redis->scard($setKey);
             Log::info('[MqttDeviceController] handleBatch() stored batch', ['set' => $setKey, 'count' => $count]);
