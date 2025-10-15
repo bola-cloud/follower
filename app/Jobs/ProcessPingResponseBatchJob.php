@@ -20,7 +20,12 @@ class ProcessPingResponseBatchJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public $timeout = 300; // 5 minutes
-    public $tries = 3;
+    /**
+     * Increase attempts to tolerate transient DB/Redis blips under high load.
+     * Using a backoff gives time for resources to recover between retries.
+     */
+    public $tries = 5;
+    public $backoff = 60; // seconds to wait before retrying
 
     private $orderId;
     private $type;
@@ -287,13 +292,68 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             $this->recordMetrics($totalUsers, $eligibleCount, $totalProcessed, $totalPublished, $duration);
 
         } catch (\Throwable $e) {
-            Log::error('[ProcessPingResponseBatchJob] job failed', [
+            // Classify transient errors (DB/Redis/connection-related) vs permanent ones.
+            $msg = $e->getMessage();
+
+            $isTransient = false;
+            // Common indicators of transient failures
+            $transientIndicators = [
+                'Lock wait timeout',
+                'Deadlock',
+                'SQLSTATE[40001]',
+                'SQLSTATE[1205]',
+                'SQLSTATE[HY000]',
+                'Connection refused',
+                'Connection timed out',
+                'Could not connect',
+                'Connection reset',
+                'server has gone away',
+                'read ECONNRESET',
+            ];
+
+            foreach ($transientIndicators as $needle) {
+                if (stripos($msg, $needle) !== false) {
+                    $isTransient = true;
+                    break;
+                }
+            }
+
+            // Also treat common DB/Redis exception classes as transient
+            if ($e instanceof \Illuminate\Database\QueryException || $e instanceof \PDOException ||
+                (class_exists('\Illuminate\Redis\Connections\Connection') && $e instanceof \Illuminate\Redis\Connections\Connection) ||
+                (class_exists('\RedisException') && $e instanceof \RedisException)) {
+                $isTransient = true;
+            }
+
+            $context = [
                 'batch_id' => $this->batchId,
                 'order_id' => $this->orderId,
+                'attempts' => method_exists($this, 'attempts') ? $this->attempts() : null,
                 'error' => $e->getMessage(),
-                'trace' => $e->getTraceAsString()
-            ]);
-            throw $e;
+            ];
+
+            if ($isTransient) {
+                Log::warning('[ProcessPingResponseBatchJob] transient error, releasing job for retry', $context + ['trace' => $e->getTraceAsString()]);
+
+                // If we still have attempts left, release with backoff (respect job backoff where present)
+                try {
+                    $delay = property_exists($this, 'backoff') ? $this->backoff : 60;
+                    // release the job back to the queue to be retried after delay
+                    if (method_exists($this, 'release')) {
+                        $this->release($delay);
+                        return; // stop processing this attempt
+                    }
+                } catch (\Throwable $__e) {
+                    // If release fails, fall through to logging and return to avoid throwing
+                    Log::warning('[ProcessPingResponseBatchJob] failed to release job after transient error', ['error' => $__e->getMessage()]);
+                }
+            }
+
+            // For non-transient or if release not available, log full error and do not rethrow to avoid rapid failures.
+            Log::error('[ProcessPingResponseBatchJob] job failed (permanent or unrecoverable)', $context + ['trace' => $e->getTraceAsString()]);
+
+            // Don't rethrow: mark this attempt as processed to avoid MaxAttemptsExceeded spam. Admins can inspect logs and metrics for lost users.
+            return;
         }
     }
 
