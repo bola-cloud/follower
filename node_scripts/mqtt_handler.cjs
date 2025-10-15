@@ -5,6 +5,7 @@
 
 const mqtt = require('mqtt');
 const axios = require('axios');
+const https = require('https');
 const { randomUUID } = require('crypto');
 const fs = require('fs');
 
@@ -23,6 +24,10 @@ const BATCH_ENABLED = process.env.MQTT_BATCH_ENABLED !== 'false';
 const BATCH_SIZE = parseInt(process.env.MQTT_BATCH_SIZE || '1000', 10);
 const BATCH_TIMEOUT = parseInt(process.env.MQTT_BATCH_TIMEOUT || '2000', 10); // ms
 const HEALTH_CHECK_INTERVAL = parseInt(process.env.MQTT_HEALTH_CHECK_INTERVAL || '30000', 10); // 30s
+// Allow retrying health checks with an insecure TLS agent when the internal
+// health endpoint uses a certificate that doesn't include local IPs (common
+// in staging). Enable via ALLOW_INSECURE_HEALTHCHECK=true only when needed.
+const ALLOW_INSECURE_HEALTHCHECK = String(process.env.ALLOW_INSECURE_HEALTHCHECK || 'false').toLowerCase() === 'true';
 
 // ✅ PING RESPONSE BATCHING: Accumulate ping responses for batch processing
 const PING_BATCH_ENABLED = process.env.PING_BATCH_ENABLED !== 'false';
@@ -105,6 +110,41 @@ async function checkSystemHealth() {
 
     return health;
   } catch (err) {
+    // Handle certificate altname mismatch (common when API_BASE points at
+    // 127.0.0.1 or an IP not present in the cert). Optionally retry with an
+    // insecure https agent if explicitly allowed by env var.
+    const isAltNameError = err.code === 'ERR_TLS_CERT_ALTNAME_INVALID' ||
+      (err.message && err.message.includes("certificate's altnames"));
+
+    if (isAltNameError && ALLOW_INSECURE_HEALTHCHECK) {
+      if (DEBUG) console.warn('⚠️ Health check TLS altname mismatch detected; retrying with insecure agent due to ALLOW_INSECURE_HEALTHCHECK=true');
+      try {
+        const insecureAgent = new https.Agent({ rejectUnauthorized: false });
+        const response2 = await axios.get(`${API_BASE}/api/health/system`, {
+          timeout: 5000,
+          httpsAgent: insecureAgent,
+          headers: { 'Accept': 'application/json' }
+        });
+
+        const health = response2.data;
+        systemHealth = {
+          status: health.status || 'unknown',
+          lastCheck: Date.now(),
+          circuitOpen: health.circuit_breaker?.status === 'open' || false,
+          load: health.system?.load || 'unknown'
+        };
+
+        if (DEBUG && health.status !== 'healthy') {
+          console.warn('⚠️ System health (insecure retry):', health);
+        }
+
+        return health;
+      } catch (err2) {
+        // fallthrough to normal error handling below with err2
+        err = err2;
+      }
+    }
+
     systemHealth = {
       status: 'error',
       lastCheck: Date.now(),
@@ -559,7 +599,7 @@ client.on('message', async (topic, message) => {
       if (DEBUG) console.warn('Failed to record known order:', err.message);
     }
 
-    if (DEBUG) console.log(`  Order notification for user ${userId}: order ${order_id}`);
+    if (DEBUG) console.log(`� Order notification for user ${userId}: order ${order_id}`);
     return;
   }
 
