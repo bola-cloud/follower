@@ -327,7 +327,15 @@ async function flushOrderResponseBatch(reason = 'timer') {
 
 // Start order response batch flush timer
 if (ORDER_RES_BATCH_ENABLED) {
-  setInterval(() => flushOrderResponseBatch('timer'), ORDER_RES_BATCH_TIMEOUT);
+  console.log(`⏰ ORDER RESPONSE BATCH TIMER STARTED: Will flush every ${ORDER_RES_BATCH_TIMEOUT}ms`);
+  setInterval(() => {
+    if (orderResponseBatch.length > 0) {
+      console.log(`⏰ Timer triggered: Flushing ${orderResponseBatch.length} order responses (reason: timer_interval)`);
+      flushOrderResponseBatch('timer_interval');
+    } else {
+      console.log(`⏰ Timer triggered: No order responses to flush`);
+    }
+  }, ORDER_RES_BATCH_TIMEOUT);
 }
 
 async function postWithRetries(url, data, retries = 4, backoff = 300) {
