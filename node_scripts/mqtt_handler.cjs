@@ -305,28 +305,25 @@ async function flushOrderResponseBatch(reason = 'timer') {
   const batchSize = batch.length;
 
   try {
-    // Primary: drain endpoint
-    const response = await axios.post(
-      `${API_BASE}/api/mqtt/response-batch-drain`,
-      { batch_id: batchId, actions: batch, timestamp: Date.now() },
-      { timeout: HTTP_TIMEOUT * 2 }
-    );
+    // Primary: drain endpoint — use postWithRetries to get retry/backoff and circuit-awareness
+    const response = await postWithRetries(`${API_BASE}/api/mqtt/response-batch-drain`, { batch_id: batchId, actions: batch, timestamp: Date.now() });
 
-    if (DEBUG) console.log(`[mqtt-handler] Order response batch sent: batch_id=${batchId}, size=${batchSize}`);
+    // Always log success so PM2 logs show the HTTP result (helpful when DEBUG=false)
+    console.log(`[mqtt-handler] Order response batch sent: batch_id=${batchId}, size=${batchSize}, status=${response?.status}`);
+    if (DEBUG && response?.data) console.log('[mqtt-handler] drain response data:', response.data);
   } catch (err) {
     const status = err.response?.status;
     console.error(`[mqtt-handler] Order response batch failed status=${status}:`, err.response?.data || err.message);
+    if (DEBUG && err.stack) console.error(err.stack);
 
-    // Fallback: regular batch endpoint
+    // Fallback: regular batch endpoint (also use postWithRetries)
     try {
-      await axios.post(
-        `${API_BASE}/api/mqtt/response-batch`,
-        { batch_id: batchId, actions: batch, timestamp: Date.now() },
-        { timeout: HTTP_TIMEOUT * 2 }
-      );
-      if (DEBUG) console.warn(`[mqtt-handler] Fallback batch processed: size=${batchSize}`);
+      const fbResp = await postWithRetries(`${API_BASE}/api/mqtt/response-batch`, { batch_id: batchId, actions: batch, timestamp: Date.now() });
+      console.log(`[mqtt-handler] Fallback batch processed: size=${batchSize}, status=${fbResp?.status}`);
+      if (DEBUG && fbResp?.data) console.log('[mqtt-handler] fallback response data:', fbResp.data);
     } catch (fallbackErr) {
       console.error('[mqtt-handler] Fallback batch also failed:', fallbackErr.response?.data || fallbackErr.message);
+      if (DEBUG && fallbackErr.stack) console.error(fallbackErr.stack);
 
       // Final fallback: individual posts
       for (const action of batch) {
