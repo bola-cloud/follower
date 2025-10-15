@@ -69,14 +69,20 @@ class DrainOrderResponsesJob implements ShouldQueue
 
     /**
      * Execute the job - drain items from Redis queue
+     *
+     * LOCKLESS DESIGN:
+     * - Multiple jobs can run concurrently (safe because LPOP is atomic)
+     * - Each job pops its own batch from the queue
+     * - DB updates are idempotent (WHERE status != target)
+     * - No coordination needed between jobs
+     * - Faster processing through parallelism
      */
     public function handle(): void
     {
         $startTime = microtime(true);
-        $lockKey = "drain_job_running:{$this->status}";
 
         try {
-            // Pop batch from Redis (atomic operation)
+            // Pop batch from Redis (atomic operation - safe for concurrent jobs)
             $responses = $this->popBatch();
 
             if (empty($responses)) {
@@ -84,9 +90,6 @@ class DrainOrderResponsesJob implements ShouldQueue
                     'status' => $this->status,
                     'queue_key' => $this->queueKey
                 ]);
-
-                // Clear the lock so new jobs can start if queue fills again
-                Redis::del($lockKey);
                 return;
             }
 
@@ -135,23 +138,20 @@ class DrainOrderResponsesJob implements ShouldQueue
                 'duration_ms' => $duration
             ]);
 
-            // Check if more items remain in queue (no need to reschedule - queue workers handle it)
+            // Check if more items remain in queue
             $remainingCount = $this->getQueueLength();
 
             if ($remainingCount > 0) {
-                Log::info('[DrainOrderResponsesJob] Queue still has items, workers will continue processing', [
+                Log::info('[DrainOrderResponsesJob] Queue still has items, dispatching next job', [
                     'status' => $this->status,
                     'remaining_count' => $remainingCount
                 ]);
 
                 // Dispatch another drain job immediately to continue processing
-                // (the lock will be refreshed in the controller when this job finishes)
+                // Multiple jobs can run in parallel safely
                 self::dispatch($this->status);
             } else {
-                // Queue is empty, clear the lock
-                Redis::del($lockKey);
-
-                Log::info('[DrainOrderResponsesJob] Queue fully drained, lock cleared', [
+                Log::info('[DrainOrderResponsesJob] Queue fully drained', [
                     'status' => $this->status
                 ]);
             }
@@ -162,9 +162,6 @@ class DrainOrderResponsesJob implements ShouldQueue
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
-
-            // Clear lock on error so queue doesn't get stuck
-            Redis::del($lockKey);
 
             // Job will automatically retry based on $tries
             throw $e;

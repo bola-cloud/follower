@@ -451,33 +451,33 @@ class MqttResponseController extends Controller
     }
 
     /**
-     * Start drain job if not already running
+     * Start drain job - LOCKLESS approach for maximum throughput
+     *
+     * No Redis locks needed because:
+     * 1. Redis LPOP is atomic - multiple workers can safely pop from same queue
+     * 2. DB updates are idempotent with WHERE status != target_status
+     * 3. Laravel queue handles concurrency naturally
+     * 4. Multiple drain jobs process queue faster (parallel processing)
      *
      * @param string $status
      */
     protected function startDrainJobIfNeeded(string $status): void
     {
-        $lockKey = "drain_job_running:{$status}";
+        // Check if queue has items before dispatching
+        $queueKey = "order_responses:drain_queue:{$status}";
+        $queueLength = Redis::llen($queueKey);
 
-        // Check if drain job is already running
-        if (!Redis::exists($lockKey)) {
-            // Set lock with shorter timeout (30 seconds) since jobs process quickly
-            // If a job takes longer, it will dispatch another job before finishing
-            Redis::setex($lockKey, 30, '1');
-
-            // Dispatch drain job
+        if ($queueLength > 0) {
+            // Dispatch drain job immediately - no lock needed
             \App\Jobs\DrainOrderResponsesJob::dispatch($status);
 
-            Log::info('[MQTT_API_DRAIN] Drain job dispatched', [
+            Log::info('[MQTT_API_DRAIN] Drain job dispatched (lockless)', [
                 'status' => $status,
-                'lock_ttl_seconds' => 30
+                'queue_length' => $queueLength
             ]);
         } else {
-            // Log that a job is already running (helpful for debugging stuck locks)
-            $lockTtl = Redis::ttl($lockKey);
-            Log::debug('[MQTT_API_DRAIN] Drain job already running, skipping dispatch', [
-                'status' => $status,
-                'lock_ttl_remaining' => $lockTtl
+            Log::debug('[MQTT_API_DRAIN] Queue empty, no drain job needed', [
+                'status' => $status
             ]);
         }
     }
