@@ -246,27 +246,42 @@ if (PING_BATCH_ENABLED) {
 
 // ✅ ORDER RESPONSE BATCH PROCESSING: Flush accumulated order/res responses
 async function flushOrderResponseBatch(reason = 'timer') {
-  if (orderResponseBatch.length === 0) return;
+  console.log(`[FLUSH] === ENTRY === reason=${reason}, batch_length=${orderResponseBatch.length}, timestamp=${new Date().toISOString()}`);
+
+  if (orderResponseBatch.length === 0) {
+    console.log(`[FLUSH] Batch empty, skipping flush`);
+    return;
+  }
+
+  console.log(`[FLUSH] Proceeding with flush of ${orderResponseBatch.length} items`);
 
   // Clear timer if active
   if (orderResBatchTimer) {
+    console.log(`[FLUSH] Clearing per-message timer`);
     clearTimeout(orderResBatchTimer);
     orderResBatchTimer = null;
   }
 
+  console.log(`[FLUSH] Splicing batch (max=${ORDER_RES_BATCH_MAX_SIZE})`);
   const batch = orderResponseBatch.splice(0, ORDER_RES_BATCH_MAX_SIZE);
+  console.log(`[FLUSH] After splice: batch.length=${batch.length}, remaining=${orderResponseBatch.length}`);
+
   // Guard: do not send an empty actions array - log and return
   if (!Array.isArray(batch) || batch.length === 0) {
-    console.warn('⚠️ Attempted to flush empty order response batch, skipping');
+    console.warn('[FLUSH] ⚠️ Batch empty after splice, skipping HTTP call');
     return;
   }
   const batchId = randomUUID();
   const batchSize = batch.length;
 
-  console.log(`� Flushing order response batch: ${batchSize} actions (reason: ${reason})`);
-  console.log(`📋 Sample actions:`, JSON.stringify(batch.slice(0, 3)));
+  console.log(`[FLUSH] 🚀 Preparing HTTP request: batch_id=${batchId}, size=${batchSize}`);
+  console.log(`[FLUSH] 📋 Sample actions:`, JSON.stringify(batch.slice(0, 3)));
+  console.log(`[FLUSH] 🎯 Target URL: ${API_BASE}/api/mqtt/response-batch-drain`);
+
+  console.log(`[FLUSH] 🎯 Target URL: ${API_BASE}/api/mqtt/response-batch-drain`);
 
   try {
+    console.log(`[FLUSH] 📡 Making axios.post request...`);
     // ✅ USE DRAIN ENDPOINT for guaranteed zero-loss processing
     const response = await axios.post(
       `${API_BASE}/api/mqtt/response-batch-drain`,
@@ -278,21 +293,30 @@ async function flushOrderResponseBatch(reason = 'timer') {
       { timeout: HTTP_TIMEOUT * 2 } // Allow longer timeout for batches
     );
 
-    console.log(`✅ Order response batch sent to drain endpoint:`, {
+    console.log(`[FLUSH] ✅ SUCCESS! Response received:`, {
       batch_id: batchId,
       size: batchSize,
       queued: response.data?.queued,
       skipped_busy: response.data?.skipped_busy,
       duration_ms: response.data?.duration_ms,
-      mode: response.data?.mode
+      mode: response.data?.mode,
+      status: response.status
     });
+
 
   } catch (err) {
     // Log more detail and detect timeouts (504) to help debug 504/timeouts
     const status = err.response?.status;
-    console.error(`❌ Order response batch failed (${batchSize} actions) status=${status}:`, err.response?.data || err.message);
+    console.error(`[FLUSH] ❌ ERROR! HTTP request failed:`, {
+      status: status,
+      batchSize: batchSize,
+      error_message: err.message,
+      error_code: err.code,
+      response_data: err.response?.data
+    });
+
     if (status === 504 || err.code === 'ETIMEDOUT') {
-      console.error('🔔 Detected HTTP 504 or timeout when sending order response batch', { batch_id: batchId, batchSize, status, error: err.message });
+      console.error('[FLUSH] 🔔 Detected HTTP 504 or timeout', { batch_id: batchId, batchSize, status, error: err.message });
     }
 
     // Fallback to regular batch endpoint if drain endpoint fails
