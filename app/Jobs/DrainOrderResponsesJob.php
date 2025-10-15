@@ -234,10 +234,12 @@ class DrainOrderResponsesJob implements ShouldQueue
         ]);
 
         foreach (array_chunk($userIds, $chunkSize) as $chunkIndex => $chunk) {
+            // Update actions that are NOT already in the target status
+            // This allows updating from 'pending' -> 'done' or 'pending' -> 'external'
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->whereIn('user_id', $chunk)
-                ->where('status', '!=', 'done') // Only update if not already done
+                ->where('status', '!=', $this->status) // Only update if not already in target status
                 ->update([
                     'status' => $this->status,
                     'performed_at' => now(),
