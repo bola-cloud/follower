@@ -73,6 +73,7 @@ class DrainOrderResponsesJob implements ShouldQueue
     public function handle(): void
     {
         $startTime = microtime(true);
+        $lockKey = "drain_job_running:{$this->status}";
 
         try {
             // Pop batch from Redis (atomic operation)
@@ -83,6 +84,9 @@ class DrainOrderResponsesJob implements ShouldQueue
                     'status' => $this->status,
                     'queue_key' => $this->queueKey
                 ]);
+
+                // Clear the lock so new jobs can start if queue fills again
+                Redis::del($lockKey);
                 return;
             }
 
@@ -139,8 +143,17 @@ class DrainOrderResponsesJob implements ShouldQueue
                     'status' => $this->status,
                     'remaining_count' => $remainingCount
                 ]);
-                // REMOVED: Self-rescheduling loop that caused infinite blocking
-                // Queue workers will pick up naturally if new items arrive
+
+                // Dispatch another drain job immediately to continue processing
+                // (the lock will be refreshed in the controller when this job finishes)
+                self::dispatch($this->status);
+            } else {
+                // Queue is empty, clear the lock
+                Redis::del($lockKey);
+
+                Log::info('[DrainOrderResponsesJob] Queue fully drained, lock cleared', [
+                    'status' => $this->status
+                ]);
             }
 
         } catch (\Throwable $e) {
@@ -149,6 +162,9 @@ class DrainOrderResponsesJob implements ShouldQueue
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString()
             ]);
+
+            // Clear lock on error so queue doesn't get stuck
+            Redis::del($lockKey);
 
             // Job will automatically retry based on $tries
             throw $e;

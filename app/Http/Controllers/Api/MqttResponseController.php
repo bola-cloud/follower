@@ -461,14 +461,23 @@ class MqttResponseController extends Controller
 
         // Check if drain job is already running
         if (!Redis::exists($lockKey)) {
-            // Set lock (expires in 5 minutes as safety)
-            Redis::setex($lockKey, 300, '1');
+            // Set lock with shorter timeout (30 seconds) since jobs process quickly
+            // If a job takes longer, it will dispatch another job before finishing
+            Redis::setex($lockKey, 30, '1');
 
             // Dispatch drain job
             \App\Jobs\DrainOrderResponsesJob::dispatch($status);
 
             Log::info('[MQTT_API_DRAIN] Drain job dispatched', [
-                'status' => $status
+                'status' => $status,
+                'lock_ttl_seconds' => 30
+            ]);
+        } else {
+            // Log that a job is already running (helpful for debugging stuck locks)
+            $lockTtl = Redis::ttl($lockKey);
+            Log::debug('[MQTT_API_DRAIN] Drain job already running, skipping dispatch', [
+                'status' => $status,
+                'lock_ttl_remaining' => $lockTtl
             ]);
         }
     }

@@ -1,36 +1,52 @@
-# 🚨 CRITICAL FIX: Action Status Update Deadlock
+# 🚨 CRITICAL FIX: Action Status Update Deadlock + Redis Lock Issue
 
-## Root Cause Identified
+## Root Causes Identified
 
-**The system was in a deadlock:**
+### Issue #1: Wrong WHERE Clause in DrainOrderResponsesJob
+**Actions stuck in `pending` status** - created by initial device pings but never transitioned to `done`/`external`
 
-1. **Actions stuck in `pending` status** - created by initial device pings but never transitioned to `done`/`external`
-2. **DrainOrderResponsesJob** couldn't update them because of incorrect WHERE clause:
-   ```php
-   // ❌ WRONG: Only excludes 'done', but actions are in 'pending' status
-   ->where('status', '!=', 'done')
-   ```
-3. **ProcessPingResponseBatchJob** kept retrying because:
-   - `done_count=0` (no actions ever marked done)
-   - `pending_count=1000` (all slots filled with stuck pending actions)
-   - `available_slots=0` (capacity full with pending)
-   - Result: "No available slots, skipping" → infinite retry → MaxAttemptsExceededException
+**DrainOrderResponsesJob** couldn't update them because of incorrect WHERE clause:
+```php
+// ❌ WRONG: Only excludes 'done', but actions are in 'pending' status
+->where('status', '!=', 'done')
+```
 
-## The Fix
+### Issue #2: Redis Lock Preventing Drain Jobs
+**Drain jobs weren't running at all** - Redis lock was set for 5 minutes but jobs finish in 2-3 seconds:
 
+1. First batch arrives → Lock set for 300 seconds → Drain job dispatched
+2. Drain job finishes in 2 seconds
+3. More batches arrive → Lock still exists → **No new drain jobs dispatched**
+4. Queue grows to 5000+ items but nothing processes them
+5. Lock expires after 5 minutes, but by then ProcessPingResponseBatchJob has failed with MaxAttemptsExceededException
+
+## The Fixes
+
+### Fix #1: Correct WHERE Clause
 Changed `DrainOrderResponsesJob` WHERE clause to:
 ```php
 // ✅ CORRECT: Excludes target status, allows pending→done and pending→external
 ->where('status', '!=', $this->status)
 ```
 
-Now:
-- For status='done': updates any action NOT already 'done' (including 'pending')
-- For status='external': updates any action NOT already 'external' (including 'pending')
+### Fix #2: Reduce Lock Timeout + Auto-Dispatch
+1. **Reduced lock timeout** from 300 seconds → 30 seconds
+2. **Added lock clearing** in DrainOrderResponsesJob:
+   - Clears lock when queue is empty
+   - Clears lock on error
+   - Dispatches new job immediately if more items remain
+3. **Added debug logging** to see when locks are blocking new jobs
 
 ## Files Changed
 
-- `app/Jobs/DrainOrderResponsesJob.php` - Fixed WHERE clause in `updateActions()` method
+- `app/Jobs/DrainOrderResponsesJob.php`
+  - Fixed WHERE clause in `updateActions()` method
+  - Added lock clearing logic in `handle()` method
+  - Auto-dispatches next job if queue has more items
+  
+- `app/Http/Controllers/Api/MqttResponseController.php`
+  - Reduced lock timeout from 300s → 30s in `startDrainJobIfNeeded()`
+  - Added debug logging for lock status
 
 ## Deployment Steps
 
