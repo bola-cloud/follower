@@ -583,6 +583,9 @@ client.on('message', async (topic, message) => {
     const user_id = parseInt(respMatch[2], 10);
     const { status } = payload;
 
+    // Always log order responses to track if devices are responding
+    console.log(`📨 order/res received: order_id=${order_id}, user_id=${user_id}, status=${status}`);
+
     if (!status || Number.isNaN(order_id) || Number.isNaN(user_id)) {
       console.warn('⚠️ Missing fields in order response payload:', { topic, payload });
       return;

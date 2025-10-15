@@ -52,7 +52,8 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             'batch_id' => $this->batchId,
             'order_id' => $this->orderId,
             'type' => $this->type,
-            'user_count' => $totalUsers
+            'user_count' => $totalUsers,
+            'attempt' => $this->attempts()
         ]);
 
         try {
@@ -352,8 +353,9 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             // For non-transient or if release not available, log full error and do not rethrow to avoid rapid failures.
             Log::error('[ProcessPingResponseBatchJob] job failed (permanent or unrecoverable)', $context + ['trace' => $e->getTraceAsString()]);
 
-            // Don't rethrow: mark this attempt as processed to avoid MaxAttemptsExceeded spam. Admins can inspect logs and metrics for lost users.
-            return;
+            // IMPORTANT: Rethrow the exception so Laravel can track it properly and increment attempts
+            // Without rethrowing, the job silently "succeeds" and never actually processes
+            throw $e;
         }
     }
 
