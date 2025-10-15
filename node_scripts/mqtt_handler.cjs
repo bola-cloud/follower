@@ -434,11 +434,15 @@ client.on('connect', () => {
 });
 
 client.on('message', async (topic, message) => {
+  // CRITICAL: Log EVERY message received (even before parsing)
+  console.log(`🔔 MQTT RAW MESSAGE -> topic: ${topic} | size: ${message.length} bytes`);
+
   let payload;
   try {
     payload = JSON.parse(message.toString());
+    console.log(`🔔 MQTT PARSED -> topic: ${topic} | payload: ${JSON.stringify(payload).substring(0, 200)}`);
   } catch (err) {
-    console.error('❌ Failed to parse JSON message:', err.message);
+    console.error('❌ Failed to parse JSON message:', err.message, 'raw:', message.toString().substring(0, 100));
     return;
   }
 
@@ -577,7 +581,10 @@ client.on('message', async (topic, message) => {
   }
 
   // order/res/{order_id}/{user_id} — final device response (task done/external)
+  console.log(`🔍 Checking if topic matches order/res pattern: ${topic}`);
   const respMatch = topic.match(/^order\/res\/(\d+)\/(\d+)$/);
+  console.log(`🔍 Regex match result: ${respMatch ? 'MATCHED' : 'NO MATCH'}`);
+
   if (respMatch) {
     const order_id = parseInt(respMatch[1], 10);
     const user_id = parseInt(respMatch[2], 10);
