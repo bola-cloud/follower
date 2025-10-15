@@ -17,26 +17,26 @@ module.exports = {
         MQTT_BROKER: 'mqtt://109.199.112.65:1883',
         API_BASE: 'https://egfollow.com',
         MQTT_HTTP_TIMEOUT: '30000',
-  MQTT_MAX_INFLIGHT: '100',
-  MQTT_BATCH_ENABLED: 'true',
-  MQTT_BATCH_SIZE: '1500',
-  MQTT_BATCH_TIMEOUT: '3000',
+        MQTT_MAX_INFLIGHT: '100',
+        MQTT_BATCH_ENABLED: 'true',
+        MQTT_BATCH_SIZE: '1000',
+        MQTT_BATCH_TIMEOUT: '2000',
         MQTT_HEALTH_CHECK_INTERVAL: '30000',
         // Ping response batching (for order/ping/res)
-  PING_BATCH_ENABLED: 'true',
-  PING_BATCH_SIZE: '1500',
-  PING_BATCH_TIMEOUT: '400',
-  PING_BATCH_MAX_SIZE: '2000',
+        PING_BATCH_ENABLED: 'true',
+        PING_BATCH_SIZE: '1000',
+        PING_BATCH_TIMEOUT: '500',
+        PING_BATCH_MAX_SIZE: '1000',
         // Device activation batching
-  DEVICE_ACT_BATCH_ENABLED: 'true',
-  DEVICE_ACT_BATCH_SIZE: '1500',
-  DEVICE_ACT_BATCH_TIMEOUT: '400',
+        DEVICE_ACT_BATCH_ENABLED: 'true',
+        DEVICE_ACT_BATCH_SIZE: '1000',
+        DEVICE_ACT_BATCH_TIMEOUT: '500',
         // Order response batching (for order/res/{order_id}/{user_id})
-  ORDER_RES_BATCH_ENABLED: 'true',
-  ORDER_RES_BATCH_SIZE: '1500',
-  ORDER_RES_BATCH_TIMEOUT: '200',
-  ORDER_RES_BATCH_MAX_SIZE: '2000',
-        DEBUG: 'false'
+        ORDER_RES_BATCH_ENABLED: 'true',
+        ORDER_RES_BATCH_SIZE: '1000',
+        ORDER_RES_BATCH_TIMEOUT: '500',
+        ORDER_RES_BATCH_MAX_SIZE: '1000',
+        DEBUG: 'true'
       },
 
       env_development: {
@@ -71,26 +71,26 @@ module.exports = {
         MQTT_BROKER: 'mqtt://109.199.112.65:1883',
         API_BASE: 'https://egfollow.com',
         MQTT_HTTP_TIMEOUT: '30000',
-  MQTT_MAX_INFLIGHT: '100',
-  MQTT_BATCH_ENABLED: 'true',
-  MQTT_BATCH_SIZE: '1500',
-  MQTT_BATCH_TIMEOUT: '3000',
-  MQTT_HEALTH_CHECK_INTERVAL: '30000',
-  // Ping response batching (for order/ping/res)
-  PING_BATCH_ENABLED: 'true',
-  PING_BATCH_SIZE: '1500',
-  PING_BATCH_TIMEOUT: '400',
-  PING_BATCH_MAX_SIZE: '2000',
-  // Device activation batching
-  DEVICE_ACT_BATCH_ENABLED: 'true',
-  DEVICE_ACT_BATCH_SIZE: '1500',
-  DEVICE_ACT_BATCH_TIMEOUT: '400',
-  // Order response batching (for order/res/{order_id}/{user_id}) - OPTIMIZED FOR DRAIN QUEUE
-  ORDER_RES_BATCH_ENABLED: 'true',
-  ORDER_RES_BATCH_SIZE: '1500',
-  ORDER_RES_BATCH_TIMEOUT: '200',
-  ORDER_RES_BATCH_MAX_SIZE: '2000',
-        DEBUG: 'false'
+        MQTT_MAX_INFLIGHT: '100',
+        MQTT_BATCH_ENABLED: 'true',
+        MQTT_BATCH_SIZE: '1000',
+        MQTT_BATCH_TIMEOUT: '2000',
+        MQTT_HEALTH_CHECK_INTERVAL: '30000',
+        // Ping response batching (for order/ping/res)
+        PING_BATCH_ENABLED: 'true',
+        PING_BATCH_SIZE: '1000',
+        PING_BATCH_TIMEOUT: '500',
+        PING_BATCH_MAX_SIZE: '1000',
+        // Device activation batching
+        DEVICE_ACT_BATCH_ENABLED: 'true',
+        DEVICE_ACT_BATCH_SIZE: '1000',
+        DEVICE_ACT_BATCH_TIMEOUT: '500',
+        // Order response batching (for order/res/{order_id}/{user_id}) - OPTIMIZED FOR DRAIN QUEUE
+        ORDER_RES_BATCH_ENABLED: 'true',
+        ORDER_RES_BATCH_SIZE: '1000',
+        ORDER_RES_BATCH_TIMEOUT: '500',
+        ORDER_RES_BATCH_MAX_SIZE: '1000',
+        DEBUG: 'true'
       },
 
       env_testing: {

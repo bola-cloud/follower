@@ -90,7 +90,8 @@ class DrainOrderResponsesJob implements ShouldQueue
             Log::info('[DrainOrderResponsesJob] Processing batch from drain queue', [
                 'status' => $this->status,
                 'batch_size' => $count,
-                'queue_key' => $this->queueKey
+                'queue_key' => $this->queueKey,
+                'sample_responses' => array_slice($responses, 0, 3)
             ]);
 
             // Group by order_id for efficient processing
@@ -98,8 +99,21 @@ class DrainOrderResponsesJob implements ShouldQueue
 
             $totalUpdated = 0;
             foreach ($orderGroups as $orderId => $userIds) {
+                Log::info('[DrainOrderResponsesJob] Updating actions for order', [
+                    'status' => $this->status,
+                    'order_id' => $orderId,
+                    'user_count' => count($userIds),
+                    'sample_users' => array_slice($userIds, 0, 5)
+                ]);
+
                 $updated = $this->updateActions($orderId, $userIds);
                 $totalUpdated += $updated;
+
+                Log::info('[DrainOrderResponsesJob] Actions updated', [
+                    'status' => $this->status,
+                    'order_id' => $orderId,
+                    'updated_count' => $updated
+                ]);
 
                 // Update order done_count if status is 'done'
                 if ($this->status === 'done' && $updated > 0) {
@@ -212,7 +226,14 @@ class DrainOrderResponsesJob implements ShouldQueue
         $chunkSize = 500; // Increased from 200 to 500 for faster bulk updates
         $totalUpdated = 0;
 
-        foreach (array_chunk($userIds, $chunkSize) as $chunk) {
+        Log::info('[DrainOrderResponsesJob] Starting updateActions', [
+            'status' => $this->status,
+            'order_id' => $orderId,
+            'user_count' => count($userIds),
+            'chunk_size' => $chunkSize
+        ]);
+
+        foreach (array_chunk($userIds, $chunkSize) as $chunkIndex => $chunk) {
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->whereIn('user_id', $chunk)
@@ -225,9 +246,23 @@ class DrainOrderResponsesJob implements ShouldQueue
 
             $totalUpdated += $updated;
 
+            Log::info('[DrainOrderResponsesJob] Chunk updated', [
+                'status' => $this->status,
+                'order_id' => $orderId,
+                'chunk_index' => $chunkIndex,
+                'chunk_size' => count($chunk),
+                'updated' => $updated
+            ]);
+
             // REMOVED: usleep delay - no need to slow down processing
             // DB can handle the load with proper indexing
         }
+
+        Log::info('[DrainOrderResponsesJob] Completed updateActions', [
+            'status' => $this->status,
+            'order_id' => $orderId,
+            'total_updated' => $totalUpdated
+        ]);
 
         return $totalUpdated;
     }

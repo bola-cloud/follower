@@ -263,7 +263,8 @@ async function flushOrderResponseBatch(reason = 'timer') {
   const batchId = randomUUID();
   const batchSize = batch.length;
 
-  if (DEBUG) console.log(`📦 Flushing order response batch: ${batchSize} actions (reason: ${reason})`);
+  console.log(`� Flushing order response batch: ${batchSize} actions (reason: ${reason})`);
+  console.log(`📋 Sample actions:`, JSON.stringify(batch.slice(0, 3)));
 
   try {
     // ✅ USE DRAIN ENDPOINT for guaranteed zero-loss processing
@@ -277,15 +278,14 @@ async function flushOrderResponseBatch(reason = 'timer') {
       { timeout: HTTP_TIMEOUT * 2 } // Allow longer timeout for batches
     );
 
-    if (DEBUG) {
-      console.log(`✅ Order response batch queued to drain: ${batchSize} actions`, {
-        batch_id: batchId,
-        queued: response.data?.queued,
-        skipped_busy: response.data?.skipped_busy,
-        duration_ms: response.data?.duration_ms,
-        mode: response.data?.mode
-      });
-    }
+    console.log(`✅ Order response batch sent to drain endpoint:`, {
+      batch_id: batchId,
+      size: batchSize,
+      queued: response.data?.queued,
+      skipped_busy: response.data?.skipped_busy,
+      duration_ms: response.data?.duration_ms,
+      mode: response.data?.mode
+    });
 
   } catch (err) {
     // Log more detail and detect timeouts (504) to help debug 504/timeouts
@@ -584,7 +584,7 @@ client.on('message', async (topic, message) => {
     const { status } = payload;
 
     // Always log order responses to track if devices are responding
-    console.log(`📨 order/res received: order_id=${order_id}, user_id=${user_id}, status=${status}`);
+    console.log(`📨 order/res received: order_id=${order_id}, user_id=${user_id}, status=${status}, ORDER_RES_BATCH_ENABLED=${ORDER_RES_BATCH_ENABLED}, batch_size=${orderResponseBatch.length}`);
 
     if (!status || Number.isNaN(order_id) || Number.isNaN(user_id)) {
       console.warn('⚠️ Missing fields in order response payload:', { topic, payload });
@@ -610,9 +610,11 @@ client.on('message', async (topic, message) => {
     // ✅ BATCH MODE: Accumulate order responses for batch processing
     if (ORDER_RES_BATCH_ENABLED) {
       orderResponseBatch.push(actionData);
+      console.log(`📊 Order response added to batch: ${orderResponseBatch.length}/${ORDER_RES_BATCH_SIZE} (order_id=${order_id}, user_id=${user_id})`);
 
       // Flush immediately if batch is full
       if (orderResponseBatch.length >= ORDER_RES_BATCH_SIZE) {
+        console.log(`🔔 Batch full, flushing immediately: ${orderResponseBatch.length} responses`);
         flushOrderResponseBatch('size_limit');
       }
       // Emergency flush if batch is extremely large
@@ -623,6 +625,7 @@ client.on('message', async (topic, message) => {
       // Schedule timer flush if not already scheduled
       else if (!orderResBatchTimer) {
         orderResBatchTimer = setTimeout(() => flushOrderResponseBatch('timer'), ORDER_RES_BATCH_TIMEOUT);
+        console.log(`⏱️ Batch timer scheduled: will flush in ${ORDER_RES_BATCH_TIMEOUT}ms if not full`);
       }
 
       if (DEBUG && orderResponseBatch.length % 25 === 0) {

@@ -361,6 +361,12 @@ class MqttResponseController extends Controller
     {
         $startTime = microtime(true);
 
+        Log::info("[MQTT_API_DRAIN] Request received", [
+            'content_length' => strlen($request->getContent()),
+            'has_actions' => $request->has('actions'),
+            'actions_count' => is_array($request->input('actions')) ? count($request->input('actions')) : 0
+        ]);
+
         try {
             $validated = $request->validate([
                 'actions' => 'required|array|min:1|max:10000', // Support up to 10k for extreme bursts
@@ -371,7 +377,8 @@ class MqttResponseController extends Controller
             ]);
         } catch (\Illuminate\Validation\ValidationException $e) {
             Log::warning("[MQTT_API_DRAIN] Validation failed", [
-                'errors' => $e->errors()
+                'errors' => $e->errors(),
+                'payload_sample' => json_encode($request->input('actions') ? array_slice($request->input('actions'), 0, 2) : [])
             ]);
             return response()->json(['error' => 'Invalid batch request'], 422);
         }
@@ -380,9 +387,10 @@ class MqttResponseController extends Controller
         $batchId = $validated['batch_id'] ?? 'drain_batch_' . time();
         $totalActions = count($actions);
 
-        Log::info("[MQTT_API_DRAIN] Batch received for drain queue", [
+        Log::info("[MQTT_API_DRAIN] Batch validated and starting processing", [
             'batch_id' => $batchId,
-            'total_actions' => $totalActions
+            'total_actions' => $totalActions,
+            'sample_actions' => array_slice($actions, 0, 3)
         ]);
 
         // Group by status and push to Redis drain queues
@@ -397,6 +405,14 @@ class MqttResponseController extends Controller
 
             $queueKey = "order_responses:drain_queue:{$status}";
 
+            Log::info("[MQTT_API_DRAIN] Pushing to Redis", [
+                'batch_id' => $batchId,
+                'status' => $status,
+                'count' => count($responses),
+                'queue_key' => $queueKey,
+                'sample' => array_slice($responses, 0, 2)
+            ]);
+
             // Push all responses to Redis (atomic, guaranteed)
             $pipeline = Redis::pipeline(function ($pipe) use ($responses, $queueKey) {
                 foreach ($responses as $response) {
@@ -406,11 +422,15 @@ class MqttResponseController extends Controller
 
             $queuedCount += count($responses);
 
+            // Verify items were added to Redis
+            $queueLength = Redis::llen($queueKey);
+
             Log::info("[MQTT_API_DRAIN] Pushed to drain queue", [
                 'batch_id' => $batchId,
                 'status' => $status,
                 'count' => count($responses),
-                'queue_key' => $queueKey
+                'queue_key' => $queueKey,
+                'queue_length_after' => $queueLength
             ]);
 
             // Start drain job if not already running
