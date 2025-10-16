@@ -102,12 +102,14 @@ class InstagramLookupService
                 $resp = Http::asForm()->withHeaders([
                     'authority' => 'www.instagram.com',
                     'accept' => '*/*',
+                    'accept-language' => 'en-US,en;q=0.9',
                     'content-type' => 'application/x-www-form-urlencoded',
                     'cookie' => $cookieHeader,
                     'user-agent' => 'Instagram 244.0.0.17.110 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
                     'x-ig-app-id' => '936619743392459',
                     'x-requested-with' => 'XMLHttpRequest',
                     'x-csrftoken' => $csrf,
+                    'referer' => "https://www.instagram.com/p/{$shortcode}/",
                 ])->post('https://www.instagram.com/graphql/query', $body);
 
                 $duration = round((microtime(true) - $start) * 1000);
@@ -124,11 +126,14 @@ class InstagramLookupService
                     // Attempt to extract media id using multiple possible keys (GraphQL responses vary)
                     $mediaId = null;
                     // Common keys observed: xdt_shortcode_media, shortcode_media, media, item, shortcode_media.edge_media_to_caption
+                    // broaden candidates to check common paths including graphql.shortcode_media
                     $candidates = [
                         $json['data']['xdt_shortcode_media'] ?? null,
                         $json['data']['shortcode_media'] ?? null,
                         $json['data']['media'] ?? null,
                         $json['data']['item'] ?? null,
+                        $json['graphql']['shortcode_media'] ?? null,
+                        $json['shortcode_media'] ?? null,
                     ];
 
                     foreach ($candidates as $cand) {
@@ -183,15 +188,19 @@ class InstagramLookupService
                         $jsonEndpoints = [
                             "https://www.instagram.com/p/{$shortcode}/?__a=1",
                             "https://www.instagram.com/p/{$shortcode}/?__a=1&__d=dis",
+                            // i.instagram sometimes exposes mobile API info
+                            "https://i.instagram.com/api/v1/media/shortcode/{$shortcode}/info/",
                         ];
                         foreach ($jsonEndpoints as $je) {
                             try {
                                 $start2 = microtime(true);
                                 $resp2 = Http::withHeaders([
                                     'accept' => 'application/json, text/javascript, */*; q=0.01',
+                                    'accept-language' => 'en-US,en;q=0.9',
                                     'cookie' => $cookieHeader,
-                                    'user-agent' => 'Mozilla/5.0 (compatible; InstagramLookup/1.0)',
+                                    'user-agent' => 'Instagram 244.0.0.17.110 (iPhone; CPU iPhone OS 16_0 like Mac OS X)',
                                     'x-csrftoken' => $csrf,
+                                    'referer' => "https://www.instagram.com/p/{$shortcode}/",
                                 ])->get($je);
                                 $dur2 = round((microtime(true) - $start2) * 1000);
                                 Log::info('[InstagramLookup] mediaId fallback json endpoint request', ['user_id' => $u->id, 'url' => $je, 'status' => $resp2->status(), 'duration_ms' => $dur2]);
@@ -200,9 +209,11 @@ class InstagramLookupService
                                     // attempt same extraction strategy
                                     $cands2 = [
                                         $j2['graphql']['shortcode_media'] ?? null,
+                                        $j2['graphql']['shortcode_media']['edge_media_to_caption'] ?? null,
                                         $j2['media'] ?? null,
                                         $j2['items'][0] ?? null,
                                         $j2['data']['shortcode_media'] ?? null,
+                                        $j2['shortcode_media'] ?? null,
                                     ];
                                     foreach ($cands2 as $c2) {
                                         if (is_array($c2) && !empty($c2['id'])) {
@@ -250,8 +261,8 @@ class InstagramLookupService
                             ])->get($pageUrl);
                             $dur3 = round((microtime(true) - $start3) * 1000);
                             Log::info('[InstagramLookup] mediaId fallback html page request', ['user_id' => $u->id, 'url' => $pageUrl, 'status' => $resp3->status(), 'duration_ms' => $dur3]);
-                            if ($resp3->ok()) {
-                                $html = $resp3->body();
+                                if ($resp3->ok()) {
+                                    $html = $resp3->body();
                                 // Look for window._sharedData = {...}; pattern
                                 if (preg_match('/window\._sharedData\s*=\s*(\{.*?\})\s*;/', $html, $mhtml)) {
                                     $payload = $mhtml[1] ?? null;
