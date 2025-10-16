@@ -64,7 +64,11 @@ Route::post('/mqtt/cleanup-stale-actions', [\App\Http\Controllers\Api\MqttRespon
 Route::post('/mqtt/device-activation', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handle']);
 Route::post('/mqtt/device-activation-batch', [\App\Http\Controllers\Api\MqttDeviceController::class, 'handleBatch']);
 // routes/api.php
-Route::get('/device-activation-count', function () {
+Route::get('/device-activation-count', function (Request $request) {
+    // If the caller requests a reset (query ?reset=1 or header X-Reset-Device-Activations: 1)
+    // then clear the device activation set and return zero. This allows the dashboard
+    // to open and start counting from zero without needing to call the POST reset route.
+    $shouldReset = $request->query('reset') || $request->header('X-Reset-Device-Activations');
     try {
         $redis = \Illuminate\Support\Facades\Redis::connection('queue');
         try {
@@ -73,7 +77,14 @@ Route::get('/device-activation-count', function () {
         } catch (\Throwable $e) {
             Log::warning('[API] failed to read redis.queue.config', ['error' => $e->getMessage()]);
         }
-        $count=0;
+
+        if ($shouldReset) {
+            $delRes = $redis->del('device_activations_set');
+            Cache::forget('device_activations_count');
+            Log::info('[API] device-activation-count reset requested', ['deleted' => $delRes]);
+            return response()->json(['count' => 0]);
+        }
+
         $count = $redis->scard('device_activations_set');
         Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
         return response()->json(['count' => $count]);
