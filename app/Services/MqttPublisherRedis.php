@@ -59,34 +59,6 @@ class MqttPublisherRedis
                 $usedConnection = 'default';
             }
 
-            // --- Deduplication: avoid enqueueing near-duplicates that come from
-            // multiple code-paths in a short window (e.g. batch+single publish).
-            // This is best-effort: we use SETNX + EX to suppress duplicates for a
-            // short TTL (default 2s). If Redis returns an error we fall back to
-            // enqueueing to avoid dropping messages.
-            try {
-                $dedupeTtl = (int) env('MQTT_DEDUPE_TTL', 2);
-                $dedupeKey = $this->key . ':dedupe:' . sha1($topic . '|' . ($payload ?? ''));
-
-                // Prefer setnx (widely supported); if it returns truthy we set an
-                // expiry to limit duplication window. If setnx returns falsy,
-                // treat as duplicate and skip enqueue. This is intentionally
-                // lightweight and non-blocking.
-                $setnxRes = $redisConn->setnx($dedupeKey, 1);
-                if ($setnxRes) {
-                    // best-effort expire (if expire fails we still proceed)
-                    try { $redisConn->expire($dedupeKey, $dedupeTtl); } catch (\Throwable $__e) {}
-                } else {
-                    try {
-                        Log::info('[MqttPublisherRedis] duplicate suppressed (dedupe)', ['key' => $dedupeKey, 'topic' => $topic]);
-                    } catch (\Throwable $__l) {}
-                    return true; // treat as successful (avoid fallback path)
-                }
-            } catch (\Throwable $__d) {
-                // If dedupe fails for any reason, continue to enqueue to avoid
-                // silently dropping messages.
-            }
-
             // Short-lived dedupe: prevent near-duplicate publishes across different code paths
             // Build a stable dedupe key from topic + payload to avoid re-enqueueing identical jobs
             try {
