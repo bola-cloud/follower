@@ -66,31 +66,36 @@ Route::post('/mqtt/device-activation-batch', [\App\Http\Controllers\Api\MqttDevi
 // routes/api.php
 Route::get('/device-activation-count', function () {
     try {
-            $redis = \Illuminate\Support\Facades\Redis::connection('queue');
-            try {
-                $redisConfig = config('database.redis.queue');
-                Log::info('[API] redis.queue.config', $redisConfig);
-            } catch (\Throwable $e) {
-                Log::warning('[API] failed to read redis.queue.config', ['error' => $e->getMessage()]);
-            }
+        $redis = \Illuminate\Support\Facades\Redis::connection('queue');
+        try {
+            $redisConfig = config('database.redis.queue');
+            Log::info('[API] redis.queue.config', $redisConfig);
+        } catch (\Throwable $e) {
+            Log::warning('[API] failed to read redis.queue.config', ['error' => $e->getMessage()]);
+        }
 
-            // Reset the activation set so the counter starts from zero on each dashboard load.
-            try {
-                $delRes = $redis->del('device_activations_set');
-                Cache::forget('device_activations_count');
-                Log::info('[API] device-activation-count reset', ['deleted' => $delRes]);
-            } catch (\Throwable $__e) {
-                Log::warning('[API] failed to reset device_activations_set', ['error' => $__e->getMessage()]);
-            }
-
-            $count = 0;
-            Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
-            return response()->json(['count' => $count]);
+        $count = $redis->scard('device_activations_set');
+        Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
+        return response()->json(['count' => $count]);
     } catch (\Throwable $e) {
         // Fallback to cache
         return response()->json([
             'count' => Cache::get('device_activations_count', 0),
         ]);
+    }
+});
+
+// POST endpoint to reset device activations once (intended to be called on initial dashboard load)
+Route::post('/dashboard/reset-activations', function () {
+    try {
+        $redis = \Illuminate\Support\Facades\Redis::connection('queue');
+        $delRes = $redis->del('device_activations_set');
+        Cache::forget('device_activations_count');
+        Log::info('[API] dashboard reset-activations called', ['deleted' => $delRes]);
+        return response()->json(['ok' => true]);
+    } catch (\Throwable $e) {
+        Log::warning('[API] dashboard reset-activations failed', ['error' => $e->getMessage()]);
+        return response()->json(['ok' => false], 500);
     }
 });
 

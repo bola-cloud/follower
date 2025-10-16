@@ -168,8 +168,15 @@
             $('#activation-count').text(data.count);
         });
     }
-    fetchActivationCount();
-    setInterval(fetchActivationCount, 5000);
+
+    // Reset activations once on initial load (so counter starts from zero)
+    $(function(){
+        $.post('/api/dashboard/reset-activations').always(function(){
+            // Start polling after reset attempt (even if it failed)
+            fetchActivationCount();
+            setInterval(fetchActivationCount, 5000);
+        });
+    });
 
     // Orders Chart
     const ordersCtx = document.getElementById('ordersChart').getContext('2d');
