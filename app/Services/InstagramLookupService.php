@@ -116,12 +116,12 @@ class InstagramLookupService
                 Log::info('[InstagramLookup] mediaId request completed', ['user_id' => $u->id, 'status' => $resp->status(), 'duration_ms' => $duration]);
                 if ($resp->ok()) {
                     $json = $resp->json();
-                    // If GraphQL returned errors, log truncated message and try next user
+                    // If GraphQL returned errors, log truncated message but DON'T skip yet — try fallbacks first
                     if (!empty($json['errors'])) {
                         $err = null;
                         try { $err = json_encode($json['errors']); } catch (\Throwable $_) { $err = null; }
-                        Log::warning('[InstagramLookup] graphql errors in mediaId response', ['user_id' => $u->id, 'errors_trunc' => $err ? substr($err, 0, 200) : null]);
-                        continue; // try next cookie user
+                        Log::warning('[InstagramLookup] graphql errors in mediaId response, will try fallbacks', ['user_id' => $u->id, 'errors_trunc' => $err ? substr($err, 0, 200) : null]);
+                        // Don't continue here — let fallbacks run below
                     }
                     // Attempt to extract media id using multiple possible keys (GraphQL responses vary)
                     $mediaId = null;
@@ -160,10 +160,10 @@ class InstagramLookupService
                     }
 
                     if ($mediaId) {
-                        Log::info('[InstagramLookup] mediaId found', ['user_id' => $u->id, 'mediaId' => $mediaId]);
+                        Log::info('[InstagramLookup] mediaId found via graphql', ['user_id' => $u->id, 'mediaId' => $mediaId]);
                         return (string)$mediaId;
                     }
-                    // If not found, log diagnostic info so we can see why (keep logs compact and avoid leaking cookies)
+                    // If not found after graphql attempt, log and fall through to try fallback endpoints below
                     $jsonTopKeys = [];
                     if (is_array($json)) {
                         $jsonTopKeys = array_keys($json);
@@ -175,15 +175,22 @@ class InstagramLookupService
                     } catch (\Throwable $e) {
                         $bodyLength = null;
                     }
-                    Log::warning('[InstagramLookup] mediaId not found in response', [
+                    Log::warning('[InstagramLookup] mediaId not found in graphql response, trying fallbacks', [
                         'user_id' => $u->id,
                         'status' => $resp->status(),
                         'response_json_top_keys' => $jsonTopKeys,
                         'response_body_length' => $bodyLength,
                     ]);
+                    // Fall through to try fallbacks below (no longer nested inside this block)
+                } else {
+                    Log::warning('[InstagramLookup] mediaId request non-OK', ['user_id' => $u->id, 'status' => $resp->status()]);
+                    // Fall through to try fallbacks
+                }
 
-                    // --- Fallback 1: try the public JSON endpoint ?__a=1 which sometimes
-                    // returns structured data when the GraphQL doc_id path fails.
+                // --- Fallback attempts: try alternative endpoints if graphql failed or returned no mediaId
+                // --- Fallback 1: try the public JSON endpoint ?__a=1 which sometimes
+                // returns structured data when the GraphQL doc_id path fails.
+                if (!$mediaId) {
                     try {
                         $jsonEndpoints = [
                             "https://www.instagram.com/p/{$shortcode}/?__a=1",
@@ -246,55 +253,61 @@ class InstagramLookupService
                     } catch (\Throwable $__f) {
                         // swallow fallback errors and continue to next user
                     }
+                }
 
-                    // --- Fallback 2: fetch the public HTML page and attempt to extract
-                    // embedded JSON (window._sharedData or similar) which contains
-                    // the shortcode_media object. This is a last-resort heuristic.
-                    if (!$mediaId) {
-                        try {
-                            $pageUrl = "https://www.instagram.com/p/{$shortcode}/";
-                            $start3 = microtime(true);
-                            $resp3 = Http::withHeaders([
-                                'accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                                'cookie' => $cookieHeader,
-                                'user-agent' => 'Mozilla/5.0 (compatible; InstagramLookup/1.0)',
-                            ])->get($pageUrl);
-                            $dur3 = round((microtime(true) - $start3) * 1000);
-                            Log::info('[InstagramLookup] mediaId fallback html page request', ['user_id' => $u->id, 'url' => $pageUrl, 'status' => $resp3->status(), 'duration_ms' => $dur3]);
-                                if ($resp3->ok()) {
-                                    $html = $resp3->body();
-                                // Look for window._sharedData = {...}; pattern
-                                if (preg_match('/window\._sharedData\s*=\s*(\{.*?\})\s*;/', $html, $mhtml)) {
-                                    $payload = $mhtml[1] ?? null;
-                                    if ($payload) {
-                                        try {
-                                            $j3 = json_decode($payload, true);
-                                            if (is_array($j3)) {
-                                                // drill to find first id
-                                                $found3 = null;
-                                                array_walk_recursive($j3, function($v, $k) use (&$found3) {
-                                                    if ($found3) return;
-                                                    if ($k === 'id' && is_scalar($v)) {
-                                                        $found3 = $v;
-                                                    }
-                                                });
-                                                if ($found3) {
-                                                    $mediaId = $found3;
+                // --- Fallback 2: fetch the public HTML page and attempt to extract
+                // embedded JSON (window._sharedData or similar) which contains
+                // the shortcode_media object. This is a last-resort heuristic.
+                if (!$mediaId) {
+                    try {
+                        $pageUrl = "https://www.instagram.com/p/{$shortcode}/";
+                        $start3 = microtime(true);
+                        $resp3 = Http::withHeaders([
+                            'accept' => 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            'cookie' => $cookieHeader,
+                            'user-agent' => 'Mozilla/5.0 (compatible; InstagramLookup/1.0)',
+                        ])->get($pageUrl);
+                        $dur3 = round((microtime(true) - $start3) * 1000);
+                        Log::info('[InstagramLookup] mediaId fallback html page request', ['user_id' => $u->id, 'url' => $pageUrl, 'status' => $resp3->status(), 'duration_ms' => $dur3]);
+                        if ($resp3->ok()) {
+                            $html = $resp3->body();
+                            // Look for window._sharedData = {...}; pattern
+                            if (preg_match('/window\._sharedData\s*=\s*(\{.*?\})\s*;/', $html, $mhtml)) {
+                                $payload = $mhtml[1] ?? null;
+                                if ($payload) {
+                                    try {
+                                        $j3 = json_decode($payload, true);
+                                        if (is_array($j3)) {
+                                            // drill to find first id
+                                            $found3 = null;
+                                            array_walk_recursive($j3, function($v, $k) use (&$found3) {
+                                                if ($found3) return;
+                                                if ($k === 'id' && is_scalar($v)) {
+                                                    $found3 = $v;
                                                 }
+                                            });
+                                            if ($found3) {
+                                                $mediaId = $found3;
                                             }
-                                        } catch (\Throwable $__ee) {
-                                            // ignore JSON parse errors
                                         }
+                                    } catch (\Throwable $__ee) {
+                                        // ignore JSON parse errors
                                     }
                                 }
                             }
-                        } catch (\Throwable $__e3) {
-                            Log::warning('[InstagramLookup] fallback html page fetch failed', ['user_id' => $u->id, 'error' => $__e3->getMessage()]);
                         }
+                    } catch (\Throwable $__e3) {
+                        Log::warning('[InstagramLookup] fallback html page fetch failed', ['user_id' => $u->id, 'error' => $__e3->getMessage()]);
                     }
-                } else {
-                    Log::warning('[InstagramLookup] mediaId request non-OK', ['user_id' => $u->id, 'status' => $resp->status()]);
                 }
+
+                // If any fallback found mediaId, return it now
+                if ($mediaId) {
+                    Log::info('[InstagramLookup] mediaId found via fallback', ['user_id' => $u->id, 'mediaId' => $mediaId]);
+                    return (string)$mediaId;
+                }
+
+                // Otherwise continue to next user
             } catch (\Throwable $e) {
                 Log::warning('[InstagramLookup] mediaId request failed', ['user_id' => $u->id, 'error' => $e->getMessage()]);
                 continue;
@@ -302,9 +315,7 @@ class InstagramLookupService
         }
 
         return null;
-    }
-
-    protected function getUserPkWithCookies(string $username, int $tries): ?string
+    }    protected function getUserPkWithCookies(string $username, int $tries): ?string
     {
         // Prefer admin-selected cookie user if present and valid
         $preferredId = setting('preferred_cookie_user_id');
