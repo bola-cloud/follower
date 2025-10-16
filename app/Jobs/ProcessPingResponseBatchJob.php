@@ -457,36 +457,50 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             'userPk' => $order->userPk ?? null,
         ];
 
-        // Batch publish via Redis pipeline for speed
+        // Publish via the centralized MqttPublisherRedis service so dedupe
+        // logic is applied consistently across publishing code paths. We
+        // intentionally enqueue per-user here — chunk sizes are moderate and
+        // this avoids duplicate jobs from other code paths.
         try {
-            $redis = app('redis')->connection();
-            $queueKey = env('MQTT_QUEUE_KEY', env('REDIS_QUEUE_KEY', 'mqtt:publish'));
-
-            // Build all jobs
-            $jobs = [];
+            $publisher = app(\App\Services\MqttPublisherRedis::class);
+            $published = 0;
             foreach ($userIds as $userId) {
                 $topic = "orders/{$userId}";
-                $jobs[] = json_encode([
-                    'topic' => $topic,
-                    'payload' => $payload,
-                    'qos' => 0,
-                    'retain' => false,
-                    'meta' => ['enqueued_at' => time(), 'batch_id' => $this->batchId]
-                ]);
-            }
+                $jobPayload = array_merge($payload, ['user_id' => $userId]);
 
-            // Use pipeline to RPUSH all at once
-            $redis->pipeline(function ($pipe) use ($queueKey, $jobs) {
-                foreach ($jobs as $job) {
-                    $pipe->rpush($queueKey, $job);
+                $ok = false;
+                try {
+                    $ok = (bool) $publisher->enqueue($topic, $jobPayload, 0, false);
+                } catch (\Throwable $__e) {
+                    Log::warning('[ProcessPingResponseBatchJob] enqueue failed for user, falling back to direct rpush', [
+                        'order_id' => $order->id,
+                        'user_id' => $userId,
+                        'error' => $__e->getMessage()
+                    ]);
+                    // As a last resort, push the raw job to the queue to avoid drop
+                    try {
+                        $raw = json_encode([
+                            'topic' => $topic,
+                            'payload' => $payload,
+                            'qos' => 0,
+                            'retain' => false,
+                            'meta' => ['enqueued_at' => time(), 'batch_id' => $this->batchId]
+                        ]);
+                        app('redis')->rpush(env('MQTT_QUEUE_KEY', env('REDIS_QUEUE_KEY', 'mqtt:publish')), $raw);
+                        $ok = true;
+                    } catch (\Throwable $__ee) {
+                        Log::error('[ProcessPingResponseBatchJob] direct rpush fallback failed', ['error' => $__ee->getMessage(), 'user_id' => $userId]);
+                        $ok = false;
+                    }
                 }
-            });
 
-            $published = count($jobs);
+                if ($ok) $published++;
+            }
 
             Log::info('[ProcessPingResponseBatchJob] published chunk', [
                 'order_id' => $order->id,
-                'published' => $published
+                'published' => $published,
+                'chunk_size' => count($userIds)
             ]);
 
         } catch (\Throwable $e) {
