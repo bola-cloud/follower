@@ -102,6 +102,10 @@
                         <div class="media-body text-left">
                                 <h3 class="danger" id="activation-count">{{ $activationCount ?? 0 }}</h3>
                                 <h6>الأجهزة المفعلة</h6>
+                                <div style="margin-top:8px;">
+                                    <button id="restart-activations" class="btn btn-sm btn-outline-danger">إعادة حساب</button>
+                                    <span id="restart-status" style="margin-left:8px;color:#666;display:none;">جارٍ إعادة الحساب...</span>
+                                </div>
                             </div>
                         <div>
                             <i class="icon-screen-tablet danger font-large-2 float-left"></i>
@@ -170,6 +174,26 @@
     }
     fetchActivationCount();
     setInterval(fetchActivationCount, 5000);
+
+    // Restart activations: clear Redis set and trigger recalculation (re-ping)
+    $('#restart-activations').on('click', function () {
+        if (!confirm('هل تريد إعادة حساب الأجهزة المفعلة الآن؟')) return;
+        $('#restart-status').show();
+        $.post('/api/dashboard/restart-activations')
+            .done(function (res) {
+                // Trigger server recalculation which will start pinging users again
+                $.post('/api/mqtt/recalculate-orders')
+                    .always(function () {
+                        $('#restart-status').hide();
+                        // refresh activation count immediately
+                        fetchActivationCount();
+                    });
+            })
+            .fail(function () {
+                alert('فشل إعادة الحساب (راجع السجلات)');
+                $('#restart-status').hide();
+            });
+    });
 
     // Orders Chart
     const ordersCtx = document.getElementById('ordersChart').getContext('2d');

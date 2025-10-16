@@ -84,6 +84,21 @@ Route::get('/device-activation-count', function () {
     }
 });
 
+// Admin: restart device activation counter (clear set + cache)
+Route::post('/dashboard/restart-activations', function () {
+    try {
+        $redis = \Illuminate\Support\Facades\Redis::connection('queue');
+        // delete the set and reset cached counter
+        $redis->del('device_activations_set');
+        \Illuminate\Support\Facades\Cache::forget('device_activations_count');
+        \Illuminate\Support\Facades\Log::info('[API] restart-activations called', ['connection' => 'queue']);
+        return response()->json(['ok' => true]);
+    } catch (\Throwable $e) {
+        \Illuminate\Support\Facades\Log::error('[API] restart-activations failed', ['error' => $e->getMessage()]);
+        return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
+    }
+});
+
 Route::post('/login/google', [AuthController::class, 'googleLogin']);
 // Test endpoint (read-only) to simulate processActiveUserOrders for a given user id
 Route::get('/test/process-active-orders/{userId}', [OrderController::class, 'testProcessActiveUserOrders']);
