@@ -73,7 +73,7 @@ Route::get('/device-activation-count', function () {
         } catch (\Throwable $e) {
             Log::warning('[API] failed to read redis.queue.config', ['error' => $e->getMessage()]);
         }
-
+        $count=0;
         $count = $redis->scard('device_activations_set');
         Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
         return response()->json(['count' => $count]);
