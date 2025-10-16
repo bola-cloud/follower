@@ -97,21 +97,28 @@ class MqttDeviceController extends Controller
             } catch (\Throwable $e) {
                 Log::warning('[MqttDeviceController] failed to read redis.queue.config', ['error' => $e->getMessage()]);
             }
-            // Use Redis pipeline for efficient bulk SADD
+
+            // Use a direct SADD loop to avoid client-specific pipeline issues
             $redis = \Illuminate\Support\Facades\Redis::connection('queue');
-            $pipe = $redis->pipeline();
+            $added = 0;
             foreach ($deviceIds as $did) {
-                $pipe->sadd($setKey, $did);
+                try {
+                    $res = $redis->sadd($setKey, $did);
+                    // SADD returns 1 if the element was added, 0 if it was already a member
+                    $added += (int) $res;
+                } catch (\Throwable $__e) {
+                    // Log per-item failure but continue processing remaining ids
+                    Log::warning('[MqttDeviceController] handleBatch() sadd failed for device', ['device_id' => $did, 'error' => $__e->getMessage()]);
+                }
             }
-            // ensure TTL is set
-            $pipe->expire($setKey, 600);
-            $execResults = $pipe->exec();
 
-            // Log raw pipeline exec results for debugging (array of replies)
-            Log::info('[MqttDeviceController] handleBatch() pipeline.exec results', ['results' => $execResults]);
+            // Ensure TTL is set once
+            try { $expireResult = $redis->expire($setKey, 600); } catch (\Throwable $__e) { $expireResult = false; }
 
-            $count = $redis->scard($setKey);
-            Log::info('[MqttDeviceController] handleBatch() stored batch', ['set' => $setKey, 'count' => $count]);
+            $count = 0;
+            try { $count = $redis->scard($setKey); } catch (\Throwable $__e) { $count = 0; }
+
+            Log::info('[MqttDeviceController] handleBatch() stored batch', ['set' => $setKey, 'incoming' => count($validated['activations']), 'unique_attempted' => count($deviceIds), 'added_new' => $added, 'expire' => $expireResult, 'count' => $count]);
 
             return response()->json(['message' => 'Batch stored', 'count' => $count]);
         } catch (\Throwable $e) {
