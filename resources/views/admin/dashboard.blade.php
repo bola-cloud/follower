@@ -101,6 +101,16 @@
                     <div class="media d-flex">
                         <div class="media-body text-left">
                                 <h3 class="danger" id="activation-count">{{ $activationCount ?? 0 }}</h3>
+                                <script>
+                                    // Ensure the activation counter starts at zero visually to avoid
+                                    // showing an old cached value while JS resets and polls the API.
+                                    (function(){
+                                        try {
+                                            var el = document.getElementById('activation-count');
+                                            if (el) el.textContent = '0';
+                                        } catch (e) {}
+                                    })();
+                                </script>
                                 <h6>الأجهزة المفعلة</h6>
                             </div>
                         <div>
