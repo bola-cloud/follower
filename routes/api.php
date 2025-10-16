@@ -73,29 +73,24 @@ Route::get('/device-activation-count', function () {
             } catch (\Throwable $e) {
                 Log::warning('[API] failed to read redis.queue.config', ['error' => $e->getMessage()]);
             }
-            $count = $redis->scard('device_activations_set');
+
+            // Reset the activation set so the counter starts from zero on each dashboard load.
+            try {
+                $delRes = $redis->del('device_activations_set');
+                Cache::forget('device_activations_count');
+                Log::info('[API] device-activation-count reset', ['deleted' => $delRes]);
+            } catch (\Throwable $__e) {
+                Log::warning('[API] failed to reset device_activations_set', ['error' => $__e->getMessage()]);
+            }
+
+            $count = 0;
             Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
-        return response()->json(['count' => $count]);
+            return response()->json(['count' => $count]);
     } catch (\Throwable $e) {
         // Fallback to cache
         return response()->json([
             'count' => Cache::get('device_activations_count', 0),
         ]);
-    }
-});
-
-// Admin: restart device activation counter (clear set + cache)
-Route::post('/dashboard/restart-activations', function () {
-    try {
-        $redis = \Illuminate\Support\Facades\Redis::connection('queue');
-        // delete the set and reset cached counter
-        $redis->del('device_activations_set');
-        \Illuminate\Support\Facades\Cache::forget('device_activations_count');
-        \Illuminate\Support\Facades\Log::info('[API] restart-activations called', ['connection' => 'queue']);
-        return response()->json(['ok' => true]);
-    } catch (\Throwable $e) {
-        \Illuminate\Support\Facades\Log::error('[API] restart-activations failed', ['error' => $e->getMessage()]);
-        return response()->json(['ok' => false, 'error' => $e->getMessage()], 500);
     }
 });
 
