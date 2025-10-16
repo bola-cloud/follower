@@ -401,7 +401,36 @@ class InstagramLookupService
     {
         if (!$cookies) return null;
         // cookies might be stored as array ['csrftoken' => 'a', 'sessionid' => 'b'] or as string
-        if (is_string($cookies)) return $cookies;
+        if (is_string($cookies)) {
+            $s = trim($cookies);
+            // If the string already looks like a Cookie header (contains '=') return it as-is
+            // (but avoid treating JSON like '{"k":"v"}' as a header)
+            if (strpos($s, '=') !== false && (substr($s, 0, 1) !== '{' && substr($s, 0, 1) !== '[')) {
+                return $s;
+            }
+
+            // If the string looks like JSON, try to decode and convert to header
+            if ((substr($s, 0, 1) === '{') || (substr($s, 0, 1) === '[')) {
+                $decoded = null;
+                try {
+                    $decoded = json_decode($s, true);
+                } catch (\Throwable $_) {
+                    $decoded = null;
+                }
+                if (is_array($decoded)) {
+                    $parts = [];
+                    foreach ($decoded as $k => $v) {
+                        if ($v === null) continue;
+                        $parts[] = $k . '=' . $v;
+                    }
+                    return implode('; ', $parts);
+                }
+            }
+
+            // Fallback: return original string (best-effort)
+            return $s;
+        }
+
         if (is_array($cookies)) {
             $parts = [];
             foreach ($cookies as $k => $v) {
