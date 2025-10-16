@@ -87,6 +87,8 @@ class InstagramLookupService
             }
 
             try {
+                // ensure mediaId is always defined so fallbacks can safely check it
+                $mediaId = null;
                 $variables = [
                     'shortcode' => $shortcode,
                     'fetch_tagged_user_count' => null,
@@ -256,8 +258,10 @@ class InstagramLookupService
                 }
 
                 // --- Fallback 2: fetch the public HTML page and attempt to extract
-                // embedded JSON (window._sharedData or similar) which contains
-                // the shortcode_media object. This is a last-resort heuristic.
+                // embedded JSON (window._sharedData, window.__additionalDataLoaded,
+                // or <script type="application/ld+json">) which contains the
+                // shortcode_media object. Also check common meta tags that embed
+                // the media id (instagram://media?id=...). This is a last-resort heuristic.
                 if (!$mediaId) {
                     try {
                         $pageUrl = "https://www.instagram.com/p/{$shortcode}/";
@@ -271,14 +275,15 @@ class InstagramLookupService
                         Log::info('[InstagramLookup] mediaId fallback html page request', ['user_id' => $u->id, 'url' => $pageUrl, 'status' => $resp3->status(), 'duration_ms' => $dur3]);
                         if ($resp3->ok()) {
                             $html = $resp3->body();
-                            // Look for window._sharedData = {...}; pattern
-                            if (preg_match('/window\._sharedData\s*=\s*(\{.*?\})\s*;/', $html, $mhtml)) {
+                            $foundFromHtml = null;
+
+                            // 1) window._sharedData = {...};
+                            if (preg_match('/window\._sharedData\s*=\s*(\{.*?\})\s*;/s', $html, $mhtml)) {
                                 $payload = $mhtml[1] ?? null;
                                 if ($payload) {
                                     try {
                                         $j3 = json_decode($payload, true);
                                         if (is_array($j3)) {
-                                            // drill to find first id
                                             $found3 = null;
                                             array_walk_recursive($j3, function($v, $k) use (&$found3) {
                                                 if ($found3) return;
@@ -286,14 +291,66 @@ class InstagramLookupService
                                                     $found3 = $v;
                                                 }
                                             });
-                                            if ($found3) {
-                                                $mediaId = $found3;
-                                            }
+                                            if ($found3) $foundFromHtml = $found3;
                                         }
                                     } catch (\Throwable $__ee) {
                                         // ignore JSON parse errors
                                     }
                                 }
+                            }
+
+                            // 2) window.__additionalDataLoaded('post', {...}); pattern
+                            if (!$foundFromHtml && preg_match('/window\.__additionalDataLoaded\([^,]+,\s*(\{.*?\})\s*\)\s*;/s', $html, $mhtml2)) {
+                                $payload2 = $mhtml2[1] ?? null;
+                                if ($payload2) {
+                                    try {
+                                        $j32 = json_decode($payload2, true);
+                                        if (is_array($j32)) {
+                                            $found32 = null;
+                                            array_walk_recursive($j32, function($v, $k) use (&$found32) {
+                                                if ($found32) return;
+                                                if ($k === 'id' && is_scalar($v)) {
+                                                    $found32 = $v;
+                                                }
+                                            });
+                                            if ($found32) $foundFromHtml = $found32;
+                                        }
+                                    } catch (\Throwable $__ee2) {
+                                        // ignore
+                                    }
+                                }
+                            }
+
+                            // 3) <script type="application/ld+json"> ... </script>
+                            if (!$foundFromHtml && preg_match('/<script[^>]+type=["\']application\/ld\+json["\'][^>]*>(.*?)<\/script>/is', $html, $mld)) {
+                                $payloadLd = html_entity_decode($mld[1]);
+                                try {
+                                    $jld = json_decode($payloadLd, true);
+                                    if (is_array($jld)) {
+                                        $foundld = null;
+                                        array_walk_recursive($jld, function($v, $k) use (&$foundld) {
+                                            if ($foundld) return;
+                                            if ($k === 'id' && is_scalar($v)) {
+                                                $foundld = $v;
+                                            }
+                                        });
+                                        if ($foundld) $foundFromHtml = $foundld;
+                                    }
+                                } catch (\Throwable $__ee3) {
+                                }
+                            }
+
+                            // 4) meta tags or deep link containing instagram://media?id=123
+                            if (!$foundFromHtml) {
+                                if (preg_match('/instagram:\/\/media\?id=(\d+)/', $html, $mmeta)) {
+                                    $foundFromHtml = $mmeta[1];
+                                } elseif (preg_match('/<meta[^>]+property=["\']al:ios:url["\'][^>]+content=["\']instagram:\/\/media\?id=(\d+)["\']/i', $html, $mmeta2)) {
+                                    $foundFromHtml = $mmeta2[1];
+                                }
+                            }
+
+                            if ($foundFromHtml) {
+                                $mediaId = $foundFromHtml;
                             }
                         }
                     } catch (\Throwable $__e3) {
