@@ -42,32 +42,33 @@ class InstagramLookupService
 
     protected function getMediaIdFromShortcodeWithCookies(string $shortcode, int $tries): ?string
     {
-        // Decide which cookie user to use according to settings:
-        // - null (explicit): administrator selected 'do not use cookies' -> abort and return null
-        // - '' (empty string): no preference -> pick one random cookie-user (single attempt)
-        // - numeric id: use that user only
-        $preferred = setting('preferred_cookie_user_id');
-
-        if ($preferred === null) {
+        // First attempt to use the admin-preferred cookie user if configured
+        // If the setting is explicitly null it means 'do not use cookies' and we should abort.
+        $preferredId = setting('preferred_cookie_user_id');
+        if ($preferredId === null) {
             Log::info('[InstagramLookup] cookie usage disabled by settings (preferred_cookie_user_id=null)');
-            return null; // explicit 'do not use cookies'
+            return null;
         }
 
-        $users = collect();
-        if ($preferred === '') {
-            // no preference: pick one random cookie user (single attempt)
-            $u = User::whereNotNull('cookies')->inRandomOrder()->first();
-            if ($u) $users->push($u);
-        } else {
-            // preferred is numeric (or coerced) - attempt only that user if present
-            $u = User::find($preferred);
+        if ($preferredId) {
+            $u = User::find($preferredId);
             if ($u && $u->cookies) {
-                $users->push($u);
+                Log::info('[InstagramLookup] trying preferred user for mediaId', ['user_id' => $u->id]);
+                $cookieHeader = $this->buildCookieHeader($u->cookies);
+                $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
+                if ($cookieHeader && $csrf) {
+                    // try preferred user first, then fall back to other cookie users if preferred fails
+                    $others = User::whereNotNull('cookies')->where('id', '<>', $u->id)->inRandomOrder()->limit(max(0, $tries - 1))->get();
+                    $users = collect([$u])->merge($others);
+                } else {
+                    Log::warning('[InstagramLookup] preferred user missing cookie/csrf, falling back', ['user_id' => $u->id]);
+                    $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+                }
             } else {
-                // preferred user missing or has no cookies: fall back to original behavior
-                Log::warning('[InstagramLookup] preferred user missing or has no cookies, falling back to random users', ['preferred' => $preferred]);
                 $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
             }
+        } else {
+            $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
         }
 
         Log::info('[InstagramLookup] getMediaIdFromShortcodeWithCookies users_found', ['count' => $users->count(), 'shortcode' => $shortcode]);
@@ -379,32 +380,32 @@ class InstagramLookupService
         return null;
     }    protected function getUserPkWithCookies(string $username, int $tries): ?string
     {
-        // Decide which cookie user to use according to settings:
-        // - null: administrator selected 'do not use cookies' -> abort
-        // - '' (empty string): pick one random cookie user (single attempt)
-        // - numeric id: use that user only
-        $preferred = setting('preferred_cookie_user_id');
-
-        if ($preferred === null) {
+        // Prefer admin-selected cookie user if present and valid
+        // If the setting is explicitly null it means 'do not use cookies' and we should abort.
+        $preferredId = setting('preferred_cookie_user_id');
+        if ($preferredId === null) {
             Log::info('[InstagramLookup] cookie usage disabled by settings (preferred_cookie_user_id=null)');
             return null;
         }
 
-        $users = collect();
-        if ($preferred === '') {
-            // no preference: pick one random cookie user (single attempt)
-            $u = User::whereNotNull('cookies')->inRandomOrder()->first();
-            if ($u) $users->push($u);
-        } else {
-            // preferred is numeric (or coerced) - attempt only that user if present
-            $u = User::find($preferred);
+        if ($preferredId) {
+            $u = User::find($preferredId);
             if ($u && $u->cookies) {
-                $users->push($u);
+                Log::info('[InstagramLookup] trying preferred user for userPk', ['user_id' => $u->id]);
+                $cookieHeader = $this->buildCookieHeader($u->cookies);
+                $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
+                if ($cookieHeader) {
+                    $others = User::whereNotNull('cookies')->where('id', '<>', $u->id)->inRandomOrder()->limit(max(0, $tries - 1))->get();
+                    $users = collect([$u])->merge($others);
+                } else {
+                    Log::warning('[InstagramLookup] preferred user missing cookie header, falling back', ['user_id' => $u->id]);
+                    $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+                }
             } else {
-                // preferred user missing or has no cookies: fall back to original behavior
-                Log::warning('[InstagramLookup] preferred user missing or has no cookies, falling back to random users', ['preferred' => $preferred]);
                 $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
             }
+        } else {
+            $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
         }
 
         Log::info('[InstagramLookup] getUserPkWithCookies users_found', ['count' => $users->count(), 'username' => $username]);
