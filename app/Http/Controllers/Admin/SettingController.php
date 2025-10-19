@@ -28,8 +28,23 @@ class SettingController extends Controller
             'mandatory' => 'required|boolean',
             'build_number' => 'required|integer',
             'added_points' => 'required|integer',
-            'preferred_cookie_user_id' => 'nullable|integer|exists:users,id',
+            // allow sentinel '__none__' or integer user id or empty string
+            'preferred_cookie_user_id' => ['nullable'],
         ]);
+
+        // Convert sentinel '__none__' to null to indicate 'do not use cookies'
+        if (array_key_exists('preferred_cookie_user_id', $validated)) {
+            $v = $validated['preferred_cookie_user_id'];
+            if ($v === '__none__') {
+                $validated['preferred_cookie_user_id'] = null;
+            } elseif ($v === '') {
+                // keep empty string as-is to mean 'no preference (random)'
+                $validated['preferred_cookie_user_id'] = '';
+            } else {
+                // ensure integer or null
+                $validated['preferred_cookie_user_id'] = is_numeric($v) ? (int)$v : null;
+            }
+        }
 
         foreach ($validated as $key => $value) {
             \App\Models\Setting::updateOrCreate(['key' => $key], ['value' => $value]);

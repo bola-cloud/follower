@@ -64,9 +64,10 @@
                             $cookieUsers = \App\Models\User::whereNotNull('cookies')->get();
                         @endphp
                         <select name="preferred_cookie_user_id" id="preferred_cookie_user_id" class="form-control">
-                            <option value="">-- لا شيء -- (سيتم اختيار حساب عشوائي من المتوفرين)</option>
+                            <option value="__none__" {{ setting('preferred_cookie_user_id') === null ? 'selected' : '' }}>لا تستخدم الكوكيز</option>
+                            <option value="" {{ setting('preferred_cookie_user_id') === '' ? 'selected' : '' }}>-- لا شيء -- (سيتم اختيار حساب عشوائي من المتوفرين)</option>
                             @foreach($cookieUsers as $cu)
-                                <option value="{{ $cu->id }}" {{ setting('preferred_cookie_user_id') == $cu->id ? 'selected' : '' }}>
+                                <option value="{{ $cu->id }}" {{ (string)setting('preferred_cookie_user_id') === (string)$cu->id ? 'selected' : '' }}>
                                     {{ $cu->name }} (ID: {{ $cu->id }})
                                 </option>
                             @endforeach
@@ -85,3 +86,16 @@
     </form>
 </div>
 @endsection
+
+@push('scripts')
+<link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+<script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+<script>
+    $(function(){
+        $('#preferred_cookie_user_id').select2({
+            width: '100%',
+            placeholder: 'اختر حساب الكوكيز أو لا تستخدم الكوكيز'
+        });
+    });
+</script>
+@endpush
