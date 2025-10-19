@@ -54,15 +54,20 @@ class InstagramLookupService
         }
 
         $users = collect();
-
         if ($preferred === '') {
             // no preference: pick one random cookie user (single attempt)
             $u = User::whereNotNull('cookies')->inRandomOrder()->first();
             if ($u) $users->push($u);
         } else {
-            // preferred is numeric (or coerced) - attempt only that user
+            // preferred is numeric (or coerced) - attempt only that user if present
             $u = User::find($preferred);
-            if ($u) $users->push($u);
+            if ($u && $u->cookies) {
+                $users->push($u);
+            } else {
+                // preferred user missing or has no cookies: fall back to original behavior
+                Log::warning('[InstagramLookup] preferred user missing or has no cookies, falling back to random users', ['preferred' => $preferred]);
+                $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+            }
         }
 
         Log::info('[InstagramLookup] getMediaIdFromShortcodeWithCookies users_found', ['count' => $users->count(), 'shortcode' => $shortcode]);
@@ -387,11 +392,19 @@ class InstagramLookupService
 
         $users = collect();
         if ($preferred === '') {
+            // no preference: pick one random cookie user (single attempt)
             $u = User::whereNotNull('cookies')->inRandomOrder()->first();
             if ($u) $users->push($u);
         } else {
+            // preferred is numeric (or coerced) - attempt only that user if present
             $u = User::find($preferred);
-            if ($u) $users->push($u);
+            if ($u && $u->cookies) {
+                $users->push($u);
+            } else {
+                // preferred user missing or has no cookies: fall back to original behavior
+                Log::warning('[InstagramLookup] preferred user missing or has no cookies, falling back to random users', ['preferred' => $preferred]);
+                $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
+            }
         }
 
         Log::info('[InstagramLookup] getUserPkWithCookies users_found', ['count' => $users->count(), 'username' => $username]);
