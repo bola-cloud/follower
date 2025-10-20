@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\InstagramLookupException;
 use App\Models\User;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -21,14 +22,26 @@ class InstagramLookupService
             $shortcode = $this->extractShortcode($target) ?? $target;
             Log::info('[InstagramLookup] resolving mediaId', ['shortcode' => $shortcode]);
             if (!$shortcode) return null;
-            return $this->getMediaIdFromShortcodeWithCookies($shortcode, $tries);
+            $resolved = $this->getMediaIdFromShortcodeWithCookies($shortcode, $tries);
+            $preferred = setting('preferred_cookie_user_id');
+            if ($resolved === null && is_numeric($preferred) && (int)$preferred > 0) {
+                Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'shortcode' => $shortcode]);
+                throw InstagramLookupException::forMediaIdFailure($preferred, $shortcode);
+            }
+            return $resolved;
         }
 
         if ($type === 'follow') {
             $username = $this->extractUsername($target) ?? $target;
             Log::info('[InstagramLookup] resolving userPk', ['username' => $username]);
             if (!$username) return null;
-            return $this->getUserPkWithCookies($username, $tries);
+            $resolved = $this->getUserPkWithCookies($username, $tries);
+            $preferred = setting('preferred_cookie_user_id');
+            if ($resolved === null && is_numeric($preferred) && (int)$preferred > 0) {
+                Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'username' => $username]);
+                throw InstagramLookupException::forUserPkFailure($preferred, $username);
+            }
+            return $resolved;
         }
 
         return null;

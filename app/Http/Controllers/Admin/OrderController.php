@@ -15,6 +15,7 @@ use App\Services\OrderService;
 use App\Services\ResumeOrderService;
 use App\Services\PingService;
 use App\Services\InstagramLookupService;
+use App\Exceptions\InstagramLookupException;
 
 class OrderController extends Controller
 {
@@ -94,6 +95,9 @@ class OrderController extends Controller
                     $data['userPk'] = $data['userPk'] ?? $resolved;
                 }
             }
+        } catch (InstagramLookupException $ile) {
+            Log::warning('[Admin\OrderController] Instagram resolver (preferred cookie) failed: ' . $ile->getMessage());
+            return redirect()->back()->withInput()->with('error', $ile->getMessage());
         } catch (\Throwable $e) {
             Log::warning('[Admin\OrderController] Instagram resolver failed: ' . $e->getMessage());
         }
@@ -189,6 +193,9 @@ class OrderController extends Controller
                 }
                 $order->save();
             }
+        } catch (InstagramLookupException $ile) {
+            Log::warning('[Admin\OrderController::complete] Instagram resolver (preferred cookie) failed: ' . $ile->getMessage());
+            return redirect()->back()->with('error', $ile->getMessage());
         } catch (\Throwable $e) {
             Log::warning('[Admin\OrderController::complete] Instagram resolver failed: ' . $e->getMessage());
         }
