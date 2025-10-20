@@ -71,10 +71,10 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                 return;
             }
 
-            // Quick capacity check
+            // Quick capacity check - count only 'done' actions (external should not reduce capacity)
             $doneCount = DB::table('actions')
                 ->where('order_id', $order->id)
-                ->whereIn('status', ['done', 'external'])
+                ->where('status', 'done')
                 ->count();
 
             $remaining = $order->total_count - $doneCount;
