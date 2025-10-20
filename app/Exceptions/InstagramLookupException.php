@@ -25,13 +25,13 @@ class InstagramLookupException extends Exception
 
     public static function forMediaIdFailure($preferredId, string $shortcode): self
     {
-        $msg = "الكوكيز غير صالجة يرجي تغير المستخدم";
+        $msg = "الكوكيز غير صالجة يرجي تغير المستخدم او نوع الطلب غير مضبوط";
         return new self($msg, ['preferred_id' => $preferredId, 'shortcode' => $shortcode]);
     }
 
     public static function forUserPkFailure($preferredId, string $username): self
     {
-        $msg = "الكوكيز غير صالجة يرجي تغير المستخدم";
+        $msg = "الكوكيز غير صالجة يرجي تغير المستخدم او نوع الطلب غير مضبوط";
         return new self($msg, ['preferred_id' => $preferredId, 'username' => $username]);
     }
 }
