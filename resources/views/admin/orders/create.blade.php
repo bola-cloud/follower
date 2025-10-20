@@ -31,6 +31,7 @@
         <div class="mb-3">
             <label for="type" class="form-label">نوع الطلب</label>
             <select name="type" id="type" class="form-control @error('type') is-invalid @enderror" required>
+                <option value="" disabled {{ old('type') ? '' : 'selected' }}>اختر نوع الطلب</option>
                 <option value="follow" {{ old('type') == 'follow' ? 'selected' : '' }}>متابعة</option>
                 <option value="like" {{ old('type') == 'like' ? 'selected' : '' }}>إعجاب</option>
             </select>
