@@ -64,7 +64,7 @@
                             $cookieUsers = \App\Models\User::whereNotNull('cookies')->get();
                         @endphp
                         <select name="preferred_cookie_user_id" id="preferred_cookie_user_id" class="form-control">
-                            <option value="__none__" {{ setting('preferred_cookie_user_id') === null ? 'selected' : '' }}>لا تستخدم الكوكيز</option>
+                            <option value="__none__" {{ setting('preferred_cookie_user_id') === '__none__' ? 'selected' : '' }}>لا تستخدم الكوكيز</option>
                             <option value="" {{ setting('preferred_cookie_user_id') === '' ? 'selected' : '' }}>-- لا شيء -- (سيتم اختيار حساب عشوائي من المتوفرين)</option>
                             @foreach($cookieUsers as $cu)
                                 <option value="{{ $cu->id }}" {{ (string)setting('preferred_cookie_user_id') === (string)$cu->id ? 'selected' : '' }}>

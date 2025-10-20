@@ -58,7 +58,7 @@ class InstagramLookupService
         // First attempt to use the admin-preferred cookie user if configured
         // If the setting is explicitly null it means 'do not use cookies' and we should abort.
         $preferredId = setting('preferred_cookie_user_id');
-        if ($preferredId === null) {
+        if ($preferredId === '__none__') {
             Log::info('[InstagramLookup] cookie usage disabled by settings (preferred_cookie_user_id=null)');
             return null;
         }
@@ -394,10 +394,10 @@ class InstagramLookupService
     }    protected function getUserPkWithCookies(string $username, int $tries): ?string
     {
         // Prefer admin-selected cookie user if present and valid
-        // If the setting is explicitly null it means 'do not use cookies' and we should abort.
+        // If the setting is the sentinel '__none__' it means 'do not use cookies' and we should abort.
         $preferredId = setting('preferred_cookie_user_id');
-        if ($preferredId === null) {
-            Log::info('[InstagramLookup] cookie usage disabled by settings (preferred_cookie_user_id=null)');
+        if ($preferredId === '__none__') {
+            Log::info('[InstagramLookup] cookie usage disabled by settings (preferred_cookie_user_id=__none__)');
             return null;
         }
 

@@ -32,17 +32,19 @@ class SettingController extends Controller
             'preferred_cookie_user_id' => ['nullable'],
         ]);
 
-        // Convert sentinel '__none__' to null to indicate 'do not use cookies'
+        // Keep sentinel '__none__' stored as a flag (do not use cookies).
+        // Database 'value' column may be non-nullable, so avoid storing PHP null here.
         if (array_key_exists('preferred_cookie_user_id', $validated)) {
             $v = $validated['preferred_cookie_user_id'];
             if ($v === '__none__') {
-                $validated['preferred_cookie_user_id'] = null;
+                // store sentinel string
+                $validated['preferred_cookie_user_id'] = '__none__';
             } elseif ($v === '') {
                 // keep empty string as-is to mean 'no preference (random)'
                 $validated['preferred_cookie_user_id'] = '';
             } else {
-                // ensure integer or null
-                $validated['preferred_cookie_user_id'] = is_numeric($v) ? (int)$v : null;
+                // ensure integer-like string (store as string to keep DB types consistent)
+                $validated['preferred_cookie_user_id'] = is_numeric($v) ? (string)intval($v) : '';
             }
         }
 

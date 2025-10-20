@@ -84,22 +84,29 @@ class OrderController extends Controller
 
         // If mediaId/userPk are missing, try to resolve them using InstagramLookupService
         try {
-            $resolver = app()->make(InstagramLookupService::class);
-            Log::info('[Admin\OrderController] calling InstagramLookupService::resolve', ['target' => $targetUrl, 'type' => $data['type'] ?? 'like'] );
-            $resolved = $resolver->resolve($targetUrl, $data['type'] ?? 'like', 5);
-            Log::info('[Admin\OrderController] InstagramLookupService::resolve returned', ['resolved' => $resolved]);
-            if ($resolved) {
-                if (($data['type'] ?? 'like') === 'like') {
-                    $data['mediaId'] = $data['mediaId'] ?? $resolved;
-                } else {
-                    $data['userPk'] = $data['userPk'] ?? $resolved;
+            // Respect the sentinel setting: if the admin set preferred_cookie_user_id to "__none__",
+            // do not call Instagram at all.
+            $preferredCookie = function_exists('setting') ? setting('preferred_cookie_user_id', '') : '';
+            if ($preferredCookie !== '__none__') {
+                $resolver = app()->make(InstagramLookupService::class);
+                Log::info('[Admin.OrderController] calling InstagramLookupService::resolve', ['target' => $targetUrl, 'type' => $data['type'] ?? 'like'] );
+                $resolved = $resolver->resolve($targetUrl, $data['type'] ?? 'like', 5);
+                Log::info('[Admin.OrderController] InstagramLookupService::resolve returned', ['resolved' => $resolved]);
+                if ($resolved) {
+                    if (($data['type'] ?? 'like') === 'like') {
+                        $data['mediaId'] = $data['mediaId'] ?? $resolved;
+                    } else {
+                        $data['userPk'] = $data['userPk'] ?? $resolved;
+                    }
                 }
+            } else {
+                Log::info('[Admin.OrderController] skipping InstagramLookupService::resolve due to preferred_cookie_user_id="__none__"');
             }
         } catch (InstagramLookupException $ile) {
-            Log::warning('[Admin\OrderController] Instagram resolver (preferred cookie) failed: ' . $ile->getMessage());
+            Log::warning('[Admin.OrderController] Instagram resolver (preferred cookie) failed: ' . $ile->getMessage());
             return redirect()->back()->withInput()->with('error', $ile->getMessage());
         } catch (\Throwable $e) {
-            Log::warning('[Admin\OrderController] Instagram resolver failed: ' . $e->getMessage());
+            Log::warning('[Admin.OrderController] Instagram resolver failed: ' . $e->getMessage());
         }
 
         $pointsPerAction = function_exists('setting') ? setting("points_per_{$data['type']}", 1) : 1;
@@ -181,23 +188,28 @@ class OrderController extends Controller
 
         // If mediaId/userPk are missing on an existing order, try to resolve them before resuming
         try {
-            $resolver = app()->make(InstagramLookupService::class);
-            Log::info('[Admin\OrderController::complete] calling InstagramLookupService::resolve', ['order_id' => $order->id, 'target' => $order->target_url, 'type' => $order->type ?? 'like']);
-            $resolved = $resolver->resolve($order->target_url, $order->type ?? 'like', 5);
-            Log::info('[Admin\OrderController::complete] InstagramLookupService::resolve returned', ['order_id' => $order->id, 'resolved' => $resolved]);
-            if ($resolved) {
-                if (($order->type ?? 'like') === 'like') {
-                    $order->mediaId = $order->mediaId ?? $resolved;
-                } else {
-                    $order->userPk = $order->userPk ?? $resolved;
+            $preferredCookie = function_exists('setting') ? setting('preferred_cookie_user_id', '') : '';
+            if ($preferredCookie !== '__none__') {
+                $resolver = app()->make(InstagramLookupService::class);
+                Log::info('[Admin.OrderController::complete] calling InstagramLookupService::resolve', ['order_id' => $order->id, 'target' => $order->target_url, 'type' => $order->type ?? 'like']);
+                $resolved = $resolver->resolve($order->target_url, $order->type ?? 'like', 5);
+                Log::info('[Admin.OrderController::complete] InstagramLookupService::resolve returned', ['order_id' => $order->id, 'resolved' => $resolved]);
+                if ($resolved) {
+                    if (($order->type ?? 'like') === 'like') {
+                        $order->mediaId = $order->mediaId ?? $resolved;
+                    } else {
+                        $order->userPk = $order->userPk ?? $resolved;
+                    }
+                    $order->save();
                 }
-                $order->save();
+            } else {
+                Log::info('[Admin.OrderController::complete] skipping InstagramLookupService::resolve due to preferred_cookie_user_id="__none__"');
             }
         } catch (InstagramLookupException $ile) {
-            Log::warning('[Admin\OrderController::complete] Instagram resolver (preferred cookie) failed: ' . $ile->getMessage());
+            Log::warning('[Admin.OrderController::complete] Instagram resolver (preferred cookie) failed: ' . $ile->getMessage());
             return redirect()->back()->with('error', $ile->getMessage());
         } catch (\Throwable $e) {
-            Log::warning('[Admin\OrderController::complete] Instagram resolver failed: ' . $e->getMessage());
+            Log::warning('[Admin.OrderController::complete] Instagram resolver failed: ' . $e->getMessage());
         }
 
         try {
