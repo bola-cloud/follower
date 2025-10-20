@@ -156,11 +156,11 @@ class OrderController extends Controller
             if (str_contains($redirectUrl, '/admin/orders/create')) {
                 $redirectUrl = route('admin.orders.index');
             }
-            return redirect($redirectUrl)->with('success', 'Order created and event broadcasted.');
+            return redirect($redirectUrl)->with('success', 'تم انشاء الطلب بنجاح.');
         } catch (\Throwable $e) {
             DB::rollBack();
             Log::error("[OrderStore] Exception occurred: " . $e->getMessage());
-            return redirect()->back()->with('error', 'Failed to create order: ' . $e->getMessage());
+            return redirect()->back()->with('error', 'فشل انشاء الطلب: ' . $e->getMessage());
         }
     }
 
