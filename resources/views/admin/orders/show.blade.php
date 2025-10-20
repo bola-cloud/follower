@@ -4,6 +4,10 @@
 <div class="container py-4">
     <h2 class="mb-4">تفاصيل الطلب رقم #{{ $order->id }}</h2>
 
+    @if(session('error'))
+        <div class="alert alert-danger">{{ session('error') }}</div>
+    @endif
+
     <div class="card mb-4">
         <div class="card-body">
             <p><strong>المستخدم:</strong> {{ $order->user->name }} ({{ $order->user->email }})</p>
