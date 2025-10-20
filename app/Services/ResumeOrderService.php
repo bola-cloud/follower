@@ -7,6 +7,7 @@ use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use App\Jobs\SendMqttToUserJob;
+use App\Jobs\PublishPendingActionsBatchJob;
 use Carbon\Carbon;
 
 class ResumeOrderService
@@ -68,14 +69,24 @@ class ResumeOrderService
 
         if ($existingAction) {
             if ($existingAction->status === 'pending') {
-                // ✅ NO PUBLISHING HERE: Order announcements will be sent by ProcessPingResponseBatchJob
-                // after devices respond to ping requests. This prevents duplicate publishing.
-                Log::info('[ResumeOrderService] Pending action exists, batch job will handle announcement', [
-                    'order_id' => $order->id,
-                    'user_id' => $user->id,
-                    'note' => 'Announcement will be sent after ping response processed'
-                ]);
-                return ['message' => 'Pending action exists. Announcement will be sent via batch job.'];
+                // If a pending action already exists for this user, dispatch a job that
+                // publishes announcements for pending actions in chunked Redis pipelines.
+                try {
+                    dispatch(new PublishPendingActionsBatchJob($order->id));
+                    Log::info('[ResumeOrderService] Dispatched PublishPendingActionsBatchJob for existing pending action', [
+                        'order_id' => $order->id,
+                        'user_id' => $user->id
+                    ]);
+                    return ['message' => 'Pending action exists. Publish job dispatched for pending users.'];
+                } catch (\Throwable $e) {
+                    Log::warning('[ResumeOrderService] Failed to dispatch PublishPendingActionsBatchJob', [
+                        'order_id' => $order->id,
+                        'user_id' => $user->id,
+                        'error' => $e->getMessage()
+                    ]);
+                    // Fall back to previous behavior: rely on batch job triggered by ping
+                    return ['message' => 'Pending action exists. Announcement will be sent via batch job.'];
+                }
             }
             // Block if status is done or external
             if (in_array($existingAction->status, ['done', 'external'])) {
