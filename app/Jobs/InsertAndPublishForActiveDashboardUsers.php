@@ -65,7 +65,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     $pingPayload = ['request' => 'ping'];
                     $job = json_encode([
-                        'topic' => 'devices/activation/req',
+                        'topic' => 'devices/activation/v2/res',
                         'payload' => $pingPayload,
                         'qos' => 1,
                         'retain' => false,
