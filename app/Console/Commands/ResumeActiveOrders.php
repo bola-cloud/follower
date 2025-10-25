@@ -12,9 +12,15 @@ class ResumeActiveOrders extends Command
 
     public function handle()
     {
-        $this->info('Dispatching InsertAndPublishForActiveDashboardUsers job...');
-        InsertAndPublishForActiveDashboardUsers::dispatch();
-        $this->info('Job dispatched.');
+        $this->info('[ResumeActiveOrders] Running InsertAndPublishForActiveDashboardUsers synchronously...');
+
+        // Run the job synchronously instead of dispatching to queue so the scheduler
+        // sees immediate output. For production with queue workers, use ::dispatch()
+        // but ensure the queue is being processed.
+        $job = new InsertAndPublishForActiveDashboardUsers();
+        $job->handle();
+
+        $this->info('[ResumeActiveOrders] Job completed.');
         return 0;
     }
 }
