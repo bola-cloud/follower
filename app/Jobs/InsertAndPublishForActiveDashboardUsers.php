@@ -65,7 +65,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     $pingPayload = ['request' => 'ping'];
                     $job = json_encode([
-                        'topic' => 'devices/activation/v2/res',
+                        'topic' => 'devices/activation/req',
                         'payload' => $pingPayload,
                         'qos' => 1,
                         'retain' => false,
@@ -300,6 +300,15 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         // After collecting everything across orders, push publishes in up to $maxBatches batches
         Log::info('[InsertAndPublishForActiveDashboardUsers] total publishes collected', ['total' => $totalPublishes]);
+
+        // Enforce global cap strictly on the final publish list. It's possible
+        // that due to reservation logic or race conditions the in-memory
+        // $publishList length may exceed $maxTotal; truncate to be safe.
+        if (count($publishList) > $maxTotal) {
+            $publishList = array_slice($publishList, 0, $maxTotal);
+            $totalPublishes = count($publishList);
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] publishList truncated to TOTAL_PUBLISH_LIMIT', ['limit' => $maxTotal, 'new_total' => $totalPublishes]);
+        }
 
         if ($totalPublishes > 0) {
             // Ensure we have a batch id even if coordBatchId wasn't set earlier
