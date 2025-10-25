@@ -16,7 +16,14 @@ class Kernel extends ConsoleKernel
         // scheduler (cron or Supervisor) should invoke `php artisan schedule:run`
         // every minute so Laravel can dispatch scheduled commands. Using
         // `withoutOverlapping()` prevents concurrent coordinator runs.
-        $schedule->command('orders:resume-active')->everyMinute()->withoutOverlapping();
+        // Capture the artisan command stdout/stderr into a dedicated log so we
+        // can inspect the scheduler-run output even if the system cron redirects
+        // schedule:run to /dev/null. This writes to storage/logs/orders-resume-active.log
+        // and appends on each run.
+        $schedule->command('orders:resume-active')
+            ->everyMinute()
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/orders-resume-active.log'));
     }
 
     /**
