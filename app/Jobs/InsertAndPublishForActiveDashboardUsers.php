@@ -388,5 +388,40 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             'total_inserted_actions' => $totalInserted,
             'total_publishes_enqueued' => $publishedEnqueued,
         ]);
+
+        // Emit a compact, easily searchable report line for downstream log parsing
+        // Use a distinctive flag so operators can grep the logs quickly.
+        try {
+            $reportFlag = '[ORDERS_RESUME_REPORT]';
+
+            // Distinct orders represented in the final publish list (post-truncate)
+            $distinctOrders = 0;
+            if (!empty($publishList)) {
+                $distinctOrders = count(array_unique(array_column($publishList, 'order_id')));
+            }
+
+            // How many orders had any actions created/added during this run
+            $ordersWithActions = 0;
+            foreach ($ordersSummary as $s) {
+                $added = ($s['pending_added'] ?? 0) + ($s['claimed_added'] ?? 0) + ($s['inserted'] ?? 0);
+                if ($added > 0) {
+                    $ordersWithActions++;
+                }
+            }
+
+            Log::info($reportFlag, [
+                'batch_id' => $coordBatchId ?? null,
+                'run_start' => $runStart->toDateTimeString(),
+                'run_end' => $runEnd->toDateTimeString(),
+                'total_actions_inserted' => (int) $totalInserted,
+                'total_publish_jobs_enqueued' => (int) $publishedEnqueued,
+                'distinct_orders_in_publish_list' => (int) $distinctOrders,
+                'orders_that_received_actions' => (int) $ordersWithActions,
+                'total_planned_publishes' => (int) $totalPublishes,
+                'total_publish_limit' => (int) $maxTotal,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to emit resume report', ['error' => $e->getMessage()]);
+        }
     }
 }
