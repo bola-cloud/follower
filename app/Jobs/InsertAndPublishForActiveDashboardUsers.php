@@ -30,53 +30,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         $redis = app('redis')->connection();
 
-        // --- Run-lock and spacing controls -------------------------------------------------
-        // Use Redis to ensure only one coordinator runs at a time and to enforce a
-        // minimum interval between completed runs. This prevents overlapping runs
-        // when a single run can take many hours or days.
-        $lockKey = env('COORDINATOR_LOCK_KEY', 'orders_resume_lock');
-        $lastRunKey = env('COORDINATOR_LAST_RUN_KEY', 'orders_resume_last_run');
-        $minIntervalSecs = (int) env('COORDINATOR_MIN_INTERVAL_SECONDS', 3600); // default 1 hour
-        // TTL for the lock (seconds). Should be larger than the expected max runtime.
-        $lockTtl = (int) env('COORDINATOR_LOCK_TTL_SECONDS', 60 * 60 * 24 * 3); // default 3 days
-
-        try {
-            $lastRun = (int) $redis->get($lastRunKey);
-        } catch (\Throwable $e) {
-            $lastRun = 0;
-        }
-
-        if ($lastRun > 0 && (time() - $lastRun) < $minIntervalSecs) {
-            Log::info('[InsertAndPublishForActiveDashboardUsers] skipping because min-interval not elapsed', ['last_run' => date('c', $lastRun), 'min_interval_secs' => $minIntervalSecs]);
-            return;
-        }
-
-        // Try to acquire a Redis lock using SET NX EX
-        try {
-            $acquired = $redis->set($lockKey, time(), 'NX', 'EX', $lockTtl);
-        } catch (\Throwable $e) {
-            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to check/acquire lock', ['error' => $e->getMessage()]);
-            $acquired = false;
-        }
-
-        if (! $acquired) {
-            // Someone else is running (or lock couldn't be acquired). Bail out.
-            try {
-                $ttl = $redis->ttl($lockKey);
-            } catch (\Throwable $e) {
-                $ttl = null;
-            }
-            Log::info('[InsertAndPublishForActiveDashboardUsers] another run is in progress or lock held - exiting', ['lock_ttl' => $ttl]);
-            return;
-        }
-
-    // We'll ensure the lock is removed and last_run is set in the finally block below.
-    // During the run we periodically refresh the lock TTL to avoid accidental expiry.
-    $refreshLockTtl = $lockTtl;
-
-    // Wrap the main work in a try/finally so the lock and last_run are
-    // consistently updated even if we return early or exceptions occur.
-    try {
+        // No Redis run-lock: scheduling and run spacing are controlled by
+        // `COORDINATOR_SCHEDULE_HOURS` in the Kernel (how often the command is
+        // invoked) and by the per-run order limit below. We intentionally avoid
+        // holding a Redis lock here to prevent any interaction with other
+        // Redis-based processes. This job will still exit quickly if another
+        // instance is manually started concurrently by operator action.
         // ----------------------------------------------------------------------------------
         $queueKey = env('PUBLISH_QUEUE_KEY', env('MQTT_QUEUE_KEY', 'mqtt:publish'));
 
@@ -153,7 +112,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         // 1) If ORDERS_PER_RUN > 0, use it.
         // 2) Else if HARD_MAX_ORDERS_SCAN > 0, use it.
         // 3) Else fall back to a safe default (configurable) to avoid unbounded runs.
-        $defaultPerRun = (int) env('COORDINATOR_DEFAULT_ORDERS_PER_RUN', 500);
+    $defaultPerRun = (int) env('COORDINATOR_DEFAULT_ORDERS_PER_RUN', 100);
         if ($ordersPerRun > 0) {
             $effectiveOrdersLimit = $ordersPerRun;
         } elseif ($hardMaxOrdersScan > 0) {
@@ -242,34 +201,39 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     'claimed_added' => 0
                 ];
 
-                if (!empty($pendingUsers) && $totalPublishes < $maxTotal) {
-                    $payloadBase = [
-                        'url' => $order->target_url,
-                        'order_id' => $order->id,
-                        'type' => $order->type,
-                        'mediaId' => $order->mediaId ?? null,
-                        'userPk' => $order->userPk ?? null,
-                    ];
+                // Ensure we never enqueue more publishes for this order than the
+                // difference between total_count and done_count. We'll first add
+                // publishes for existing pending actions (up to available), then
+                // attempt to claim new users to fill remaining slots.
+                $orderAssigned = 0;
+                $payloadBase = [
+                    'url' => $order->target_url,
+                    'order_id' => $order->id,
+                    'type' => $order->type,
+                    'mediaId' => $order->mediaId ?? null,
+                    'userPk' => $order->userPk ?? null,
+                ];
 
-                    $orderAssigned = 0;
-                    foreach ($pendingUsers as $uid) {
-                        if ($orderAssigned >= $available) break; // respect order capacity
-                        if ($totalPublishes >= $maxTotal) break 2; // reached global cap
-                        $uid = (int) $uid;
-                        $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                        if ($uc >= $perUserLimit) continue; // per-user cap reached
+                // Add existing pending users first (they already have pending actions)
+                foreach ($pendingUsers as $uid) {
+                    if ($orderAssigned >= $available) break; // respect order capacity
+                    if ($totalPublishes >= $maxTotal) break 2; // global cap
+                    $uid = (int) $uid;
+                    $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
+                    if ($uc >= $perUserLimit) continue; // per-user cap reached
 
-                        // add to publish list
-                        $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
-                        $userCounts[$uid] = $uc + 1;
-                        $orderAssigned++;
-                        $totalPublishes++;
-                        $ordersSummary[$order->id]['pending_added']++;
-                    }
+                    $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
+                    $userCounts[$uid] = $uc + 1;
+                    $orderAssigned++;
+                    $totalPublishes++;
+                    $ordersSummary[$order->id]['pending_added']++;
                 }
 
+                // Remaining slots for this order
+                $remainingSlots = max(0, $available - $orderAssigned);
+
                 $claimNew = filter_var(env('RESUME_CLAIM_NEW', false), FILTER_VALIDATE_BOOLEAN);
-                if ($claimNew && $available > 0) {
+                if ($claimNew && $remainingSlots > 0 && $totalPublishes < $maxTotal) {
                     // Determine which eligible users don't already have actions
                     $alreadyActioned = DB::table('actions')
                         ->where('order_id', $order->id)
@@ -279,19 +243,18 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     $toClaim = array_values(array_diff($eligible, $alreadyActioned));
                     if (!empty($toClaim)) {
-                        // Respect per-order available slots and global/per-user caps
+                        // Respect per-order remaining slots and per-user caps
                         $toClaimFiltered = [];
                         foreach ($toClaim as $uid) {
-                            if ($available <= 0) break;
+                            if ($remainingSlots <= 0) break;
                             if ($totalPublishes >= $maxTotal) break;
                             $uid = (int) $uid;
                             $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
                             if ($uc >= $perUserLimit) continue;
                             $toClaimFiltered[] = $uid;
-                            // only increment global total now; userCounts will be incremented
-                            // when the user is actually added to the publish list
-                            $totalPublishes++;
-                            $available--;
+                            $remainingSlots--;
+                            // DO NOT increment $totalPublishes here; only when we actually
+                            // enqueue publishes after confirming inserts.
                         }
 
                         if (!empty($toClaimFiltered)) {
@@ -316,15 +279,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                 ->pluck('user_id')
                                 ->toArray();
 
-                            // Add claimed ones to the global publish list (respecting caps)
-                            $payloadBase = [
-                                'url' => $order->target_url,
-                                'order_id' => $order->id,
-                                'type' => $order->type,
-                                'mediaId' => $order->mediaId ?? null,
-                                'userPk' => $order->userPk ?? null,
-                            ];
-
+                            // Add claimed ones to the global publish list (respecting the original available slots)
                             $orderAssigned = isset($orderAssigned) ? $orderAssigned : 0;
                             foreach ($existingUserIds as $uid) {
                                 if ($orderAssigned >= $available) break;
@@ -337,8 +292,10 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                 $userCounts[$uid] = $uc + 1;
                                 $orderAssigned++;
                                 $ordersSummary[$order->id]['claimed_added']++;
+                                $totalPublishes++;
                             }
 
+                            // Recompute available slots in case other processes updated done_count
                             $doneCount = DB::table('actions')
                                 ->where('order_id', $order->id)
                                 ->where('status', 'done')
@@ -352,12 +309,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 Log::error('[InsertAndPublishForActiveDashboardUsers] error processing order', ['order_id' => $order->id ?? null, 'error' => $e->getMessage()]);
             }
 
-            // keep the lock alive while we're processing long runs
-            try {
-                $redis->expire($lockKey, $refreshLockTtl);
-            } catch (\Throwable $e) {
-                // best-effort; don't break the run if expiry refresh fails
-            }
+            // no lock refresh necessary; rely on scheduler spacing and per-run limits
         }
 
         // After collecting everything across orders, push publishes in up to $maxBatches batches
@@ -485,21 +437,6 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         } catch (\Throwable $e) {
             Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to emit resume report', ['error' => $e->getMessage()]);
         }
-        // finally: release lock and set last_run so the scheduler/min-interval logic works
-        } finally {
-            try {
-                $redis->set($lastRunKey, time());
-            } catch (\Throwable $e) {
-                Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to write last_run', ['error' => $e->getMessage()]);
-            }
-
-            try {
-                $redis->del($lockKey);
-            } catch (\Throwable $e) {
-                Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to release lock', ['error' => $e->getMessage()]);
-            }
-
-            Log::info('[InsertAndPublishForActiveDashboardUsers] finished and cleaned up lock/last_run', ['last_run_key' => $lastRunKey, 'lock_key' => $lockKey]);
-        }
+        Log::info('[InsertAndPublishForActiveDashboardUsers] finished');
     }
 }
