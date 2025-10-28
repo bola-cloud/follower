@@ -29,6 +29,55 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         Log::info('[InsertAndPublishForActiveDashboardUsers] started');
 
         $redis = app('redis')->connection();
+
+        // --- Run-lock and spacing controls -------------------------------------------------
+        // Use Redis to ensure only one coordinator runs at a time and to enforce a
+        // minimum interval between completed runs. This prevents overlapping runs
+        // when a single run can take many hours or days.
+        $lockKey = env('COORDINATOR_LOCK_KEY', 'orders_resume_lock');
+        $lastRunKey = env('COORDINATOR_LAST_RUN_KEY', 'orders_resume_last_run');
+        $minIntervalSecs = (int) env('COORDINATOR_MIN_INTERVAL_SECONDS', 3600); // default 1 hour
+        // TTL for the lock (seconds). Should be larger than the expected max runtime.
+        $lockTtl = (int) env('COORDINATOR_LOCK_TTL_SECONDS', 60 * 60 * 24 * 3); // default 3 days
+
+        try {
+            $lastRun = (int) $redis->get($lastRunKey);
+        } catch (\Throwable $e) {
+            $lastRun = 0;
+        }
+
+        if ($lastRun > 0 && (time() - $lastRun) < $minIntervalSecs) {
+            Log::info('[InsertAndPublishForActiveDashboardUsers] skipping because min-interval not elapsed', ['last_run' => date('c', $lastRun), 'min_interval_secs' => $minIntervalSecs]);
+            return;
+        }
+
+        // Try to acquire a Redis lock using SET NX EX
+        try {
+            $acquired = $redis->set($lockKey, time(), 'NX', 'EX', $lockTtl);
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to check/acquire lock', ['error' => $e->getMessage()]);
+            $acquired = false;
+        }
+
+        if (! $acquired) {
+            // Someone else is running (or lock couldn't be acquired). Bail out.
+            try {
+                $ttl = $redis->ttl($lockKey);
+            } catch (\Throwable $e) {
+                $ttl = null;
+            }
+            Log::info('[InsertAndPublishForActiveDashboardUsers] another run is in progress or lock held - exiting', ['lock_ttl' => $ttl]);
+            return;
+        }
+
+    // We'll ensure the lock is removed and last_run is set in the finally block below.
+    // During the run we periodically refresh the lock TTL to avoid accidental expiry.
+    $refreshLockTtl = $lockTtl;
+
+    // Wrap the main work in a try/finally so the lock and last_run are
+    // consistently updated even if we return early or exceptions occur.
+    try {
+        // ----------------------------------------------------------------------------------
         $queueKey = env('PUBLISH_QUEUE_KEY', env('MQTT_QUEUE_KEY', 'mqtt:publish'));
 
         $waitSeconds = (int) env('ACTIVATION_WAIT_SECONDS', env('WAIT_SECONDS_FOR_RESPONSES', 5));
@@ -97,18 +146,24 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         }
 
         $ordersQuery = Order::where('status', 'active')
-            ->whereRaw('done_count < total_count')
-            ->orderBy('created_at', 'asc');
+            ->whereRaw('done_count < total_count');
 
-        // Apply limits only when configured. Priority:
-        // 1) If ORDERS_PER_RUN > 0, respect it.
-        // 2) Else if HARD_MAX_ORDERS_SCAN > 0, use the hard max to prevent full scans.
-        // 3) Else no limit (scan all matching orders) — TOTAL_PUBLISH_LIMIT still stops publishes.
+        // Determine an effective per-run limit to bound work and ensure runs finish.
+        // Priority:
+        // 1) If ORDERS_PER_RUN > 0, use it.
+        // 2) Else if HARD_MAX_ORDERS_SCAN > 0, use it.
+        // 3) Else fall back to a safe default (configurable) to avoid unbounded runs.
+        $defaultPerRun = (int) env('COORDINATOR_DEFAULT_ORDERS_PER_RUN', 500);
         if ($ordersPerRun > 0) {
-            $ordersQuery = $ordersQuery->limit($ordersPerRun);
+            $effectiveOrdersLimit = $ordersPerRun;
         } elseif ($hardMaxOrdersScan > 0) {
-            $ordersQuery = $ordersQuery->limit($hardMaxOrdersScan);
+            $effectiveOrdersLimit = $hardMaxOrdersScan;
+        } else {
+            $effectiveOrdersLimit = max(1, $defaultPerRun);
         }
+
+        // Apply the effective limit to the query to guarantee a bounded run.
+        $ordersQuery = $ordersQuery->limit($effectiveOrdersLimit);
 
         $orders = $ordersQuery->get();
 
@@ -296,6 +351,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             } catch (\Throwable $e) {
                 Log::error('[InsertAndPublishForActiveDashboardUsers] error processing order', ['order_id' => $order->id ?? null, 'error' => $e->getMessage()]);
             }
+
+            // keep the lock alive while we're processing long runs
+            try {
+                $redis->expire($lockKey, $refreshLockTtl);
+            } catch (\Throwable $e) {
+                // best-effort; don't break the run if expiry refresh fails
+            }
         }
 
         // After collecting everything across orders, push publishes in up to $maxBatches batches
@@ -389,7 +451,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             'total_publishes_enqueued' => $publishedEnqueued,
         ]);
 
-        // Emit a compact, easily searchable report line for downstream log parsing
+    // Emit a compact, easily searchable report line for downstream log parsing
         // Use a distinctive flag so operators can grep the logs quickly.
         try {
             $reportFlag = '[ORDERS_RESUME_REPORT]';
@@ -422,6 +484,22 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             ]);
         } catch (\Throwable $e) {
             Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to emit resume report', ['error' => $e->getMessage()]);
+        }
+        // finally: release lock and set last_run so the scheduler/min-interval logic works
+        } finally {
+            try {
+                $redis->set($lastRunKey, time());
+            } catch (\Throwable $e) {
+                Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to write last_run', ['error' => $e->getMessage()]);
+            }
+
+            try {
+                $redis->del($lockKey);
+            } catch (\Throwable $e) {
+                Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to release lock', ['error' => $e->getMessage()]);
+            }
+
+            Log::info('[InsertAndPublishForActiveDashboardUsers] finished and cleaned up lock/last_run', ['last_run_key' => $lastRunKey, 'lock_key' => $lockKey]);
         }
     }
 }

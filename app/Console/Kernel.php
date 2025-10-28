@@ -12,18 +12,26 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // Always schedule the coordinator to run every minute. The system
-        // scheduler (cron or Supervisor) should invoke `php artisan schedule:run`
-        // every minute so Laravel can dispatch scheduled commands. Using
-        // `withoutOverlapping()` prevents concurrent coordinator runs.
-        // Capture the artisan command stdout/stderr into a dedicated log so we
-        // can inspect the scheduler-run output even if the system cron redirects
-        // schedule:run to /dev/null. This writes to storage/logs/orders-resume-active.log
-        // and appends on each run.
-        $schedule->command('orders:resume-active')
-            ->everyMinute()
-            ->withoutOverlapping()
-            ->appendOutputTo(storage_path('logs/orders-resume-active.log'));
+        // Schedule the coordinator. Behavior is driven by env variable
+        // COORDINATOR_SCHEDULE_HOURS:
+        // - If COORDINATOR_SCHEDULE_HOURS is unset or set to 0, use everyMinute()
+        //   (useful for test mode).
+        // - If set to a positive integer N, schedule the command to run every N
+        //   hours at minute 0 using a cron expression (e.g. N=1 -> every hour on
+        //   the hour; N=6 -> 00:00,06:00,12:00,18:00). Note: choose N that makes
+        //   sense for your environment (divisors of 24 are typical).
+        $hours = (int) env('COORDINATOR_SCHEDULE_HOURS', 0);
+
+        $scheduled = $schedule->command('orders:resume-active')->withoutOverlapping()->appendOutputTo(storage_path('logs/orders-resume-active.log'));
+
+        if ($hours <= 0) {
+            // Test mode: every minute
+            $scheduled->everyMinute();
+        } else {
+            // Production mode: every N hours at minute 0
+            // Cron: minute 0, every N hours
+            $scheduled->cron("0 */{$hours} * * *");
+        }
     }
 
     /**
