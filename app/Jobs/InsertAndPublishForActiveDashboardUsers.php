@@ -142,9 +142,14 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         $totalInserted = 0; // sum of inserted actions from BatchActionService
         $publishedEnqueued = 0; // actual number of publish jobs pushed to Redis
 
+        // Build per-order metadata first: capacity, eligible set and pending users.
+        $resumeService = app(ResumeOrderService::class);
+        $ordersMeta = []; // order_id => meta (includes order model)
+        $totalReserved = 0; // pending + reserved by user iteration (pre-claim)
+
         foreach ($orders as $order) {
             try {
-                Log::info('[InsertAndPublishForActiveDashboardUsers] processing order', ['order_id' => $order->id, 'total_count' => $order->total_count]);
+                Log::info('[InsertAndPublishForActiveDashboardUsers] preparing order', ['order_id' => $order->id, 'total_count' => $order->total_count]);
 
                 $doneCount = DB::table('actions')
                     ->where('order_id', $order->id)
@@ -155,36 +160,30 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 Log::info('[InsertAndPublishForActiveDashboardUsers] order capacity', ['order_id' => $order->id, 'done' => $doneCount, 'available' => $available]);
 
                 if ($available <= 0) {
-                    Log::info('[InsertAndPublishForActiveDashboardUsers] no available slots for order', ['order_id' => $order->id]);
                     continue;
                 }
 
                 $candidates = array_slice($activeUsers, 0, $usersPerOrderLimit);
                 if (empty($candidates)) {
-                    Log::info('[InsertAndPublishForActiveDashboardUsers] no candidate users for order', ['order_id' => $order->id]);
                     continue;
                 }
 
-                // Use ResumeOrderService to compute eligible users similarly to resume flow
+                // Compute eligible users for this order (cached here so we can
+                // test membership quickly when iterating active users).
                 try {
-                    $resumeService = app(ResumeOrderService::class);
                     $eligibleUsersCollection = $resumeService->getEligibleUsers($order);
                     $eligibleIdsAll = $eligibleUsersCollection->pluck('id')->toArray();
                 } catch (\Throwable $e) {
                     Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users via ResumeOrderService', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-                    // Fallback: use candidates directly
                     $eligibleIdsAll = $candidates;
                 }
 
-                // Intersect with active candidates to only consider users currently active
                 $eligible = array_values(array_intersect($eligibleIdsAll, $candidates));
-
                 if (empty($eligible)) {
-                    Log::info('[InsertAndPublishForActiveDashboardUsers] no eligible users after filtering with active set', ['order_id' => $order->id]);
                     continue;
                 }
 
-                // Pending users among the eligible+active set
+                // Pending users among the eligible+active set — they'll be published first
                 $pendingUsers = DB::table('actions')
                     ->where('order_id', $order->id)
                     ->where('status', 'pending')
@@ -192,7 +191,6 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     ->pluck('user_id')
                     ->toArray();
 
-                Log::info('[InsertAndPublishForActiveDashboardUsers] pending users found', ['order_id' => $order->id, 'count' => count($pendingUsers)]);
                 $ordersSummary[$order->id] = [
                     'pending_found' => count($pendingUsers),
                     'pending_added' => 0,
@@ -201,11 +199,6 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     'claimed_added' => 0
                 ];
 
-                // Ensure we never enqueue more publishes for this order than the
-                // difference between total_count and done_count. We'll first add
-                // publishes for existing pending actions (up to available), then
-                // attempt to claim new users to fill remaining slots.
-                $orderAssigned = 0;
                 $payloadBase = [
                     'url' => $order->target_url,
                     'order_id' => $order->id,
@@ -214,102 +207,122 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     'userPk' => $order->userPk ?? null,
                 ];
 
-                // Add existing pending users first (they already have pending actions)
+                // Add existing pending users first (respecting per-user and global caps)
+                $assigned = 0;
                 foreach ($pendingUsers as $uid) {
-                    if ($orderAssigned >= $available) break; // respect order capacity
-                    if ($totalPublishes >= $maxTotal) break 2; // global cap
+                    if ($assigned >= $available) break;
+                    if ($totalPublishes + $totalReserved >= $maxTotal) break;
                     $uid = (int) $uid;
                     $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                    if ($uc >= $perUserLimit) continue; // per-user cap reached
+                    if ($uc >= $perUserLimit) continue;
 
                     $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
                     $userCounts[$uid] = $uc + 1;
-                    $orderAssigned++;
-                    $totalPublishes++;
+                    $assigned++;
                     $ordersSummary[$order->id]['pending_added']++;
                 }
 
-                // Remaining slots for this order
-                $remainingSlots = max(0, $available - $orderAssigned);
+                // Reduce available by already-added pending publishes
+                $remaining = max(0, $available - $assigned);
 
-                $claimNew = filter_var(env('RESUME_CLAIM_NEW', false), FILTER_VALIDATE_BOOLEAN);
-                if ($claimNew && $remainingSlots > 0 && $totalPublishes < $maxTotal) {
-                    // Determine which eligible users don't already have actions
-                    $alreadyActioned = DB::table('actions')
-                        ->where('order_id', $order->id)
-                        ->whereIn('user_id', $eligible)
-                        ->pluck('user_id')
-                        ->toArray();
+                // Precompute which active users already have any action for this order
+                $alreadyActionedActive = DB::table('actions')
+                    ->where('order_id', $order->id)
+                    ->whereIn('user_id', $activeUsers)
+                    ->pluck('user_id')
+                    ->toArray();
 
-                    $toClaim = array_values(array_diff($eligible, $alreadyActioned));
-                    if (!empty($toClaim)) {
-                        // Respect per-order remaining slots and per-user caps
-                        $toClaimFiltered = [];
-                        foreach ($toClaim as $uid) {
-                            if ($remainingSlots <= 0) break;
-                            if ($totalPublishes >= $maxTotal) break;
-                            $uid = (int) $uid;
-                            $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                            if ($uc >= $perUserLimit) continue;
-                            $toClaimFiltered[] = $uid;
-                            $remainingSlots--;
-                            // DO NOT increment $totalPublishes here; only when we actually
-                            // enqueue publishes after confirming inserts.
-                        }
+                // Store metadata for the user-driven fill phase
+                $ordersMeta[$order->id] = [
+                    'order' => $order,
+                    'remaining' => $remaining,
+                    'eligibleSet' => array_flip($eligible), // quick membership test
+                    'alreadyActioned' => array_flip($alreadyActionedActive),
+                    'toClaim' => [],
+                    'payloadBase' => $payloadBase,
+                ];
 
-                        if (!empty($toClaimFiltered)) {
-                            $ordersSummary[$order->id]['claim_attempted'] = count($toClaimFiltered);
-                            try {
-                                $batchService = app(BatchActionService::class);
-                                $result = $batchService->batchInsertPendingAction($order, $toClaimFiltered);
-                                Log::info('[InsertAndPublishForActiveDashboardUsers] BatchActionService result', ['order_id' => $order->id, 'result' => $result]);
-                                if (is_array($result) && isset($result['inserted'])) {
-                                    $ordersSummary[$order->id]['inserted'] = intval($result['inserted']);
-                                    $totalInserted += intval($result['inserted']);
-                                }
-                            } catch (\Throwable $e) {
-                                Log::warning('[InsertAndPublishForActiveDashboardUsers] BatchActionService failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-                            }
-
-                            // Determine which of the attempted users now have actions (pending/done/external)
-                            $existingUserIds = DB::table('actions')
-                                ->where('order_id', $order->id)
-                                ->whereIn('user_id', $toClaimFiltered)
-                                ->whereIn('status', ['pending', 'done', 'external'])
-                                ->pluck('user_id')
-                                ->toArray();
-
-                            // Add claimed ones to the global publish list (respecting the original available slots)
-                            $orderAssigned = isset($orderAssigned) ? $orderAssigned : 0;
-                            foreach ($existingUserIds as $uid) {
-                                if ($orderAssigned >= $available) break;
-                                if ($totalPublishes >= $maxTotal) break;
-                                $uid = (int) $uid;
-                                $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                                if ($uc >= $perUserLimit) continue;
-
-                                $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
-                                $userCounts[$uid] = $uc + 1;
-                                $orderAssigned++;
-                                $ordersSummary[$order->id]['claimed_added']++;
-                                $totalPublishes++;
-                            }
-
-                            // Recompute available slots in case other processes updated done_count
-                            $doneCount = DB::table('actions')
-                                ->where('order_id', $order->id)
-                                ->where('status', 'done')
-                                ->count();
-                            $available = max(0, $order->total_count - $doneCount);
-                        }
-                    }
-                }
+                // Count pending adds towards reserved (they will be published)
+                $totalReserved += $ordersSummary[$order->id]['pending_added'];
 
             } catch (\Throwable $e) {
-                Log::error('[InsertAndPublishForActiveDashboardUsers] error processing order', ['order_id' => $order->id ?? null, 'error' => $e->getMessage()]);
+                Log::error('[InsertAndPublishForActiveDashboardUsers] error preparing order', ['order_id' => $order->id ?? null, 'error' => $e->getMessage()]);
+            }
+        }
+
+        // Second phase: iterate active users and try to fill remaining slots across orders.
+        $claimNew = filter_var(env('RESUME_CLAIM_NEW', false), FILTER_VALIDATE_BOOLEAN);
+        if ($claimNew && !empty($ordersMeta)) {
+            foreach ($activeUsers as $uid) {
+                $uid = (int) $uid;
+                $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
+                if ($uc >= $perUserLimit) continue;
+
+                // Iterate orders in the original order list to honor oldest-first
+                foreach ($orders as $order) {
+                    $oid = $order->id;
+                    if (!isset($ordersMeta[$oid])) continue;
+                    if ($ordersMeta[$oid]['remaining'] <= 0) continue;
+                    if ($totalReserved >= $maxTotal) break 2; // global reservation cap
+
+                    // Skip if user already has action or is not eligible
+                    if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
+                    if (!isset($ordersMeta[$oid]['eligibleSet'][$uid])) continue;
+
+                    // Avoid adding the same uid twice
+                    if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
+
+                    // Respect per-user cap
+                    $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
+                    if ($uc >= $perUserLimit) break; // move to next user
+
+                    // Reserve a slot for this user on this order
+                    $ordersMeta[$oid]['toClaim'][] = $uid;
+                    $ordersMeta[$oid]['remaining']--;
+                    $userCounts[$uid] = $uc + 1;
+                    $totalReserved++;
+                }
+            }
+        }
+
+        // Third phase: perform batch inserts for claimed users per order and add resulting publishes
+        foreach ($ordersMeta as $oid => $meta) {
+            $order = $meta['order'];
+            $toClaim = $meta['toClaim'];
+            if (empty($toClaim)) continue;
+
+            $ordersSummary[$oid]['claim_attempted'] = count($toClaim);
+            try {
+                $batchService = app(BatchActionService::class);
+                $result = $batchService->batchInsertPendingAction($order, $toClaim);
+                Log::info('[InsertAndPublishForActiveDashboardUsers] BatchActionService result', ['order_id' => $order->id, 'result' => $result]);
+                if (is_array($result) && isset($result['inserted'])) {
+                    $ordersSummary[$oid]['inserted'] = intval($result['inserted']);
+                    $totalInserted += intval($result['inserted']);
+                }
+            } catch (\Throwable $e) {
+                Log::warning('[InsertAndPublishForActiveDashboardUsers] BatchActionService failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
             }
 
-            // no lock refresh necessary; rely on scheduler spacing and per-run limits
+            // Determine which of the attempted users now have actions (pending/done/external)
+            $existingUserIds = DB::table('actions')
+                ->where('order_id', $order->id)
+                ->whereIn('user_id', $toClaim)
+                ->whereIn('status', ['pending', 'done', 'external'])
+                ->pluck('user_id')
+                ->toArray();
+
+            // Add claimed ones to the global publish list (respecting per-user and global caps)
+            foreach ($existingUserIds as $uid) {
+                if ($totalPublishes >= $maxTotal) break;
+                $uid = (int) $uid;
+                $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
+                if ($uc > $perUserLimit) continue;
+
+                $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $meta['payloadBase']];
+                $ordersSummary[$oid]['claimed_added']++;
+                $totalPublishes++;
+            }
         }
 
         // After collecting everything across orders, push publishes in up to $maxBatches batches
