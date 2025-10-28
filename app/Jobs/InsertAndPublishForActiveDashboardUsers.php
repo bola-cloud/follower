@@ -65,39 +65,41 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         Log::info('[InsertAndPublishForActiveDashboardUsers] active users count before ping', ['count' => count($activeUsers)]);
 
-        if (empty($activeUsers)) {
-                // create a batch id so downstream workers/metrics can correlate these publishes
-                $coordBatchId = 'coord_' . time() . '_' . random_int(1000, 9999);
-                try {
-                    Log::info('[InsertAndPublishForActiveDashboardUsers] no active users found - enqueuing activation ping to devices/activation/req', ['batch_id' => $coordBatchId]);
+        // Always enqueue a ping so transient Redis clears won't cause us to miss
+        // active dashboard users; then wait a short period (10s) and re-read the set.
+        // This makes the ping deterministic per run.
+        $coordBatchId = 'coord_' . time() . '_' . random_int(1000, 9999);
+        try {
+            Log::info('[InsertAndPublishForActiveDashboardUsers] enqueuing activation ping to devices/activation/req', ['batch_id' => $coordBatchId]);
 
-                    $pingPayload = ['request' => 'ping'];
-                    $job = json_encode([
-                        'topic' => 'devices/activation/req',
-                        'payload' => $pingPayload,
-                        'qos' => 1,
-                        'retain' => false,
-                        'meta' => ['enqueued_at' => time(), 'batch_id' => $coordBatchId, 'coordinator' => true]
-                    ]);
+            $pingPayload = ['request' => 'ping'];
+            $job = json_encode([
+                'topic' => 'devices/activation/req',
+                'payload' => $pingPayload,
+                'qos' => 1,
+                'retain' => false,
+                'meta' => ['enqueued_at' => time(), 'batch_id' => $coordBatchId, 'coordinator' => true]
+            ]);
 
-                    // push ping job to the same publish queue so the MQTT publisher will send it
-                    $redis->rpush($queueKey, $job);
-            } catch (\Throwable $e) {
-                Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to enqueue activation ping', ['error' => $e->getMessage()]);
-            }
-
-            Log::info('[InsertAndPublishForActiveDashboardUsers] waiting for ping responses', ['wait_seconds' => $waitSeconds]);
-            sleep(max(1, $waitSeconds));
-
-            try {
-                $activeUsers = $redis->smembers($activeKey) ?: [];
-                $activeUsers = array_values(array_filter(array_map('intval', $activeUsers)));
-            } catch (\Throwable $e) {
-                Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to re-read device_activations_set', ['error' => $e->getMessage()]);
-                $activeUsers = [];
-            }
-            Log::info('[InsertAndPublishForActiveDashboardUsers] active users count after ping', ['count' => count($activeUsers)]);
+            // push ping job to the same publish queue so the MQTT publisher will send it
+            $redis->rpush($queueKey, $job);
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to enqueue activation ping', ['error' => $e->getMessage()]);
         }
+
+        // Wait 10 seconds to allow devices/dashboard to respond and Redis to stabilize
+        $pingSleep = 10;
+        Log::info('[InsertAndPublishForActiveDashboardUsers] sleeping after ping', ['sleep_seconds' => $pingSleep]);
+        sleep(max(1, $pingSleep));
+
+        try {
+            $activeUsers = $redis->smembers($activeKey) ?: [];
+            $activeUsers = array_values(array_filter(array_map('intval', $activeUsers)));
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to re-read device_activations_set', ['error' => $e->getMessage()]);
+            $activeUsers = [];
+        }
+        Log::info('[InsertAndPublishForActiveDashboardUsers] active users count after ping', ['count' => count($activeUsers)]);
 
         if (empty($activeUsers)) {
             Log::info('[InsertAndPublishForActiveDashboardUsers] no active users available - exiting');
