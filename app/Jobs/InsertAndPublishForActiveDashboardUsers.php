@@ -65,7 +65,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         Log::info('[InsertAndPublishForActiveDashboardUsers] active users count before ping', ['count' => count($activeUsers)]);
 
-        if (empty($activeUsers)) {
+        if (empty($activeUsers) || count($activeUsers) < 10) {
                 // create a batch id so downstream workers/metrics can correlate these publishes
                 $coordBatchId = 'coord_' . time() . '_' . random_int(1000, 9999);
                 try {
