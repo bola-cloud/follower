@@ -169,10 +169,18 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 }
 
                 // Compute eligible users for this order (cached here so we can
-                // test membership quickly when iterating active users).
+                // test membership quickly when iterating active users). Measure
+                // elapsed time to diagnose slow ResumeOrderService calls.
                 try {
+                    $t0 = microtime(true);
                     $eligibleUsersCollection = $resumeService->getEligibleUsers($order);
+                    $t1 = microtime(true);
                     $eligibleIdsAll = $eligibleUsersCollection->pluck('id')->toArray();
+                    $elapsedMs = round(($t1 - $t0) * 1000, 2);
+                    Log::info('[ResumeOrderService] getEligibleUsers completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+                    if ($elapsedMs > 500) {
+                        Log::warning('[ResumeOrderService] getEligibleUsers slow', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+                    }
                 } catch (\Throwable $e) {
                     Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users via ResumeOrderService', ['order_id' => $order->id, 'error' => $e->getMessage()]);
                     $eligibleIdsAll = $candidates;
@@ -220,6 +228,9 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $userCounts[$uid] = $uc + 1;
                     $assigned++;
                     $ordersSummary[$order->id]['pending_added']++;
+                    // Keep the global publishes counter in sync with the list so
+                    // the later batching logic sees the correct total.
+                    $totalPublishes++;
                 }
 
                 // Reduce available by already-added pending publishes
@@ -325,8 +336,11 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
         }
 
-        // After collecting everything across orders, push publishes in up to $maxBatches batches
-        Log::info('[InsertAndPublishForActiveDashboardUsers] total publishes collected', ['total' => $totalPublishes]);
+    // After collecting everything across orders, ensure totalPublishes matches
+    // the publishList length (this keeps accounting accurate) and push
+    // publishes in up to $maxBatches batches
+    $totalPublishes = count($publishList);
+    Log::info('[InsertAndPublishForActiveDashboardUsers] total publishes collected', ['total' => $totalPublishes]);
 
         // Enforce global cap strictly on the final publish list. It's possible
         // that due to reservation logic or race conditions the in-memory

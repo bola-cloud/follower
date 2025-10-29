@@ -1,6 +1,10 @@
 import json
 import time
 import threading
+import queue
+import socket
+import random
+from concurrent.futures import ThreadPoolExecutor
 from paho.mqtt import client as mqtt_client
 
 MQTT_BROKER = "109.199.112.65"
@@ -14,7 +18,7 @@ def update_counter(response_type, u_id):
         response_counters[response_type] += 1
         print(f"Device {u_id} responded to {response_type}. Total {response_type} responses: {response_counters[response_type]}")
 
-def simulate_device(u_id):
+def simulate_device(u_id, connect_timeout=10):
     client_id = f'egfollow_{u_id}'
     client = mqtt_client.Client(client_id=client_id, clean_session=True)
 
@@ -63,32 +67,58 @@ def simulate_device(u_id):
     client.on_connect = on_connect
     client.on_message = on_message
 
+    # Set a shorter connection timeout
+    client.connect_timeout = connect_timeout
     try:
-        # أضف المصادقة لو مطلوبة
-        # client.username_pw_set("username", "password")
-        client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
-        client.loop_start()  # تشغيل الـ loop في الخلفية
-        return client
+        # Attempt connection with exponential backoff
+        for attempt in range(3):
+            try:
+                client.connect(MQTT_BROKER, MQTT_PORT, keepalive=60)
+                client.loop_start()
+                return client
+            except (socket.error, Exception) as e:
+                print(f"Device {u_id} failed to connect (attempt {attempt + 1}): {e}")
+                if attempt < 2:
+                    time.sleep(random.uniform(1, 5))  # Random backoff
+                else:
+                    return None
     except Exception as e:
         print(f"Device {u_id} failed to connect: {e}")
         return None
+
+def connect_batch(batch_ids, max_workers=50):
+    clients = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        future_to_client = {executor.submit(simulate_device, str(u_id)): u_id for u_id in batch_ids}
+        for future in future_to_client:
+            client = future.result()
+            if client:
+                clients.append(client)
+    return clients
 
 def main(start_id, end_id):
     clients = []
     total_devices = end_id - start_id + 1
     print(f"Starting simulation for {total_devices} devices (IDs {start_id} to {end_id})")
 
-    # Batch connections to avoid overwhelming the broker
-    batch_size = 100  # عدد الأجهزة في كل دفعة
+    # Increase ephemeral port range and TCP settings (Windows-specific, run as admin)
+    try:
+        import subprocess
+        subprocess.run('netsh int ipv4 set dynamicport tcp start=10000 num=50000', shell=True)
+        print("Increased ephemeral port range.")
+    except Exception as e:
+        print(f"Failed to adjust TCP settings: {e}")
+
+    # Batch connections with parallel execution
+    batch_size = 100
     for batch_start in range(start_id, end_id + 1, batch_size):
         batch_end = min(batch_start + batch_size - 1, end_id)
-        for u_id in range(batch_start, batch_end + 1):
-            client = simulate_device(str(u_id))
-            if client:
-                clients.append(client)
-            time.sleep(0.5)  # تأخير نص ثانية بين كل جهاز
-        print(f"Batch {batch_start} to {batch_end} connected. Waiting before next batch...")
-        time.sleep(10)  # تأخير 10 ثواني بين كل دفعة
+        batch_ids = range(batch_start, batch_end + 1)
+        print(f"Connecting batch {batch_start} to {batch_end}...")
+        batch_clients = connect_batch(batch_ids)
+        clients.extend(batch_clients)
+        print(f"Batch {batch_start} to {batch_end} connected. {len(batch_clients)} successful connections.")
+        time.sleep(2)  # Reduced delay between batches
 
     # Keep the main thread alive
     try:
@@ -107,5 +137,5 @@ def main(start_id, end_id):
 
 if __name__ == "__main__":
     start_id = 15648
-    end_id = 18647  # 1000 devices
+    end_id = 16648  # 10,000 devices
     main(start_id, end_id)
