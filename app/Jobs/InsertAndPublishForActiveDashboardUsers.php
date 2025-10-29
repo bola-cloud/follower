@@ -82,12 +82,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     // push ping job to the same publish queue so the MQTT publisher will send it
                     $redis->rpush($queueKey, $job);
+                    sleep(max(1, $waitSeconds));
             } catch (\Throwable $e) {
                 Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to enqueue activation ping', ['error' => $e->getMessage()]);
             }
 
             Log::info('[InsertAndPublishForActiveDashboardUsers] waiting for ping responses', ['wait_seconds' => $waitSeconds]);
-            sleep(max(1, $waitSeconds));
 
             try {
                 $activeUsers = $redis->smembers($activeKey) ?: [];
