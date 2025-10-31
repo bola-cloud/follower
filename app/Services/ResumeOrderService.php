@@ -245,6 +245,25 @@ class ResumeOrderService
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
         $combinedUsers = $pendingUsers->merge($eligibleUsers);
 
+        // Diagnostic logging: report counts and small samples so operators can
+        // tell whether getEligibleUsers returned any candidates or whether
+        // exclusions filtered everyone out. This does NOT change behavior.
+        try {
+            $eligibleIds = $eligibleUsers->pluck('id')->toArray();
+            $combinedIds = $combinedUsers->pluck('id')->toArray();
+            Log::info('[ResumeOrderService] getEligibleUsers result', [
+                'order_id' => $order->id,
+                'pending_count' => count($pendingUserIds),
+                'eligible_count' => count($eligibleIds),
+                'combined_count' => count($combinedIds),
+                'eligible_sample' => array_slice($eligibleIds, 0, 20),
+                'combined_sample' => array_slice($combinedIds, 0, 20),
+                'remaining' => $remaining,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[ResumeOrderService] failed to log eligibleUsers result sample', ['error' => $e->getMessage()]);
+        }
+
         return $combinedUsers;
     }
 
