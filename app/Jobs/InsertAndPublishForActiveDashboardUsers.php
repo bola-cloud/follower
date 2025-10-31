@@ -65,29 +65,62 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         Log::info('[InsertAndPublishForActiveDashboardUsers] active users count before ping', ['count' => count($activeUsers)]);
 
-        if (empty($activeUsers) || count($activeUsers) < 10) {
-                // create a batch id so downstream workers/metrics can correlate these publishes
-                $coordBatchId = 'coord_' . time() . '_' . random_int(1000, 9999);
+        // Decide whether to send an activation ping. Send only when:
+        //  - there are uncompleted orders, AND
+        //  - active users count is below threshold, AND
+        //  - last ping was more than COORDINATOR_PING_INTERVAL_SECONDS ago.
+        $pingKey = env('COORDINATOR_LAST_PING_KEY', 'coordinator:last_ping');
+        $pingInterval = (int) env('COORDINATOR_PING_INTERVAL_SECONDS', 1800); // default 30 minutes
+        $minActiveThreshold = (int) env('COORDINATOR_PING_MIN_ACTIVE_THRESHOLD', 10);
+
+        $lastPing = 0;
+        try {
+            $lastPing = (int) $redis->get($pingKey);
+        } catch (\Throwable $e) {
+            $lastPing = 0;
+        }
+
+        $now = time();
+        $timeSinceLastPing = $now - $lastPing;
+
+        try {
+            $hasUncompletedOrders = Order::where('status', 'active')->whereRaw('done_count < total_count')->exists();
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to check for uncompleted orders', ['error' => $e->getMessage()]);
+            $hasUncompletedOrders = false;
+        }
+
+        $activeCount = count($activeUsers);
+        $shouldPing = ($hasUncompletedOrders && $activeCount < $minActiveThreshold && $timeSinceLastPing >= $pingInterval);
+
+        if ($shouldPing) {
+            $coordBatchId = 'coord_' . $now . '_' . random_int(1000, 9999);
+            try {
+                Log::info('[InsertAndPublishForActiveDashboardUsers] enqueuing activation ping to devices/activation/req', ['batch_id' => $coordBatchId]);
+
+                $pingPayload = ['request' => 'ping'];
+                $job = json_encode([
+                    'topic' => 'devices/activation/req',
+                    'payload' => $pingPayload,
+                    'qos' => 1,
+                    'retain' => false,
+                    'meta' => ['enqueued_at' => $now, 'batch_id' => $coordBatchId, 'coordinator' => true]
+                ]);
+
+                $redis->rpush($queueKey, $job);
                 try {
-                    Log::info('[InsertAndPublishForActiveDashboardUsers] no active users found - enqueuing activation ping to devices/activation/req', ['batch_id' => $coordBatchId]);
-
-                    $pingPayload = ['request' => 'ping'];
-                    $job = json_encode([
-                        'topic' => 'devices/activation/req',
-                        'payload' => $pingPayload,
-                        'qos' => 1,
-                        'retain' => false,
-                        'meta' => ['enqueued_at' => time(), 'batch_id' => $coordBatchId, 'coordinator' => true]
-                    ]);
-
-                    // push ping job to the same publish queue so the MQTT publisher will send it
-                    $redis->rpush($queueKey, $job);
-                    sleep(max(1, $waitSeconds));
+                    $redis->set($pingKey, $now);
+                    $redis->expire($pingKey, max(0, $pingInterval));
+                } catch (\Throwable $e) {
+                    // best-effort; continue
+                }
             } catch (\Throwable $e) {
                 Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to enqueue activation ping', ['error' => $e->getMessage()]);
             }
 
+            // Wait a short period to allow devices/dashboard to respond and Redis to stabilize
             Log::info('[InsertAndPublishForActiveDashboardUsers] waiting for ping responses', ['wait_seconds' => $waitSeconds]);
+            sleep(max(1, $waitSeconds));
 
             try {
                 $activeUsers = $redis->smembers($activeKey) ?: [];
@@ -97,6 +130,8 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 $activeUsers = [];
             }
             Log::info('[InsertAndPublishForActiveDashboardUsers] active users count after ping', ['count' => count($activeUsers)]);
+        } else {
+            Log::info('[InsertAndPublishForActiveDashboardUsers] skipping ping', ['has_uncompleted_orders' => $hasUncompletedOrders ?? false, 'active_count' => $activeCount ?? 0, 'time_since_last_ping' => $timeSinceLastPing ?? null]);
         }
 
         if (empty($activeUsers)) {
@@ -261,31 +296,48 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
         }
 
-        // Second phase: iterate active users and try to fill remaining slots across orders.
+        // Recompute per-order eligible->active membership: each order may have
+        // a different eligible set. Intersect the precomputed eligible set with
+        // the current active users so we only consider users that are both
+        // eligible for this order and currently active.
+        foreach ($ordersMeta as $oid => &$metaRef) {
+            $eligibleKeys = array_keys($metaRef['eligibleSet']);
+            $eligibleActive = array_values(array_intersect($eligibleKeys, $activeUsers));
+            $metaRef['eligibleActive'] = array_flip($eligibleActive);
+        }
+        unset($metaRef);
+
+        // Second phase: for each order, iterate active users and try to fill
+        // remaining slots. This is an order-major approach: pick users for
+        // the oldest order first, then move to the next order. It better
+        // matches the requirement: "get all active users and check their
+        // eligibility then choose from them the number of actions needed
+        // to be completed then loop on other uncompleted orders".
         $claimNew = filter_var(env('RESUME_CLAIM_NEW', false), FILTER_VALIDATE_BOOLEAN);
         if ($claimNew && !empty($ordersMeta)) {
-            foreach ($activeUsers as $uid) {
-                $uid = (int) $uid;
-                $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                if ($uc >= $perUserLimit) continue;
+            foreach ($orders as $order) {
+                $oid = $order->id;
+                if (!isset($ordersMeta[$oid])) continue;
+                // If nothing to fill, skip
+                if ($ordersMeta[$oid]['remaining'] <= 0) continue;
 
-                // Iterate orders in the original order list to honor oldest-first
-                foreach ($orders as $order) {
-                    $oid = $order->id;
-                    if (!isset($ordersMeta[$oid])) continue;
-                    if ($ordersMeta[$oid]['remaining'] <= 0) continue;
+                foreach ($activeUsers as $uid) {
+                    if ($ordersMeta[$oid]['remaining'] <= 0) break;
                     if ($totalReserved >= $maxTotal) break 2; // global reservation cap
 
-                    // Skip if user already has action or is not eligible
+                    $uid = (int) $uid;
+                    $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
+                    if ($uc >= $perUserLimit) continue;
+
+                    // Skip if user already has action or is not eligible for
+                    // this particular order. Use the per-order eligibleActive
+                    // set computed above to ensure we respect order-specific
+                    // eligibility.
                     if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
-                    if (!isset($ordersMeta[$oid]['eligibleSet'][$uid])) continue;
+                    if (!isset($ordersMeta[$oid]['eligibleActive'][$uid])) continue;
 
                     // Avoid adding the same uid twice
                     if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
-
-                    // Respect per-user cap
-                    $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                    if ($uc >= $perUserLimit) break; // move to next user
 
                     // Reserve a slot for this user on this order
                     $ordersMeta[$oid]['toClaim'][] = $uid;
