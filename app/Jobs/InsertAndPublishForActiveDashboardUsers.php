@@ -198,7 +198,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     continue;
                 }
 
-                $candidates = array_slice($activeUsers, 0, $usersPerOrderLimit);
+                // Consider all currently active users for eligibility checks.
+                // Previously we limited to the first $usersPerOrderLimit which could
+                // skip eligible users. The second-phase selection still respects
+                // per-user caps and global caps, so it's safe to consider the
+                // full active set here.
+                $candidates = $activeUsers;
                 if (empty($candidates)) {
                     continue;
                 }
@@ -222,7 +227,9 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 }
 
                 $eligible = array_values(array_intersect($eligibleIdsAll, $candidates));
+                Log::info('[InsertAndPublishForActiveDashboardUsers] eligible intersection counts', ['order_id' => $order->id, 'eligible_total' => count($eligibleIdsAll), 'active_checked' => count($candidates), 'eligible_after_intersect' => count($eligible)]);
                 if (empty($eligible)) {
+                    // No eligible active users for this order
                     continue;
                 }
 
