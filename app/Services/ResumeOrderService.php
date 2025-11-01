@@ -595,6 +595,17 @@ class ResumeOrderService
             'activation' => true
         ];
 
+        // Respect a global minimum interval between order pings to avoid
+        // creating bursts of device responses that can overwhelm the broker.
+        // This uses a Redis-stored timestamp and an env-configurable interval
+        // (milliseconds). Default is 2000ms (2s).
+        try {
+            $this->rateLimitOrderPing();
+        } catch (\Throwable $e) {
+            // best-effort; continue to publish if limiter fails
+            Log::warning('[ResumeOrderService] rateLimitOrderPing failed', ['error' => $e->getMessage()]);
+        }
+
         $this->publishToMqtt('order/ping/req', $orderData);
 
         // Log::info("[ResumeOrderService] Sent resumed order {$order->id} directly to `order/ping/req` via MQTT");
@@ -611,6 +622,12 @@ class ResumeOrderService
             'activation' => true
         ];
 
+        try {
+            $this->rateLimitOrderPing();
+        } catch (\Throwable $e) {
+            Log::warning('[ResumeOrderService] rateLimitOrderPing failed', ['error' => $e->getMessage()]);
+        }
+
         $this->publishToMqtt('order/ping/req', $pingData);
 
         // Log::info("[ResumeOrderService] Sent ping for resumed order {$order->id} to `order/ping/req` via MQTT");
@@ -625,5 +642,45 @@ class ResumeOrderService
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1";
         exec($command . " > /dev/null 2>&1 &");
+    }
+
+    /**
+     * Rate-limit publishing of order pings to avoid bursting many orders at once.
+     * Uses Redis key defined by ORDER_PING_LAST_KEY and env ORDER_PING_MIN_INTERVAL_MS
+     * (milliseconds). This is a best-effort limiter intended to stagger order
+     * ping publications across processes.
+     */
+    private function rateLimitOrderPing(): void
+    {
+        $redis = null;
+        try {
+            $redis = app('redis')->connection();
+        } catch (\Throwable $e) {
+            return; // cannot rate-limit without Redis
+        }
+
+        $key = env('ORDER_PING_LAST_KEY', 'order:ping:last_ts');
+        $minIntervalMs = (int) env('ORDER_PING_MIN_INTERVAL_MS', 2000); // default 2s
+
+        try {
+            $nowMs = (int) round(microtime(true) * 1000);
+            $lastMs = (int) $redis->get($key);
+            $diff = $nowMs - $lastMs;
+            if ($diff < $minIntervalMs && $diff > -10000) { // ignore crazy past values
+                $sleepMs = $minIntervalMs - $diff;
+                if ($sleepMs > 0) {
+                    usleep($sleepMs * 1000);
+                }
+                $nowMs = (int) round(microtime(true) * 1000);
+            }
+
+            // Update last ping time
+            $redis->set($key, $nowMs);
+            // Optional: set TTL to avoid stale keys (keep a few minutes)
+            $redis->expire($key, max(60, (int) ceil($minIntervalMs / 1000) * 5));
+        } catch (\Throwable $e) {
+            // best-effort only
+            return;
+        }
     }
 }
