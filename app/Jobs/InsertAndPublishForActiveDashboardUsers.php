@@ -163,6 +163,98 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         Log::info('[InsertAndPublishForActiveDashboardUsers] orders selected', ['count' => $orders->count()]);
 
+        // Fast-path optimization: fetch all existing pending actions for the
+        // selected orders that belong to currently active users. If the total
+        // number of pending actions already meets or exceeds the configured
+        // TOTAL_PUBLISH_LIMIT we can avoid the expensive per-order
+        // eligibility checks (which call ResumeOrderService and scan many
+        // candidates) and simply publish pending actions up to the global
+        // limit.
+        $selectedOrderIds = $orders->pluck('id')->toArray();
+        $pendingByOrder = [];
+        try {
+            if (!empty($selectedOrderIds) && !empty($activeUsers)) {
+                $pendingRows = DB::table('actions')
+                    ->whereIn('order_id', $selectedOrderIds)
+                    ->where('status', 'pending')
+                    ->whereIn('user_id', $activeUsers)
+                    ->select('order_id', 'user_id')
+                    ->get();
+
+                foreach ($pendingRows as $r) {
+                    $oid = (int) $r->order_id;
+                    $uid = (int) $r->user_id;
+                    if (!isset($pendingByOrder[$oid])) $pendingByOrder[$oid] = [];
+                    $pendingByOrder[$oid][] = $uid;
+                }
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to fetch pending actions fast-path', ['error' => $e->getMessage()]);
+            $pendingByOrder = [];
+        }
+
+        $totalPendingAcross = 0;
+        foreach ($pendingByOrder as $arr) {
+            $totalPendingAcross += count($arr);
+        }
+
+        // If pending actions alone satisfy the TOTAL_PUBLISH_LIMIT, build the
+        // publish list directly from those pending rows and skip the heavy
+        // eligibility work. This keeps behavior consistent while avoiding the
+        // expensive per-order eligibility scans when unnecessary.
+        if ($totalPendingAcross >= $maxTotal && $totalPendingAcross > 0) {
+            Log::info('[InsertAndPublishForActiveDashboardUsers] fast-path: publishing from pending actions only', ['total_pending' => $totalPendingAcross, 'limit' => $maxTotal]);
+
+            foreach ($orders as $order) {
+                try {
+                    $doneCount = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->where('status', 'done')
+                        ->count();
+
+                    $available = max(0, $order->total_count - $doneCount);
+                    if ($available <= 0) continue;
+
+                    $pendingUsers = isset($pendingByOrder[$order->id]) ? $pendingByOrder[$order->id] : [];
+
+                    $ordersSummary[$order->id] = [
+                        'pending_found' => count($pendingUsers),
+                        'pending_added' => 0,
+                        'claim_attempted' => 0,
+                        'inserted' => 0,
+                        'claimed_added' => 0
+                    ];
+
+                    $payloadBase = [
+                        'url' => $order->target_url,
+                        'order_id' => $order->id,
+                        'type' => $order->type,
+                        'mediaId' => $order->mediaId ?? null,
+                        'userPk' => $order->userPk ?? null,
+                    ];
+
+                    $assigned = 0;
+                    foreach ($pendingUsers as $uid) {
+                        if ($assigned >= $available) break;
+                        if ($totalPublishes >= $maxTotal) break 2; // global cap reached
+                        $uid = (int) $uid;
+                        $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
+                        if ($uc >= $perUserLimit) continue;
+
+                        $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
+                        $userCounts[$uid] = $uc + 1;
+                        $assigned++;
+                        $ordersSummary[$order->id]['pending_added']++;
+                        $totalPublishes++;
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('[InsertAndPublishForActiveDashboardUsers] fast-path order processing failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                }
+            }
+
+            // Proceed to final batching/push using the normal path below.
+        }
+
         // Global publish collection to enforce total and per-user caps
         $publishList = []; // each item: ['user_id' => int, 'order_id' => int, 'payload' => array]
         $userCounts = []; // user_id => number of orders queued for this user
@@ -320,7 +412,11 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         // matches the requirement: "get all active users and check their
         // eligibility then choose from them the number of actions needed
         // to be completed then loop on other uncompleted orders".
-        $claimNew = filter_var(env('RESUME_CLAIM_NEW', false), FILTER_VALIDATE_BOOLEAN);
+    // By default allow claiming new eligible users so orders can be
+    // completed using both existing pending actions and newly-claimed
+    // eligible users. Operators can still disable this behavior by
+    // setting RESUME_CLAIM_NEW=false in the environment if desired.
+    $claimNew = filter_var(env('RESUME_CLAIM_NEW', true), FILTER_VALIDATE_BOOLEAN);
         if ($claimNew && !empty($ordersMeta)) {
             foreach ($orders as $order) {
                 $oid = $order->id;
