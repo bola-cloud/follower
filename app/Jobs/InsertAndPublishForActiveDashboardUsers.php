@@ -163,116 +163,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         Log::info('[InsertAndPublishForActiveDashboardUsers] orders selected', ['count' => $orders->count()]);
 
-    // Prepare publish counters/limits early so the fast-path can use them
-    // without depending on the later initialization block.
-    $publishList = [];
-    $userCounts = [];
-    $totalPublishes = 0;
-    $maxTotal = (int) env('TOTAL_PUBLISH_LIMIT', 1000);
-    $perUserLimit = (int) env('PER_USER_ORDER_LIMIT', 40);
-    $maxBatches = max(1, (int) env('MAX_PUBLISH_BATCHES', 2));
-    // Run-level instrumentation placeholders (used later too)
-    $ordersSummary = [];
-    $totalInserted = 0;
-    $publishedEnqueued = 0;
-    $totalReserved = 0;
-
-    // Fast-path optimization: fetch all existing pending actions for the
-        // selected orders that belong to currently active users. If the total
-        // number of pending actions already meets or exceeds the configured
-        // TOTAL_PUBLISH_LIMIT we can avoid the expensive per-order
-        // eligibility checks (which call ResumeOrderService and scan many
-        // candidates) and simply publish pending actions up to the global
-        // limit.
-        $selectedOrderIds = $orders->pluck('id')->toArray();
-        $pendingByOrder = [];
-        try {
-            if (!empty($selectedOrderIds) && !empty($activeUsers)) {
-                $pendingRows = DB::table('actions')
-                    ->whereIn('order_id', $selectedOrderIds)
-                    ->where('status', 'pending')
-                    ->whereIn('user_id', $activeUsers)
-                    ->select('order_id', 'user_id')
-                    ->get();
-
-                foreach ($pendingRows as $r) {
-                    $oid = (int) $r->order_id;
-                    $uid = (int) $r->user_id;
-                    if (!isset($pendingByOrder[$oid])) $pendingByOrder[$oid] = [];
-                    $pendingByOrder[$oid][] = $uid;
-                }
-            }
-        } catch (\Throwable $e) {
-            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to fetch pending actions fast-path', ['error' => $e->getMessage()]);
-            $pendingByOrder = [];
-        }
-
-        $totalPendingAcross = 0;
-        foreach ($pendingByOrder as $arr) {
-            $totalPendingAcross += count($arr);
-        }
-
-        // If pending actions alone satisfy the TOTAL_PUBLISH_LIMIT, build the
-        // publish list directly from those pending rows and skip the heavy
-        // eligibility work. This keeps behavior consistent while avoiding the
-        // expensive per-order eligibility scans when unnecessary.
-        $fastPathTriggered = false;
-        if ($totalPendingAcross >= $maxTotal && $totalPendingAcross > 0) {
-            Log::info('[InsertAndPublishForActiveDashboardUsers] fast-path: publishing from pending actions only', ['total_pending' => $totalPendingAcross, 'limit' => $maxTotal]);
-
-            $fastPathTriggered = true;
-
-            foreach ($orders as $order) {
-                try {
-                    $doneCount = DB::table('actions')
-                        ->where('order_id', $order->id)
-                        ->where('status', 'done')
-                        ->count();
-
-                    $available = max(0, $order->total_count - $doneCount);
-                    if ($available <= 0) continue;
-
-                    $pendingUsers = isset($pendingByOrder[$order->id]) ? $pendingByOrder[$order->id] : [];
-
-                    $ordersSummary[$order->id] = [
-                        'pending_found' => count($pendingUsers),
-                        'pending_added' => 0,
-                        'claim_attempted' => 0,
-                        'inserted' => 0,
-                        'claimed_added' => 0
-                    ];
-
-                    $payloadBase = [
-                        'url' => $order->target_url,
-                        'order_id' => $order->id,
-                        'type' => $order->type,
-                        'mediaId' => $order->mediaId ?? null,
-                        'userPk' => $order->userPk ?? null,
-                    ];
-
-                    $assigned = 0;
-                    foreach ($pendingUsers as $uid) {
-                        if ($assigned >= $available) break;
-                        if ($totalPublishes >= $maxTotal) break 2; // global cap reached
-                        $uid = (int) $uid;
-                        $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                        if ($uc >= $perUserLimit) continue;
-
-                        $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
-                        $userCounts[$uid] = $uc + 1;
-                        $assigned++;
-                        $ordersSummary[$order->id]['pending_added']++;
-                        $totalPublishes++;
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('[InsertAndPublishForActiveDashboardUsers] fast-path order processing failed', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-                }
-            }
-
-            // Proceed to final batching/push using the normal path below.
-        }
-
-    // Publish collection and limits already initialized above (fast-path may have used them).
+        // Global publish collection to enforce total and per-user caps
+        $publishList = []; // each item: ['user_id' => int, 'order_id' => int, 'payload' => array]
+        $userCounts = []; // user_id => number of orders queued for this user
+        $totalPublishes = 0;
+        $maxTotal = (int) env('TOTAL_PUBLISH_LIMIT', 1000);
+        $perUserLimit = (int) env('PER_USER_ORDER_LIMIT', 40);
+        $maxBatches = max(1, (int) env('MAX_PUBLISH_BATCHES', 2));
 
         // Run-level instrumentation
         $runStart = now();
@@ -285,8 +182,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         $ordersMeta = []; // order_id => meta (includes order model)
         $totalReserved = 0; // pending + reserved by user iteration (pre-claim)
 
-    if (!$fastPathTriggered) {
-    foreach ($orders as $order) {
+        foreach ($orders as $order) {
             try {
                 Log::info('[InsertAndPublishForActiveDashboardUsers] preparing order', ['order_id' => $order->id, 'total_count' => $order->total_count]);
 
@@ -318,10 +214,6 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 try {
                     $t0 = microtime(true);
 
-                    // Optimized eligibility query constrained to the current
-                    // active candidate set. This mirrors ResumeOrderService::getEligibleUsers
-                    // but limits the lookup to the provided $candidates array so
-                    // the database work is much smaller and faster.
                     $candidateIds = $candidates;
                     if (empty($candidateIds)) {
                         $eligibleUsersCollection = collect([]);
@@ -466,9 +358,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
         }
 
-    }
-    if (!$fastPathTriggered) {
-    // Recompute per-order eligible->active membership: each order may have
+        // Recompute per-order eligible->active membership: each order may have
         // a different eligible set. Intersect the precomputed eligible set with
         // the current active users so we only consider users that are both
         // eligible for this order and currently active.
@@ -479,7 +369,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         }
         unset($metaRef);
 
-    // Second phase: for each order, iterate active users and try to fill
+        // Second phase: for each order, iterate active users and try to fill
         // remaining slots. This is an order-major approach: pick users for
         // the oldest order first, then move to the next order. It better
         // matches the requirement: "get all active users and check their
@@ -564,7 +454,6 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
         }
 
-    }
     // After collecting everything across orders, ensure totalPublishes matches
     // the publishList length (this keeps accounting accurate) and push
     // publishes in up to $maxBatches batches
