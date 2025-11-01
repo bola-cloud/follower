@@ -317,16 +317,75 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 // elapsed time to diagnose slow ResumeOrderService calls.
                 try {
                     $t0 = microtime(true);
-                    $eligibleUsersCollection = $resumeService->getEligibleUsers($order);
+
+                    // Optimized eligibility query constrained to the current
+                    // active candidate set. This mirrors ResumeOrderService::getEligibleUsers
+                    // but limits the lookup to the provided $candidates array so
+                    // the database work is much smaller and faster.
+                    $candidateIds = $candidates;
+                    if (empty($candidateIds)) {
+                        $eligibleUsersCollection = collect([]);
+                    } else {
+                        // Pending users for this order
+                        $pendingUserIds = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->where('status', 'pending')
+                            ->pluck('user_id')
+                            ->toArray();
+
+                        $actualDoneCount = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->where('status', 'done')
+                            ->count();
+
+                        $recentPendingCount = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->where('status', 'pending')
+                            ->where('created_at', '>=', now()->subMinutes(30))
+                            ->count();
+
+                        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
+
+                        // If no remaining slots, only consider pending users (intersected with candidates)
+                        if ($remaining <= 0) {
+                            $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
+                            $eligibleUsersCollection = \App\Models\User::whereIn('id', $intersectPending)->get();
+                        } else {
+                            // Query new eligible users restricted to the candidate IDs
+                            $eligibleQuery = \App\Models\User::where('type', 'user')
+                                ->whereIn('id', $candidateIds)
+                                ->whereNotIn('id', function ($q) use ($order) {
+                                    $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
+                                })
+                                ->whereNotIn('id', $pendingUserIds)
+                                ->where('profile_link', '!=', $order->target_url)
+                                ->whereNotIn('id', function ($sub) use ($order) {
+                                    $sub->select('a1.user_id')
+                                        ->from('actions as a1')
+                                        ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                                        ->whereIn('a1.status', ['done', 'external'])
+                                        ->whereColumn('o1.target_url', 'users.profile_link')
+                                        ->where('o1.user_id', $order->user_id);
+                                });
+
+                            $eligibleUsers = $eligibleQuery->get();
+
+                            // Include pending users (within candidates) at front
+                            $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
+                            $pendingUsers = \App\Models\User::whereIn('id', $intersectPending)->get();
+                            $eligibleUsersCollection = $pendingUsers->merge($eligibleUsers);
+                        }
+                    }
+
                     $t1 = microtime(true);
                     $eligibleIdsAll = $eligibleUsersCollection->pluck('id')->toArray();
                     $elapsedMs = round(($t1 - $t0) * 1000, 2);
-                    Log::info('[ResumeOrderService] getEligibleUsers completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+                    Log::info('[ResumeOrderService] getEligibleUsers (batched) completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
                     if ($elapsedMs > 500) {
-                        Log::warning('[ResumeOrderService] getEligibleUsers slow', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+                        Log::warning('[ResumeOrderService] getEligibleUsers (batched) slow', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
                     }
                 } catch (\Throwable $e) {
-                    Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users via ResumeOrderService', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                    Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users (batched)', ['order_id' => $order->id, 'error' => $e->getMessage()]);
                     $eligibleIdsAll = $candidates;
                 }
 
