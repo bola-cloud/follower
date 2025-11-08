@@ -252,7 +252,8 @@ class DrainOrderResponsesJob implements ShouldQueue
             $updated = DB::table('actions')
                 ->where('order_id', $orderId)
                 ->whereIn('user_id', $chunk)
-                ->where('status', '!=', $this->status) // Only update if not already in target status
+                // ->where('status', '!=', $this->status) // Only update if not already in target status
+                ->where('status', 'pending') // Only update if not already in target status
                 ->update([
                     'status' => $this->status,
                     'performed_at' => now(),
