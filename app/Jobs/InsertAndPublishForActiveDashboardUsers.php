@@ -215,7 +215,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         if ($rotatingCount > 0) {
             $rotatingOrders = Order::where('status', 'active')
                 ->whereRaw('done_count < total_count')
-                ->where('id', '>', $lastRotatingId) // Continue from last position
+                ->where('orders.id', '>', $lastRotatingId) // Continue from last position - specify table
                 ->join('users', 'orders.user_id', '=', 'users.id')
                 ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
                 ->orderBy('orders.id', 'asc') // Use ID order for consistent progression
@@ -551,7 +551,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             if ($backfillOldestCount > 0) {
                 $backfillOldest = Order::where('status', 'active')
                     ->whereRaw('done_count < total_count')
-                    ->whereNotIn('id', $alreadySelectedIds)
+                    ->whereNotIn('orders.id', $alreadySelectedIds) // Specify table
                     ->join('users', 'orders.user_id', '=', 'users.id')
                     ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
                     ->orderBy('orders.created_at', 'asc')
@@ -573,8 +573,8 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 
                 $backfillRotating = Order::where('status', 'active')
                     ->whereRaw('done_count < total_count')
-                    ->where('id', '>', $currentRotatingId)
-                    ->whereNotIn('id', $alreadySelectedIds)
+                    ->where('orders.id', '>', $currentRotatingId) // Specify table
+                    ->whereNotIn('orders.id', $alreadySelectedIds) // Specify table
                     ->join('users', 'orders.user_id', '=', 'users.id')
                     ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
                     ->orderBy('orders.id', 'asc')
@@ -587,7 +587,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $remaining = $backfillRotatingCount - $backfillRotating->count();
                     $wrapAround = Order::where('status', 'active')
                         ->whereRaw('done_count < total_count')
-                        ->whereNotIn('id', $alreadySelectedIds)
+                        ->whereNotIn('orders.id', $alreadySelectedIds) // Specify table
                         ->join('users', 'orders.user_id', '=', 'users.id')
                         ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
                         ->orderBy('orders.id', 'asc')
@@ -605,7 +605,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             if ($backfillNewestCount > 0) {
                 $backfillNewest = Order::where('status', 'active')
                     ->whereRaw('done_count < total_count')
-                    ->whereNotIn('id', $alreadySelectedIds)
+                    ->whereNotIn('orders.id', $alreadySelectedIds) // Specify table
                     ->join('users', 'orders.user_id', '=', 'users.id')
                     ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
                     ->orderBy('orders.created_at', 'desc')
