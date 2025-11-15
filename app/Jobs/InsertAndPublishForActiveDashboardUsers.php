@@ -139,15 +139,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             return;
         }
 
-        $ordersQuery = Order::where('status', 'active')
-            ->whereRaw('done_count < total_count');
-
         // Determine an effective per-run limit to bound work and ensure runs finish.
         // Priority:
         // 1) If ORDERS_PER_RUN > 0, use it.
         // 2) Else if HARD_MAX_ORDERS_SCAN > 0, use it.
         // 3) Else fall back to a safe default (configurable) to avoid unbounded runs.
-    $defaultPerRun = (int) env('COORDINATOR_DEFAULT_ORDERS_PER_RUN', 100);
+        $defaultPerRun = (int) env('COORDINATOR_DEFAULT_ORDERS_PER_RUN', 100);
         if ($ordersPerRun > 0) {
             $effectiveOrdersLimit = $ordersPerRun;
         } elseif ($hardMaxOrdersScan > 0) {
@@ -156,12 +153,153 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             $effectiveOrdersLimit = max(1, $defaultPerRun);
         }
 
-        // Apply the effective limit to the query to guarantee a bounded run.
-        $ordersQuery = $ordersQuery->limit($effectiveOrdersLimit);
+        // Dynamic Rotating Window Strategy:
+        // Balance between oldest (completion), newest (freshness), and rotating window (fairness)
+        // - Always fetch some oldest orders to ensure stuck orders complete
+        // - Always fetch some newest orders to ensure fresh orders start
+        // - Rotate through mid-range orders progressively using a sliding window
+        
+        $oldestPercentage = (int) env('COORDINATOR_OLDEST_PERCENTAGE', 40); // default 40%
+        $newestPercentage = (int) env('COORDINATOR_NEWEST_PERCENTAGE', 20); // default 20%
+        $rotatingPercentage = 100 - $oldestPercentage - $newestPercentage; // remaining 40%
+        
+        // Clamp percentages
+        $oldestPercentage = max(0, min(100, $oldestPercentage));
+        $newestPercentage = max(0, min(100, $newestPercentage));
+        $rotatingPercentage = max(0, 100 - $oldestPercentage - $newestPercentage);
+        
+        $oldestCount = (int) floor($effectiveOrdersLimit * ($oldestPercentage / 100));
+        $newestCount = (int) floor($effectiveOrdersLimit * ($newestPercentage / 100));
+        $rotatingCount = $effectiveOrdersLimit - $oldestCount - $newestCount;
+        
+        // Get rotating window position from Redis (tracks last processed order ID)
+        $rotatingWindowKey = env('COORDINATOR_ROTATING_WINDOW_KEY', 'coordinator:rotating_window_last_id');
+        $lastRotatingId = 0;
+        try {
+            $lastRotatingId = (int) $redis->get($rotatingWindowKey);
+        } catch (\Throwable $e) {
+            $lastRotatingId = 0;
+        }
+        
+        Log::info('[InsertAndPublishForActiveDashboardUsers] dynamic rotating window strategy', [
+            'total_limit' => $effectiveOrdersLimit,
+            'oldest_count' => $oldestCount,
+            'newest_count' => $newestCount,
+            'rotating_count' => $rotatingCount,
+            'last_rotating_id' => $lastRotatingId,
+            'percentages' => "{$oldestPercentage}% oldest / {$rotatingPercentage}% rotating / {$newestPercentage}% newest"
+        ]);
 
-        $orders = $ordersQuery->get();
+        $orders = collect();
 
-        Log::info('[InsertAndPublishForActiveDashboardUsers] orders selected', ['count' => $orders->count()]);
+        // 1. Fetch OLDEST orders (always process to ensure completion)
+        if ($oldestCount > 0) {
+            $oldestOrders = Order::where('status', 'active')
+                ->whereRaw('done_count < total_count')
+                ->join('users', 'orders.user_id', '=', 'users.id')
+                ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                ->orderBy('orders.created_at', 'asc')
+                ->select('orders.*')
+                ->limit($oldestCount)
+                ->get();
+            
+            $orders = $orders->merge($oldestOrders);
+            Log::info('[InsertAndPublishForActiveDashboardUsers] fetched oldest orders', [
+                'count' => $oldestOrders->count(),
+                'first_id' => $oldestOrders->first()->id ?? null,
+                'last_id' => $oldestOrders->last()->id ?? null
+            ]);
+        }
+
+        // 2. Fetch ROTATING WINDOW orders (progressive scan through mid-range)
+        if ($rotatingCount > 0) {
+            $rotatingOrders = Order::where('status', 'active')
+                ->whereRaw('done_count < total_count')
+                ->where('id', '>', $lastRotatingId) // Continue from last position
+                ->join('users', 'orders.user_id', '=', 'users.id')
+                ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                ->orderBy('orders.id', 'asc') // Use ID order for consistent progression
+                ->select('orders.*')
+                ->limit($rotatingCount)
+                ->get();
+            
+            // If we got fewer than requested, we've reached the end - restart from beginning
+            if ($rotatingOrders->count() < $rotatingCount && $lastRotatingId > 0) {
+                Log::info('[InsertAndPublishForActiveDashboardUsers] rotating window reached end, restarting from beginning', [
+                    'fetched' => $rotatingOrders->count(),
+                    'needed' => $rotatingCount
+                ]);
+                
+                $remaining = $rotatingCount - $rotatingOrders->count();
+                $restartOrders = Order::where('status', 'active')
+                    ->whereRaw('done_count < total_count')
+                    ->join('users', 'orders.user_id', '=', 'users.id')
+                    ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                    ->orderBy('orders.id', 'asc')
+                    ->select('orders.*')
+                    ->limit($remaining)
+                    ->get();
+                
+                $rotatingOrders = $rotatingOrders->merge($restartOrders);
+                
+                // Update window position to the last ID from restart batch
+                if ($restartOrders->isNotEmpty()) {
+                    $newLastId = $restartOrders->last()->id;
+                    try {
+                        $redis->set($rotatingWindowKey, $newLastId);
+                    } catch (\Throwable $e) {
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to update rotating window position', ['error' => $e->getMessage()]);
+                    }
+                }
+            } else {
+                // Update window position to continue from this point next run
+                if ($rotatingOrders->isNotEmpty()) {
+                    $newLastId = $rotatingOrders->last()->id;
+                    try {
+                        $redis->set($rotatingWindowKey, $newLastId);
+                    } catch (\Throwable $e) {
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to update rotating window position', ['error' => $e->getMessage()]);
+                    }
+                }
+            }
+            
+            $orders = $orders->merge($rotatingOrders);
+            Log::info('[InsertAndPublishForActiveDashboardUsers] fetched rotating window orders', [
+                'count' => $rotatingOrders->count(),
+                'first_id' => $rotatingOrders->first()->id ?? null,
+                'last_id' => $rotatingOrders->last()->id ?? null,
+                'new_window_position' => $rotatingOrders->last()->id ?? $lastRotatingId
+            ]);
+        }
+
+        // 3. Fetch NEWEST orders (ensure fresh orders start processing)
+        if ($newestCount > 0) {
+            $newestOrders = Order::where('status', 'active')
+                ->whereRaw('done_count < total_count')
+                ->join('users', 'orders.user_id', '=', 'users.id')
+                ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                ->orderBy('orders.created_at', 'desc')
+                ->select('orders.*')
+                ->limit($newestCount)
+                ->get();
+            
+            $orders = $orders->merge($newestOrders);
+            Log::info('[InsertAndPublishForActiveDashboardUsers] fetched newest orders', [
+                'count' => $newestOrders->count(),
+                'first_id' => $newestOrders->first()->id ?? null,
+                'last_id' => $newestOrders->last()->id ?? null
+            ]);
+        }
+
+        // Remove duplicates (order may appear in multiple batches)
+        $orders = $orders->unique('id');
+        
+        Log::info('[InsertAndPublishForActiveDashboardUsers] orders selected (initial)', [
+            'total_count' => $orders->count(),
+            'oldest_batch' => $oldestCount,
+            'rotating_batch' => $rotatingCount,
+            'newest_batch' => $newestCount
+        ]);
 
         // Global publish collection to enforce total and per-user caps
         $publishList = []; // each item: ['user_id' => int, 'order_id' => int, 'payload' => array]
@@ -356,6 +494,301 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             } catch (\Throwable $e) {
                 Log::error('[InsertAndPublishForActiveDashboardUsers] error preparing order', ['order_id' => $order->id ?? null, 'error' => $e->getMessage()]);
             }
+        }
+
+        // Filter ordersMeta to only include orders that have eligible active users
+        // This prevents us from repeatedly trying to process orders that can't
+        // make progress with the current active user set
+        $ordersMetaFiltered = [];
+        foreach ($ordersMeta as $oid => $meta) {
+            $eligibleKeys = array_keys($meta['eligibleSet']);
+            $eligibleActive = array_values(array_intersect($eligibleKeys, $activeUsers));
+            if (!empty($eligibleActive) || !empty($meta['eligibleSet'])) {
+                $ordersMetaFiltered[$oid] = $meta;
+            } else {
+                Log::info('[InsertAndPublishForActiveDashboardUsers] skipping order - no eligible active users', [
+                    'order_id' => $oid,
+                    'remaining' => $meta['remaining']
+                ]);
+            }
+        }
+        $ordersMeta = $ordersMetaFiltered;
+
+        Log::info('[InsertAndPublishForActiveDashboardUsers] orders after eligibility filter', [
+            'original_count' => count($orders),
+            'filtered_count' => count($ordersMeta)
+        ]);
+
+        // Backfill logic: if we have fewer orders than target after filtering,
+        // fetch additional orders to reach the target (up to a safety limit)
+        // Use same three-way strategy: oldest + rotating + newest
+        $alreadySelectedIds = $orders->pluck('id')->toArray();
+        $backfillAttempts = 0;
+        $maxBackfillAttempts = (int) env('MAX_BACKFILL_ATTEMPTS', 10);
+        
+        while (count($ordersMeta) < $effectiveOrdersLimit && $backfillAttempts < $maxBackfillAttempts) {
+            $needed = $effectiveOrdersLimit - count($ordersMeta);
+            
+            // Apply same three-way strategy to backfill
+            $backfillOldestCount = (int) floor($needed * ($oldestPercentage / 100));
+            $backfillNewestCount = (int) floor($needed * ($newestPercentage / 100));
+            $backfillRotatingCount = $needed - $backfillOldestCount - $backfillNewestCount;
+            
+            Log::info('[InsertAndPublishForActiveDashboardUsers] backfill attempt', [
+                'attempt' => $backfillAttempts + 1,
+                'current_orders' => count($ordersMeta),
+                'target' => $effectiveOrdersLimit,
+                'needed' => $needed,
+                'backfill_oldest' => $backfillOldestCount,
+                'backfill_rotating' => $backfillRotatingCount,
+                'backfill_newest' => $backfillNewestCount,
+                'excluded_ids_count' => count($alreadySelectedIds)
+            ]);
+            
+            $additionalOrders = collect();
+            
+            // Backfill oldest orders
+            if ($backfillOldestCount > 0) {
+                $backfillOldest = Order::where('status', 'active')
+                    ->whereRaw('done_count < total_count')
+                    ->whereNotIn('id', $alreadySelectedIds)
+                    ->join('users', 'orders.user_id', '=', 'users.id')
+                    ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                    ->orderBy('orders.created_at', 'asc')
+                    ->select('orders.*')
+                    ->limit($backfillOldestCount)
+                    ->get();
+                
+                $additionalOrders = $additionalOrders->merge($backfillOldest);
+            }
+            
+            // Backfill rotating window orders
+            if ($backfillRotatingCount > 0) {
+                // Get current window position
+                try {
+                    $currentRotatingId = (int) $redis->get($rotatingWindowKey);
+                } catch (\Throwable $e) {
+                    $currentRotatingId = 0;
+                }
+                
+                $backfillRotating = Order::where('status', 'active')
+                    ->whereRaw('done_count < total_count')
+                    ->where('id', '>', $currentRotatingId)
+                    ->whereNotIn('id', $alreadySelectedIds)
+                    ->join('users', 'orders.user_id', '=', 'users.id')
+                    ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                    ->orderBy('orders.id', 'asc')
+                    ->select('orders.*')
+                    ->limit($backfillRotatingCount)
+                    ->get();
+                
+                // If reached end, wrap around
+                if ($backfillRotating->count() < $backfillRotatingCount && $currentRotatingId > 0) {
+                    $remaining = $backfillRotatingCount - $backfillRotating->count();
+                    $wrapAround = Order::where('status', 'active')
+                        ->whereRaw('done_count < total_count')
+                        ->whereNotIn('id', $alreadySelectedIds)
+                        ->join('users', 'orders.user_id', '=', 'users.id')
+                        ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                        ->orderBy('orders.id', 'asc')
+                        ->select('orders.*')
+                        ->limit($remaining)
+                        ->get();
+                    
+                    $backfillRotating = $backfillRotating->merge($wrapAround);
+                }
+                
+                $additionalOrders = $additionalOrders->merge($backfillRotating);
+            }
+            
+            // Backfill newest orders
+            if ($backfillNewestCount > 0) {
+                $backfillNewest = Order::where('status', 'active')
+                    ->whereRaw('done_count < total_count')
+                    ->whereNotIn('id', $alreadySelectedIds)
+                    ->join('users', 'orders.user_id', '=', 'users.id')
+                    ->orderByRaw("CASE WHEN users.type = 'admin' THEN 0 ELSE 1 END")
+                    ->orderBy('orders.created_at', 'desc')
+                    ->select('orders.*')
+                    ->limit($backfillNewestCount)
+                    ->get();
+                
+                $additionalOrders = $additionalOrders->merge($backfillNewest);
+            }
+            
+            // Remove duplicates
+            $additionalOrders = $additionalOrders->unique('id');
+            
+            if ($additionalOrders->isEmpty()) {
+                Log::info('[InsertAndPublishForActiveDashboardUsers] backfill complete - no more orders available');
+                break; // No more orders to fetch
+            }
+            
+            Log::info('[InsertAndPublishForActiveDashboardUsers] backfill fetched orders', [
+                'fetched_count' => $additionalOrders->count()
+            ]);
+            
+            // Process additional orders (same logic as initial orders)
+            $addedCount = 0;
+            foreach ($additionalOrders as $order) {
+                try {
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] preparing backfill order', ['order_id' => $order->id, 'total_count' => $order->total_count]);
+
+                    $doneCount = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->where('status', 'done')
+                        ->count();
+
+                    $available = max(0, $order->total_count - $doneCount);
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] backfill order capacity', ['order_id' => $order->id, 'done' => $doneCount, 'available' => $available]);
+
+                    if ($available <= 0) {
+                        $alreadySelectedIds[] = $order->id;
+                        continue;
+                    }
+
+                    $candidates = $activeUsers;
+                    if (empty($candidates)) {
+                        $alreadySelectedIds[] = $order->id;
+                        continue;
+                    }
+
+                    // Compute eligible users (same logic as initial orders)
+                    try {
+                        $t0 = microtime(true);
+
+                        $candidateIds = $candidates;
+                        if (empty($candidateIds)) {
+                            $eligibleUsersCollection = collect([]);
+                        } else {
+                            $pendingUserIds = DB::table('actions')
+                                ->where('order_id', $order->id)
+                                ->where('status', 'pending')
+                                ->pluck('user_id')
+                                ->toArray();
+
+                            $actualDoneCount = DB::table('actions')
+                                ->where('order_id', $order->id)
+                                ->where('status', 'done')
+                                ->count();
+
+                            $recentPendingCount = DB::table('actions')
+                                ->where('order_id', $order->id)
+                                ->where('status', 'pending')
+                                ->where('created_at', '>=', now()->subMinutes(30))
+                                ->count();
+
+                            $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
+
+                            if ($remaining <= 0) {
+                                $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
+                                $eligibleUsersCollection = \App\Models\User::whereIn('id', $intersectPending)->get();
+                            } else {
+                                $eligibleQuery = \App\Models\User::where('type', 'user')
+                                    ->whereIn('id', $candidateIds)
+                                    ->whereNotIn('id', function ($q) use ($order) {
+                                        $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
+                                    })
+                                    ->whereNotIn('id', $pendingUserIds)
+                                    ->where('profile_link', '!=', $order->target_url)
+                                    ->whereNotIn('id', function ($sub) use ($order) {
+                                        $sub->select('a1.user_id')
+                                            ->from('actions as a1')
+                                            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                                            ->whereIn('a1.status', ['done', 'external'])
+                                            ->whereColumn('o1.target_url', 'users.profile_link')
+                                            ->where('o1.user_id', $order->user_id);
+                                    });
+
+                                $eligibleUsers = $eligibleQuery->get();
+                                $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
+                                $pendingUsers = \App\Models\User::whereIn('id', $intersectPending)->get();
+                                $eligibleUsersCollection = $pendingUsers->merge($eligibleUsers);
+                            }
+                        }
+
+                        $t1 = microtime(true);
+                        $eligibleIdsAll = $eligibleUsersCollection->pluck('id')->toArray();
+                        $elapsedMs = round(($t1 - $t0) * 1000, 2);
+                        Log::info('[ResumeOrderService] getEligibleUsers (backfill) completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+                    } catch (\Throwable $e) {
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users (backfill)', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                        $eligibleIdsAll = $candidates;
+                    }
+
+                    $eligible = array_values(array_intersect($eligibleIdsAll, $candidates));
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] backfill eligible intersection counts', ['order_id' => $order->id, 'eligible_total' => count($eligibleIdsAll), 'active_checked' => count($candidates), 'eligible_after_intersect' => count($eligible)]);
+                    
+                    $alreadySelectedIds[] = $order->id; // Track this order
+                    
+                    if (empty($eligible)) {
+                        Log::info('[InsertAndPublishForActiveDashboardUsers] skipping backfill order - no eligible active users', ['order_id' => $order->id]);
+                        continue;
+                    }
+
+                    // Pending users among the eligible+active set
+                    $pendingUsers = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->where('status', 'pending')
+                        ->whereIn('user_id', $eligible)
+                        ->pluck('user_id')
+                        ->toArray();
+
+                    $alreadyActioned = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->pluck('user_id')
+                        ->toArray();
+
+                    $eligibleSet = array_fill_keys($eligible, true);
+
+                    $ordersMeta[$order->id] = [
+                        'order' => $order,
+                        'available' => $available,
+                        'eligibleSet' => $eligibleSet,
+                        'pendingUsers' => $pendingUsers,
+                        'alreadyActioned' => array_flip($alreadyActioned),
+                        'toClaim' => [],
+                        'remaining' => $available
+                    ];
+
+                    $ordersSummary[$order->id] = ['pending_found' => count($pendingUsers), 'pending_added' => 0, 'claim_attempted' => 0, 'inserted' => 0, 'claimed_added' => 0];
+                    $ordersSummary[$order->id]['pending_added'] = count($pendingUsers);
+                    $totalReserved += $ordersSummary[$order->id]['pending_added'];
+                    
+                    $addedCount++;
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] backfill order added', ['order_id' => $order->id, 'eligible_count' => count($eligible)]);
+
+                } catch (\Throwable $e) {
+                    Log::error('[InsertAndPublishForActiveDashboardUsers] error preparing backfill order', ['order_id' => $order->id ?? null, 'error' => $e->getMessage()]);
+                    if (isset($order->id)) {
+                        $alreadySelectedIds[] = $order->id;
+                    }
+                }
+            }
+            
+            Log::info('[InsertAndPublishForActiveDashboardUsers] backfill attempt complete', [
+                'attempt' => $backfillAttempts + 1,
+                'fetched' => $additionalOrders->count(),
+                'added' => $addedCount,
+                'current_total' => count($ordersMeta)
+            ]);
+            
+            $backfillAttempts++;
+            
+            // If we didn't add any new orders this round, stop trying
+            if ($addedCount === 0) {
+                Log::info('[InsertAndPublishForActiveDashboardUsers] backfill stopping - no eligible orders found in this batch');
+                break;
+            }
+        }
+        
+        if ($backfillAttempts > 0) {
+            Log::info('[InsertAndPublishForActiveDashboardUsers] backfill summary', [
+                'attempts' => $backfillAttempts,
+                'final_count' => count($ordersMeta),
+                'target' => $effectiveOrdersLimit,
+                'reached_target' => count($ordersMeta) >= $effectiveOrdersLimit
+            ]);
         }
 
         // Recompute per-order eligible->active membership: each order may have
