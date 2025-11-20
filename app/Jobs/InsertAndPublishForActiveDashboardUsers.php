@@ -158,20 +158,20 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         // - Always fetch some oldest orders to ensure stuck orders complete
         // - Always fetch some newest orders to ensure fresh orders start
         // - Rotate through mid-range orders progressively using a sliding window
-        
+
         $oldestPercentage = (int) env('COORDINATOR_OLDEST_PERCENTAGE', 40); // default 40%
         $newestPercentage = (int) env('COORDINATOR_NEWEST_PERCENTAGE', 20); // default 20%
         $rotatingPercentage = 100 - $oldestPercentage - $newestPercentage; // remaining 40%
-        
+
         // Clamp percentages
         $oldestPercentage = max(0, min(100, $oldestPercentage));
         $newestPercentage = max(0, min(100, $newestPercentage));
         $rotatingPercentage = max(0, 100 - $oldestPercentage - $newestPercentage);
-        
+
         $oldestCount = (int) floor($effectiveOrdersLimit * ($oldestPercentage / 100));
         $newestCount = (int) floor($effectiveOrdersLimit * ($newestPercentage / 100));
         $rotatingCount = $effectiveOrdersLimit - $oldestCount - $newestCount;
-        
+
         // Get rotating window position from Redis (tracks last processed order ID)
         $rotatingWindowKey = env('COORDINATOR_ROTATING_WINDOW_KEY', 'coordinator:rotating_window_last_id');
         $lastRotatingId = 0;
@@ -180,7 +180,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         } catch (\Throwable $e) {
             $lastRotatingId = 0;
         }
-        
+
         Log::info('[InsertAndPublishForActiveDashboardUsers] dynamic rotating window strategy', [
             'total_limit' => $effectiveOrdersLimit,
             'oldest_count' => $oldestCount,
@@ -202,7 +202,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 ->select('orders.*')
                 ->limit($oldestCount)
                 ->get();
-            
+
             $orders = $orders->merge($oldestOrders);
             Log::info('[InsertAndPublishForActiveDashboardUsers] fetched oldest orders', [
                 'count' => $oldestOrders->count(),
@@ -222,14 +222,14 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 ->select('orders.*')
                 ->limit($rotatingCount)
                 ->get();
-            
+
             // If we got fewer than requested, we've reached the end - restart from beginning
             if ($rotatingOrders->count() < $rotatingCount && $lastRotatingId > 0) {
                 Log::info('[InsertAndPublishForActiveDashboardUsers] rotating window reached end, restarting from beginning', [
                     'fetched' => $rotatingOrders->count(),
                     'needed' => $rotatingCount
                 ]);
-                
+
                 $remaining = $rotatingCount - $rotatingOrders->count();
                 $restartOrders = Order::where('status', 'active')
                     ->whereRaw('done_count < total_count')
@@ -239,9 +239,9 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     ->select('orders.*')
                     ->limit($remaining)
                     ->get();
-                
+
                 $rotatingOrders = $rotatingOrders->merge($restartOrders);
-                
+
                 // Update window position to the last ID from restart batch
                 if ($restartOrders->isNotEmpty()) {
                     $newLastId = $restartOrders->last()->id;
@@ -262,7 +262,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     }
                 }
             }
-            
+
             $orders = $orders->merge($rotatingOrders);
             Log::info('[InsertAndPublishForActiveDashboardUsers] fetched rotating window orders', [
                 'count' => $rotatingOrders->count(),
@@ -282,7 +282,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 ->select('orders.*')
                 ->limit($newestCount)
                 ->get();
-            
+
             $orders = $orders->merge($newestOrders);
             Log::info('[InsertAndPublishForActiveDashboardUsers] fetched newest orders', [
                 'count' => $newestOrders->count(),
@@ -293,7 +293,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         // Remove duplicates (order may appear in multiple batches)
         $orders = $orders->unique('id');
-        
+
         Log::info('[InsertAndPublishForActiveDashboardUsers] orders selected (initial)', [
             'total_count' => $orders->count(),
             'oldest_batch' => $oldestCount,
@@ -303,6 +303,8 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         // Global publish collection to enforce total and per-user caps
         $publishList = []; // each item: ['user_id' => int, 'order_id' => int, 'payload' => array]
+        // track seen user/order pairs to avoid enqueueing duplicates within a run
+        $seenPublish = [];
         $userCounts = []; // user_id => number of orders queued for this user
         $totalPublishes = 0;
         $maxTotal = (int) env('TOTAL_PUBLISH_LIMIT', 1000);
@@ -394,8 +396,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                         ->from('actions as a1')
                                         ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                                         ->whereIn('a1.status', ['done', 'external'])
-                                        ->whereColumn('o1.target_url', 'users.profile_link')
-                                        ->where('o1.user_id', $order->user_id);
+                                        ->where('o1.target_url', $order->target_url);
                                 });
 
                             $eligibleUsers = $eligibleQuery->get();
@@ -459,7 +460,14 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
                     if ($uc >= $perUserLimit) continue;
 
+                    // avoid enqueueing the same (order,user) pair twice in one run
+                    $pairKey = $order->id . ':' . $uid;
+                    if (isset($seenPublish[$pairKey])) {
+                        continue;
+                    }
+
                     $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
+                    $seenPublish[$pairKey] = true;
                     $userCounts[$uid] = $uc + 1;
                     $assigned++;
                     $ordersSummary[$order->id]['pending_added']++;
@@ -525,15 +533,15 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         $alreadySelectedIds = $orders->pluck('id')->toArray();
         $backfillAttempts = 0;
         $maxBackfillAttempts = (int) env('MAX_BACKFILL_ATTEMPTS', 10);
-        
+
         while (count($ordersMeta) < $effectiveOrdersLimit && $backfillAttempts < $maxBackfillAttempts) {
             $needed = $effectiveOrdersLimit - count($ordersMeta);
-            
+
             // Apply same three-way strategy to backfill
             $backfillOldestCount = (int) floor($needed * ($oldestPercentage / 100));
             $backfillNewestCount = (int) floor($needed * ($newestPercentage / 100));
             $backfillRotatingCount = $needed - $backfillOldestCount - $backfillNewestCount;
-            
+
             Log::info('[InsertAndPublishForActiveDashboardUsers] backfill attempt', [
                 'attempt' => $backfillAttempts + 1,
                 'current_orders' => count($ordersMeta),
@@ -544,9 +552,9 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 'backfill_newest' => $backfillNewestCount,
                 'excluded_ids_count' => count($alreadySelectedIds)
             ]);
-            
+
             $additionalOrders = collect();
-            
+
             // Backfill oldest orders
             if ($backfillOldestCount > 0) {
                 $backfillOldest = Order::where('status', 'active')
@@ -558,10 +566,10 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     ->select('orders.*')
                     ->limit($backfillOldestCount)
                     ->get();
-                
+
                 $additionalOrders = $additionalOrders->merge($backfillOldest);
             }
-            
+
             // Backfill rotating window orders
             if ($backfillRotatingCount > 0) {
                 // Get current window position
@@ -570,7 +578,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 } catch (\Throwable $e) {
                     $currentRotatingId = 0;
                 }
-                
+
                 $backfillRotating = Order::where('status', 'active')
                     ->whereRaw('done_count < total_count')
                     ->where('orders.id', '>', $currentRotatingId) // Specify table
@@ -581,7 +589,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     ->select('orders.*')
                     ->limit($backfillRotatingCount)
                     ->get();
-                
+
                 // If reached end, wrap around
                 if ($backfillRotating->count() < $backfillRotatingCount && $currentRotatingId > 0) {
                     $remaining = $backfillRotatingCount - $backfillRotating->count();
@@ -594,13 +602,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         ->select('orders.*')
                         ->limit($remaining)
                         ->get();
-                    
+
                     $backfillRotating = $backfillRotating->merge($wrapAround);
                 }
-                
+
                 $additionalOrders = $additionalOrders->merge($backfillRotating);
             }
-            
+
             // Backfill newest orders
             if ($backfillNewestCount > 0) {
                 $backfillNewest = Order::where('status', 'active')
@@ -612,22 +620,22 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     ->select('orders.*')
                     ->limit($backfillNewestCount)
                     ->get();
-                
+
                 $additionalOrders = $additionalOrders->merge($backfillNewest);
             }
-            
+
             // Remove duplicates
             $additionalOrders = $additionalOrders->unique('id');
-            
+
             if ($additionalOrders->isEmpty()) {
                 Log::info('[InsertAndPublishForActiveDashboardUsers] backfill complete - no more orders available');
                 break; // No more orders to fetch
             }
-            
+
             Log::info('[InsertAndPublishForActiveDashboardUsers] backfill fetched orders', [
                 'fetched_count' => $additionalOrders->count()
             ]);
-            
+
             // Process additional orders (same logic as initial orders)
             $addedCount = 0;
             foreach ($additionalOrders as $order) {
@@ -696,8 +704,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                             ->from('actions as a1')
                                             ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                                             ->whereIn('a1.status', ['done', 'external'])
-                                            ->whereColumn('o1.target_url', 'users.profile_link')
-                                            ->where('o1.user_id', $order->user_id);
+                                            ->where('o1.target_url', $order->target_url);
                                     });
 
                                 $eligibleUsers = $eligibleQuery->get();
@@ -718,9 +725,9 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     $eligible = array_values(array_intersect($eligibleIdsAll, $candidates));
                     Log::info('[InsertAndPublishForActiveDashboardUsers] backfill eligible intersection counts', ['order_id' => $order->id, 'eligible_total' => count($eligibleIdsAll), 'active_checked' => count($candidates), 'eligible_after_intersect' => count($eligible)]);
-                    
+
                     $alreadySelectedIds[] = $order->id; // Track this order
-                    
+
                     if (empty($eligible)) {
                         Log::info('[InsertAndPublishForActiveDashboardUsers] skipping backfill order - no eligible active users', ['order_id' => $order->id]);
                         continue;
@@ -754,7 +761,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $ordersSummary[$order->id] = ['pending_found' => count($pendingUsers), 'pending_added' => 0, 'claim_attempted' => 0, 'inserted' => 0, 'claimed_added' => 0];
                     $ordersSummary[$order->id]['pending_added'] = count($pendingUsers);
                     $totalReserved += $ordersSummary[$order->id]['pending_added'];
-                    
+
                     $addedCount++;
                     Log::info('[InsertAndPublishForActiveDashboardUsers] backfill order added', ['order_id' => $order->id, 'eligible_count' => count($eligible)]);
 
@@ -765,23 +772,23 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     }
                 }
             }
-            
+
             Log::info('[InsertAndPublishForActiveDashboardUsers] backfill attempt complete', [
                 'attempt' => $backfillAttempts + 1,
                 'fetched' => $additionalOrders->count(),
                 'added' => $addedCount,
                 'current_total' => count($ordersMeta)
             ]);
-            
+
             $backfillAttempts++;
-            
+
             // If we didn't add any new orders this round, stop trying
             if ($addedCount === 0) {
                 Log::info('[InsertAndPublishForActiveDashboardUsers] backfill stopping - no eligible orders found in this batch');
                 break;
             }
         }
-        
+
         if ($backfillAttempts > 0) {
             Log::info('[InsertAndPublishForActiveDashboardUsers] backfill summary', [
                 'attempts' => $backfillAttempts,
@@ -879,9 +886,15 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 if ($totalPublishes >= $maxTotal) break;
                 $uid = (int) $uid;
                 $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                if ($uc > $perUserLimit) continue;
+                if ($uc >= $perUserLimit) continue;
+                // avoid enqueueing duplicates if this (order,user) was already added
+                $pairKey = $order->id . ':' . $uid;
+                if (isset($seenPublish[$pairKey])) {
+                    continue;
+                }
 
                 $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $meta['payloadBase']];
+                $seenPublish[$pairKey] = true;
                 $ordersSummary[$oid]['claimed_added']++;
                 $totalPublishes++;
             }
