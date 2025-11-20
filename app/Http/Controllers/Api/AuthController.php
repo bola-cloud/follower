@@ -215,12 +215,120 @@ class AuthController extends Controller
 
         $user->google_id = null;
         $user->email = null;
+        $user->profile_link = null;
         $user->save();
 
         return response()->json([
             'message' => 'Account disconnected successfully. You can no longer log in with this Google or Instagram account.',
             'status' => true,
         ], 200);
+    }
+
+    /**
+     * Detach `email` (and google_id) from any existing account that currently
+     * owns it, then create a new user with the same email and provided data.
+     *
+     * Note: This performs a force reassign of the email address. Callers must
+     * ensure this behavior is acceptable (this endpoint is destructive for the
+     * previous account's email field). Wraps actions in a DB transaction.
+     *
+     * Expected payload: { name, email, password, profile_link, phone? }
+     */
+    public function reassignEmailAndCreate(Request $request)
+    {
+        // Ensure caller is authenticated (token belongs to a user)
+        $authUser = $request->user();
+        if (! $authUser) {
+            return response()->json(['message' => 'User not authenticated', 'status' => false], 401);
+        }
+
+        $data = $request->only(['name', 'email', 'password', 'profile_link', 'phone', 'google_id']);
+
+        $validator = Validator::make($data, [
+            'name' => 'required|string|max:255',
+            'email' => 'required|string|email|max:255',
+            'password' => 'required|string|min:8',
+            'profile_link' => ['required', 'string', 'max:255'],
+            'phone' => 'nullable|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json([
+                'message' => 'Validation errors',
+                'status' => false,
+                'data' => $validator->errors(),
+            ], 422);
+        }
+
+        // Ensure the requested profile_link is not already taken by another user
+        $existsProfile = User::where('profile_link', $data['profile_link'])->exists();
+        if ($existsProfile) {
+            return response()->json([
+                'message' => 'This profile link is already taken by another user.',
+                'status' => false,
+            ], 409);
+        }
+
+        // Verify that the authenticated user's token confirms ownership of the provided email
+        // Allow proceed only if the auth user's email matches the provided email OR
+        // the provided google_id matches the authenticated user's google_id.
+        $providedEmail = $data['email'];
+        $providedGoogleId = $data['google_id'] ?? null;
+
+        if ($authUser->email !== $providedEmail && (! $providedGoogleId || $authUser->google_id !== $providedGoogleId)) {
+            return response()->json([
+                'message' => 'Provided email/google_id does not match authenticated user token.',
+                'status' => false,
+            ], 403);
+        }
+
+        try {
+            $createdUser = DB::transaction(function () use ($data) {
+                // If any existing user has this email, detach it
+                $old = User::where('email', $data['email'])->first();
+                if ($old) {
+                    // remove email and google association from old account
+                    $old->google_id = null;
+                    $old->email = null;
+                    $old->profile_link = null;
+                    $old->save();
+                }
+
+                // Create the new user with the provided email
+                $user = User::create([
+                    'name' => $data['name'],
+                    'email' => $data['email'],
+                    'password' => Hash::make($data['password']),
+                    'phone' => $data['phone'] ?? null,
+                    'profile_link' => $data['profile_link'],
+                    'points' => 0,
+                    'timer' => now()->addMinutes(30),
+                ]);
+
+                // schedule add-points job as existing flows
+                \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
+
+                return $user;
+            });
+        } catch (\Throwable $e) {
+            Log::error('Failed to reassign email and create user', ['error' => $e->getMessage()]);
+            return response()->json([
+                'message' => 'Failed to reassign email and create user',
+                'status' => false,
+            ], 500);
+        }
+
+        $token = $createdUser->createToken('auth_token')->plainTextToken;
+
+        return response()->json([
+            'message' => 'Email reassigned and new user created',
+            'status' => true,
+            'data' => [
+                'user' => $createdUser,
+                'access_token' => $token,
+                'token_type' => 'Bearer',
+            ],
+        ], 201);
     }
 
     /**

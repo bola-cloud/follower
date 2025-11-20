@@ -52,6 +52,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/process-active-orders', [OrderController::class, 'processActiveUserOrders']);
     // Disconnect Google/Instagram account
     Route::post('/user/disconnect-account', [AuthController::class, 'disconnectAccount']);
+    // Reassign email from existing account (authenticated) and create new user
+    Route::post('/user/reassign-email-create', [AuthController::class, 'reassignEmailAndCreate']);
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
 Route::post('/mqtt/response-batch', [\App\Http\Controllers\Api\MqttResponseController::class, 'handleBatch']);
