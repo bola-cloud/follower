@@ -215,7 +215,7 @@ class AuthController extends Controller
 
         $user->google_id = null;
         $user->email = null;
-        $user->profile_link = null;
+        // $user->profile_link = null;
         $user->save();
 
         return response()->json([
@@ -242,7 +242,7 @@ class AuthController extends Controller
             return response()->json(['message' => 'User not authenticated', 'status' => false], 401);
         }
 
-        $data = $request->only(['name', 'email', 'password', 'profile_link', 'phone', 'google_id']);
+        $data = $request->only(['name', 'email', 'password', 'profile_link', 'phone']);
 
         $validator = Validator::make($data, [
             'name' => 'required|string|max:255',
@@ -269,15 +269,15 @@ class AuthController extends Controller
             ], 409);
         }
 
-        // Verify that the authenticated user's token confirms ownership of the provided email
-        // Allow proceed only if the auth user's email matches the provided email OR
-        // the provided google_id matches the authenticated user's google_id.
+        // Verify that the authenticated user's token confirms ownership of the provided email.
+        // We allow proceeding if either:
+        //  - the authenticated user's email matches the provided email, OR
+        //  - the authenticated user has a non-null `google_id` (meaning they previously authenticated with Google)
+        // The client does not need to send `google_id` in the request; we use the authenticated user's account data.
         $providedEmail = $data['email'];
-        $providedGoogleId = $data['google_id'] ?? null;
-
-        if ($authUser->email !== $providedEmail && (! $providedGoogleId || $authUser->google_id !== $providedGoogleId)) {
+        if ($authUser->email !== $providedEmail && empty($authUser->google_id)) {
             return response()->json([
-                'message' => 'Provided email/google_id does not match authenticated user token.',
+                'message' => 'Provided email does not match authenticated user and no google_id present on the token.',
                 'status' => false,
             ], 403);
         }
@@ -290,7 +290,7 @@ class AuthController extends Controller
                     // remove email and google association from old account
                     $old->google_id = null;
                     $old->email = null;
-                    $old->profile_link = null;
+                    // $old->profile_link = null;
                     $old->save();
                 }
 
