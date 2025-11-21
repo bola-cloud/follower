@@ -232,103 +232,82 @@ class AuthController extends Controller
      * ensure this behavior is acceptable (this endpoint is destructive for the
      * previous account's email field). Wraps actions in a DB transaction.
      *
-     * Expected payload: { name, email, password, profile_link, phone? }
+    * Expected payload: { name, password, profile_link, phone? }
      */
     public function reassignEmailAndCreate(Request $request)
     {
-        // Ensure caller is authenticated (token belongs to a user)
+        // Require authenticated user (old account)
         $authUser = $request->user();
         if (! $authUser) {
             return response()->json(['message' => 'User not authenticated', 'status' => false], 401);
         }
 
-        $data = $request->only(['name', 'email', 'password', 'profile_link', 'phone']);
-
+        // Accept only the new name and profile_link in the request
+        $data = $request->only(['name', 'profile_link']);
         $validator = Validator::make($data, [
             'name' => 'required|string|max:255',
-            'email' => 'required|string|email|max:255',
-            'password' => 'required|string|min:8',
             'profile_link' => ['required', 'string', 'max:255'],
-            'phone' => 'nullable|string',
         ]);
-
         if ($validator->fails()) {
-            return response()->json([
-                'message' => 'Validation errors',
-                'status' => false,
-                'data' => $validator->errors(),
-            ], 422);
+            return response()->json(['message' => 'Validation errors', 'status' => false, 'data' => $validator->errors()], 422);
         }
 
-        // Ensure the requested profile_link is not already taken by another user
+        // Ensure profile_link isn't already taken
         $existsProfile = User::where('profile_link', $data['profile_link'])->exists();
         if ($existsProfile) {
-            return response()->json([
-                'message' => 'This profile link is already taken by another user.',
-                'status' => false,
-            ], 409);
+            return response()->json(['message' => 'This profile link is already taken by another user.', 'status' => false], 409);
         }
 
-        // Verify that the authenticated user's token confirms ownership of the provided email.
-        // We allow proceeding if either:
-        //  - the authenticated user's email matches the provided email, OR
-        //  - the authenticated user has a non-null `google_id` (meaning they previously authenticated with Google)
-        // The client does not need to send `google_id` in the request; we use the authenticated user's account data.
-        $providedEmail = $data['email'];
-        if ($authUser->email !== $providedEmail && empty($authUser->google_id)) {
-            return response()->json([
-                'message' => 'Provided email does not match authenticated user and no google_id present on the token.',
-                'status' => false,
-            ], 403);
+        // Source email comes from the authenticated (old) account
+        $sourceEmail = $authUser->email;
+        if (empty($sourceEmail)) {
+            return response()->json(['message' => 'Authenticated account does not have an email to transfer.', 'status' => false], 400);
         }
 
         try {
-            $createdUser = DB::transaction(function () use ($data) {
-                // If any existing user has this email, detach it
-                $old = User::where('email', $data['email'])->first();
-                if ($old) {
-                    // remove email and google association from old account
-                    $old->google_id = null;
-                    $old->email = null;
-                    // $old->profile_link = null;
-                    $old->save();
-                }
+            $createdUser = DB::transaction(function () use ($data, $sourceEmail, $authUser) {
+                // Refresh old account to avoid stale data
+                $old = User::where('id', $authUser->id)->first();
 
-                // Create the new user with the provided email
+                // Capture fields to copy (except name, profile_link, cookies, password)
+                // We DO NOT copy passwords for Google-authenticated users.
+                $copy = [
+                    'points' => $old->points ?? 0,
+                    'type' => $old->type ?? 'user',
+                    'timer' => $old->timer ?? null,
+                ];
+
+                // Detach identifying fields from the old account so they
+                // can be reused: clear email, google_id and profile_link
+                $old->google_id = null;
+                $old->email = null;
+                $old->profile_link = null;
+                $old->save();
+
+                // Create the new user: use provided name/profile_link,
+                // use the source email and copied fields, set cookies to null
                 $user = User::create([
                     'name' => $data['name'],
-                    'email' => $data['email'],
-                    'password' => Hash::make($data['password']),
-                    'phone' => $data['phone'] ?? null,
+                    'email' => $sourceEmail,
                     'profile_link' => $data['profile_link'],
-                    'points' => 0,
-                    'timer' => now()->addMinutes(30),
+                    'points' => $copy['points'],
+                    'type' => $copy['type'],
+                    'timer' => $copy['timer'],
+                    'cookies' => null,
                 ]);
 
-                // schedule add-points job as existing flows
+                // Optionally dispatch existing post-create job
                 \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
 
                 return $user;
             });
         } catch (\Throwable $e) {
             Log::error('Failed to reassign email and create user', ['error' => $e->getMessage()]);
-            return response()->json([
-                'message' => 'Failed to reassign email and create user',
-                'status' => false,
-            ], 500);
+            return response()->json(['message' => 'Failed to reassign email and create user', 'status' => false], 500);
         }
 
         $token = $createdUser->createToken('auth_token')->plainTextToken;
-
-        return response()->json([
-            'message' => 'Email reassigned and new user created',
-            'status' => true,
-            'data' => [
-                'user' => $createdUser,
-                'access_token' => $token,
-                'token_type' => 'Bearer',
-            ],
-        ], 201);
+        return response()->json(['message' => 'Email transferred and new user created', 'status' => true, 'data' => ['user' => $createdUser, 'access_token' => $token, 'token_type' => 'Bearer']], 201);
     }
 
     /**
