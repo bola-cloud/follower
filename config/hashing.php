@@ -30,7 +30,11 @@ return [
 
     'bcrypt' => [
         'rounds' => env('BCRYPT_ROUNDS', 12),
-        'verify' => true,
+        // Disable strict algorithm verification to avoid runtime exceptions
+        // when existing user passwords are hashed with a different algorithm
+        // (e.g. argon) or are empty for social logins. Consider backfilling
+        // or normalizing stored password hashes and re-enabling verification.
+        'verify' => false,
     ],
 
     /*
@@ -48,7 +52,10 @@ return [
         'memory' => 65536,
         'threads' => 1,
         'time' => 4,
-        'verify' => true,
+        // Keep verification disabled here as well to match bcrypt behavior
+        // and avoid exceptions when the app's configured driver differs
+        // from some stored password hashes.
+        'verify' => false,
     ],
 
 ];
