@@ -251,6 +251,9 @@ class AuthController extends Controller
                     'timer' => $old->timer ?? null,
                 ];
 
+                // Preserve identifying google_id so we can transfer it to the new account
+                $oldGoogleId = $old->google_id;
+
                 // detach identifying fields on old account
                 $old->google_id = null;
                 $old->email = null;
@@ -262,6 +265,7 @@ class AuthController extends Controller
                     'name' => $old->name,
                     'email' => $sourceEmail,
                     'password' => null,
+                    'google_id' => $oldGoogleId,
                     'profile_link' => $data['profile_link'],
                     'points' => $copy['points'],
                     'type' => $copy['type'],
