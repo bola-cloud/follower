@@ -190,6 +190,97 @@ class AuthController extends Controller
         ], 200);
     }
 
+    /**
+     * Update Profile Link V2
+     * - If the requested link matches the current one -> 200 (no-op)
+     * - If the user has no profile_link -> set it and return 200
+     * - If the user already has a profile_link and requested one is free ->
+     *     perform a "reassign" (create new user with same data except name/profile_link/cookies)
+     *     and return 201
+     * - If requested link is taken by another user -> 409
+     *
+     * Expected payload: { name, profile_link }
+     */
+    public function updateProfileLinkV2(Request $request)
+    {
+        $user = $request->user();
+        if (! $user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
+
+        $data = $request->only(['profile_link']);
+        $validator = Validator::make($data, [
+            'profile_link' => 'required|string|max:255',
+        ]);
+        if ($validator->fails()) {
+            return response()->json(['message' => 'Validation errors', 'status' => false, 'data' => $validator->errors()], 422);
+        }
+
+        $requested = $data['profile_link'];
+
+        // Case 1: already set and matches
+        if (!empty($user->profile_link) && $user->profile_link === $requested) {
+            return response()->json(['message' => 'Profile link already set and matches.', 'status' => true], 200);
+        }
+
+        // Check whether requested link is taken by someone else
+        $existing = User::where('profile_link', $requested)->first();
+        if ($existing && $existing->id !== $user->id) {
+            // taken by another account
+            return response()->json(['message' => 'This profile link is already taken by another user.', 'status' => false], 409);
+        }
+
+        // If user has no profile_link currently, simply set it and return 200
+        if (empty($user->profile_link)) {
+            $user->profile_link = $requested;
+            $user->save();
+            return response()->json(['message' => 'Profile link set.', 'status' => true, 'data' => ['user' => $user]], 200);
+        }
+
+        // Otherwise user has a profile_link and requested is free -> perform reassign
+        $sourceEmail = $user->email;
+        try {
+            $createdUser = DB::transaction(function () use ($data, $sourceEmail, $user) {
+                // reload old user
+                $old = User::where('id', $user->id)->first();
+
+                // copy metadata (not name/profile_link/cookies/password)
+                $copy = [
+                    'points' => $old->points ?? 0,
+                    'type' => $old->type ?? 'user',
+                    'timer' => $old->timer ?? null,
+                ];
+
+                // detach identifying fields on old account
+                $old->google_id = null;
+                $old->email = null;
+                $old->profile_link = null;
+                $old->save();
+
+                // create new user with cookies=null; keep the same name as the old account
+                $new = User::create([
+                    'name' => $old->name,
+                    'email' => $sourceEmail,
+                    'password' => null,
+                    'profile_link' => $data['profile_link'],
+                    'points' => $copy['points'],
+                    'type' => $copy['type'],
+                    'timer' => $copy['timer'],
+                    'cookies' => null,
+                ]);
+
+                \App\Jobs\AddPointsToUser::dispatch($new->id)->delay(now()->addMinutes(30));
+                return $new;
+            });
+        } catch (\Throwable $e) {
+            Log::error('updateProfileLinkV2 failed', ['error' => $e->getMessage()]);
+            return response()->json(['message' => 'Failed to reassign profile link', 'status' => false], 500);
+        }
+
+        $token = $createdUser->createToken('auth_token')->plainTextToken;
+        return response()->json(['message' => 'Profile reassigned and new account created', 'status' => true, 'data' => ['user' => $createdUser, 'access_token' => $token]], 201);
+    }
+
     public function points(Request $request)
     {
         $user = $request->user();

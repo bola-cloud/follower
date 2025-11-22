@@ -43,6 +43,8 @@ class OrderService
 
     // Normalize target identifier: extract canonical identifier (username or shortcode)
     $targetIdentifier = $this->extractTargetIdentifier($order->target_url ?? '');
+    // Also normalize raw target by trimming trailing slash for direct comparisons
+    $normalizedTarget = rtrim($order->target_url ?? '', '/');
     // Prefer stored hash if present, otherwise use sha1 of the canonical identifier
     $targetHash = $order->target_url_hash ?? sha1($targetIdentifier ?? '');
 
@@ -62,7 +64,8 @@ class OrderService
                                         })
                     ->where('orders.id', '!=', $order->id);
             })
-            ->where('profile_link', '!=', $order->target_url);
+            // Compare profile_link ignoring trailing slash
+            ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget]);
 
         // if ($limit > 0) {
         //     $query->limit($limit);
@@ -120,14 +123,16 @@ class OrderService
                 $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
             })
             ->whereNotIn('id', $pendingUserIds)
-            ->where('profile_link', '!=', $order->target_url)
+            // Compare profile_link ignoring trailing slash
+            ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
             ->whereNotIn('id', function ($sub) use ($order) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->whereColumn('o1.target_url', 'users.profile_link')
-                    ->where('o1.user_id', $order->user_id);
+                    // Use normalized/hash based comparison to find other orders referencing same target
+                    ->where('o1.target_url_hash', $order->target_url_hash)
+                    ->where('o1.id', '!=', $order->id);
             })
             // Exclude users who have done/external actions on OTHER orders with same target identifier
             ->whereNotIn('id', function ($sub) use ($order) {

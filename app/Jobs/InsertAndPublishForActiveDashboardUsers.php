@@ -355,9 +355,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $t0 = microtime(true);
 
                     $candidateIds = $candidates;
-                    if (empty($candidateIds)) {
+                        if (empty($candidateIds)) {
                         $eligibleUsersCollection = collect([]);
                     } else {
+                            // Normalize target URL for comparisons (ignore trailing slash)
+                            $normalizedTarget = rtrim($order->target_url, '/');
+                            $targetHash = sha1($normalizedTarget);
+
                         // Pending users for this order
                         $pendingUserIds = DB::table('actions')
                             ->where('order_id', $order->id)
@@ -390,13 +394,17 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                     $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
                                 })
                                 ->whereNotIn('id', $pendingUserIds)
-                                ->where('profile_link', '!=', $order->target_url)
+                                // Compare profile_link ignoring a trailing slash
+                                ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
                                 ->whereNotIn('id', function ($sub) use ($order) {
+                                    // Exclude users who have already performed done/external actions
+                                    // on any OTHER order whose target URL (normalized) matches this order's target.
                                     $sub->select('a1.user_id')
                                         ->from('actions as a1')
                                         ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                                         ->whereIn('a1.status', ['done', 'external'])
-                                        ->where('o1.target_url', $order->target_url);
+                                        ->where('o1.target_url_hash', $targetHash)
+                                        ->where('o1.id', '!=', $order->id);
                                 });
 
                             $eligibleUsers = $eligibleQuery->get();
@@ -669,6 +677,10 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         if (empty($candidateIds)) {
                             $eligibleUsersCollection = collect([]);
                         } else {
+                            // Normalize target URL for comparisons (ignore trailing slash)
+                            $normalizedTarget = rtrim($order->target_url, '/');
+                            $targetHash = sha1($normalizedTarget);
+
                             $pendingUserIds = DB::table('actions')
                                 ->where('order_id', $order->id)
                                 ->where('status', 'pending')
@@ -692,20 +704,22 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                 $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
                                 $eligibleUsersCollection = \App\Models\User::whereIn('id', $intersectPending)->get();
                             } else {
-                                $eligibleQuery = \App\Models\User::where('type', 'user')
+                                    $eligibleQuery = \App\Models\User::where('type', 'user')
                                     ->whereIn('id', $candidateIds)
                                     ->whereNotIn('id', function ($q) use ($order) {
                                         $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
                                     })
                                     ->whereNotIn('id', $pendingUserIds)
-                                    ->where('profile_link', '!=', $order->target_url)
-                                    ->whereNotIn('id', function ($sub) use ($order) {
-                                        $sub->select('a1.user_id')
-                                            ->from('actions as a1')
-                                            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                                            ->whereIn('a1.status', ['done', 'external'])
-                                            ->where('o1.target_url', $order->target_url);
-                                    });
+                                    // Compare profile_link ignoring a trailing slash
+                                    ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
+                                        ->whereNotIn('id', function ($sub) use ($targetHash, $order) {
+                                            $sub->select('a1.user_id')
+                                                ->from('actions as a1')
+                                                ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                                                ->whereIn('a1.status', ['done', 'external'])
+                                                ->where('o1.target_url_hash', $targetHash)
+                                                ->where('o1.id', '!=', $order->id);
+                                        });
 
                                 $eligibleUsers = $eligibleQuery->get();
                                 $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));

@@ -38,6 +38,10 @@ class OrderCreated implements ShouldBroadcast
         // Ensure the order's creator is loaded
         $order->loadMissing('user');
 
+        // Normalize target for comparisons
+        $normalizedTarget = rtrim($order->target_url ?? '', '/');
+        $targetHash = $order->target_url_hash ?? sha1($normalizedTarget);
+
         return \App\Models\User::where('type', 'user')
             // Exclude users who already followed/liked this profile (done or external)
             ->whereNotIn('id', function ($q) use ($order) {
@@ -46,7 +50,7 @@ class OrderCreated implements ShouldBroadcast
                     ->whereIn('order_id', function ($s) use ($order) {
                         $s->select('id')
                             ->from('orders')
-                            ->where('target_url', $order->target_url);
+                            ->where('target_url_hash', $order->target_url_hash ?? sha1(rtrim($order->target_url, '/')));
                     })
                     ->whereIn('status', ['done', 'external'])
                     // ✅ Reciprocal exception: allow user if order creator previously followed them
@@ -57,11 +61,12 @@ class OrderCreated implements ShouldBroadcast
                             ->whereColumn('a2.user_id', 'actions.user_id') // same target user
                             ->where('a2.status', 'done')
                             ->where('o2.user_id', $order->user_id) // order creator
-                            ->whereColumn('o2.target_url', 'users.profile_link'); // creator followed them before
+                            // compare creator's order target with users.profile_link ignoring trailing slash
+                            ->whereRaw("TRIM(TRAILING '/' FROM users.profile_link) = ?", [rtrim($order->target_url, '/')]); // creator followed them before
                     });
             })
             // ✅ Prevent user from receiving order to follow themselves
-            ->where('profile_link', '!=', $order->target_url)
+            ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
             ->get();
 
 

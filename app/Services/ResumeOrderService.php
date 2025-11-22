@@ -213,6 +213,10 @@ class ResumeOrderService
             return User::whereIn('id', $pendingUserIds)->get();
         }
 
+        // Normalize target URL for comparisons (ignore trailing slash)
+        $normalizedTarget = rtrim($order->target_url, '/');
+        $targetHash = sha1($normalizedTarget);
+
         // Get new eligible users
         $eligibleUsers = User::where('type', 'user')
             ->orderBy('id', 'desc')
@@ -220,14 +224,15 @@ class ResumeOrderService
                 $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
             })
             ->whereNotIn('id', $pendingUserIds)
-            ->where('profile_link', '!=', $order->target_url)
-            ->whereNotIn('id', function ($sub) use ($order) {
+            // Compare profile_link ignoring a trailing slash
+            ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
+            ->whereNotIn('id', function ($sub) use ($targetHash, $order) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->whereColumn('o1.target_url', 'users.profile_link')
-                    ->where('o1.user_id', $order->user_id);
+                    ->where('o1.target_url_hash', $targetHash)
+                    ->where('o1.id', '!=', $order->id);
             })
             // ✅ Exclude users who have done/external actions on OTHER orders with same target_url
             // ->whereNotIn('id', function ($sub) use ($order) {
