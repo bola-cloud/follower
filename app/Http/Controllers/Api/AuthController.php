@@ -254,10 +254,10 @@ class AuthController extends Controller
                 // Preserve identifying google_id so we can transfer it to the new account
                 $oldGoogleId = $old->google_id;
 
-                // detach identifying fields on old account
+                // detach identifying fields on old account (preserve profile_link)
                 $old->google_id = null;
                 $old->email = null;
-                $old->profile_link = null;
+                // NOTE: preserve $old->profile_link so the previous account retains its link
                 $old->save();
 
                 // create new user with cookies=null; keep the same name as the old account
