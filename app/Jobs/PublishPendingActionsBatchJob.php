@@ -70,54 +70,23 @@ class PublishPendingActionsBatchJob implements ShouldQueue
             $total = 0;
             foreach ($chunks as $chunk) {
                 $jobs = [];
-                $suppressed = 0;
                 foreach ($chunk as $uid) {
-                    $topic = "orders/{$uid}";
-                    $jobArray = [
-                        'topic' => $topic,
+                    $jobs[] = json_encode([
+                        'topic' => "orders/{$uid}",
                         'payload' => $payload,
                         'qos' => 0,
                         'retain' => false,
                         'meta' => ['enqueued_at' => time(), 'batch_id' => $this->batchId]
-                    ];
-
-                    $encodedJob = json_encode($jobArray);
-
-                    // Apply short-window dedupe (same key used by MqttPublisherRedis)
-                    $dedupeTtl = (int) env('MQTT_RECENT_PUBLISH_TTL', 3);
-                    $dedupeKey = 'mqtt:recent_publish:' . md5($topic . '|' . $encodedJob);
-                    $shouldEnqueue = true;
-                    try {
-                        $wasSet = $redis->setnx($dedupeKey, time());
-                        if ($wasSet) {
-                            $redis->expire($dedupeKey, $dedupeTtl);
-                        } else {
-                            $shouldEnqueue = false;
-                        }
-                    } catch (\Throwable $e) {
-                        // If dedupe check fails for any reason, fall back to enqueue (best-effort)
-                        $shouldEnqueue = true;
-                    }
-
-                    if ($shouldEnqueue) {
-                        $jobs[] = $encodedJob;
-                    } else {
-                        $suppressed++;
-                    }
+                    ]);
                 }
 
-                if (!empty($jobs)) {
-                    $redis->pipeline(function ($pipe) use ($queueKey, $jobs) {
-                        foreach ($jobs as $job) {
-                            $pipe->rpush($queueKey, $job);
-                        }
-                    });
-                }
+                $redis->pipeline(function ($pipe) use ($queueKey, $jobs) {
+                    foreach ($jobs as $job) {
+                        $pipe->rpush($queueKey, $job);
+                    }
+                });
 
                 $total += count($jobs);
-                if ($suppressed > 0) {
-                    Log::info('[PublishPendingActionsBatchJob] suppressed duplicate pending publishes', ['order_id' => $order->id, 'suppressed' => $suppressed]);
-                }
             }
 
             Log::info('[PublishPendingActionsBatchJob] published pending actions', ['order_id' => $order->id, 'published' => $total]);
