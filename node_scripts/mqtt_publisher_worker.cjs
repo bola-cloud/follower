@@ -8,6 +8,7 @@ Run with pm2: pm2 start node_scripts/mqtt_publisher_worker.cjs --name mqtt-publi
 
 const mqtt = require('mqtt');
 const IORedis = require('ioredis');
+const crypto = require('crypto');
 
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1:6379';
 // Base queue key (from env). Worker will attempt BRPOP on multiple candidate keys
@@ -149,6 +150,19 @@ async function workerLoop(id) {
         payload = String(payload ?? '');
       }
 
+      // Optional verbose publish tracing (non-invasive; disabled by default)
+      // Set either DEBUG_MQTT_PUBLISH_VERBOSE=1 or DEBUG_MQTT_WORKER=1 to enable.
+      const _debugPublishVerbose = process.env.DEBUG_MQTT_PUBLISH_VERBOSE || process.env.DEBUG_MQTT_WORKER;
+      let _dedupeKey = null;
+      if (_debugPublishVerbose) {
+        try {
+          const h = crypto.createHash('md5').update(topic + '|' + payload).digest('hex');
+          _dedupeKey = `mqtt:recent_publish:${h}`;
+          const sample = payload.length > 200 ? `${payload.slice(0,200)}...` : payload;
+          try { console.error(`${now()} [worker-${id}] 📤 publish trace dedupe=${_dedupeKey} topic=${topic} sample=${sample} meta_retries=${meta._retries} poppedFrom=${poppedKey}`); } catch (e) {}
+        } catch (e) {}
+      }
+
       const qos = Number.isInteger(job.qos) ? job.qos : 0;
       const retain = !!job.retain;
 
@@ -182,6 +196,9 @@ async function workerLoop(id) {
         publishCount++;
         // Small success log to make publishes visible in pm2 logs
         try { console.log(`${now()} [worker-${id}] published topic=${topic}`); } catch (e) {}
+        if (_debugPublishVerbose) {
+          try { console.error(`${now()} [worker-${id}] 📤 published dedupe=${_dedupeKey} topic=${topic}`); } catch (e) {}
+        }
       } catch (err) {
         errorCount++;
         meta._retries += 1;
@@ -191,12 +208,12 @@ async function workerLoop(id) {
           const dead = JSON.stringify({ job, reason: err.message, failedAt: now() });
           // push to DLQ derived from the key we popped from
           await redis.lpush(`${poppedKey}:dead`, dead);
-          console.error(`${now()} [worker-${id}] publish failed, DLQ (retries=${meta._retries}):`, err.message);
+          console.error(`${now()} [worker-${id}] publish failed, DLQ (retries=${meta._retries}) dedupe=${_dedupeKey}:`, err.message);
         } else {
           const requeue = JSON.stringify(job);
           // requeue to the same key we popped from
           await redis.rpush(poppedKey, requeue);
-          console.warn(`${now()} [worker-${id}] publish failed, requeued to ${poppedKey} (retries=${meta._retries}):`, err.message);
+          console.warn(`${now()} [worker-${id}] publish failed, requeued to ${poppedKey} (retries=${meta._retries}) dedupe=${_dedupeKey}:`, err.message);
         }
         await new Promise(r => setTimeout(r, 200));
       }
