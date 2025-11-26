@@ -72,6 +72,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         $pingKey = env('COORDINATOR_LAST_PING_KEY', 'coordinator:last_ping');
         $pingInterval = (int) env('COORDINATOR_PING_INTERVAL_SECONDS', 1800); // default 30 minutes
         $minActiveThreshold = (int) env('COORDINATOR_PING_MIN_ACTIVE_THRESHOLD', 10);
+        $totalReserved = 0; // pending + reserved by user iteration (pre-claim)
 
         $lastPing = 0;
         try {
@@ -396,14 +397,17 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                 ->whereNotIn('id', $pendingUserIds)
                                 // Compare profile_link ignoring a trailing slash
                                 ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
-                                ->whereNotIn('id', function ($sub) use ($order) {
+                                ->whereNotIn('id', function ($sub) use ($order, $targetHash, $normalizedTarget) {
                                     // Exclude users who have already performed done/external actions
-                                    // on any OTHER order whose target URL (normalized) matches this order's target.
+                                    // on any OTHER order whose target URL matches this order's target.
+                                    // Prefer index-backed `target_url_hash` comparison when present,
+                                    // but also fall back to comparing normalized `target_url` text
+                                    // for legacy rows that haven't been backfilled.
                                     $sub->select('a1.user_id')
                                         ->from('actions as a1')
                                         ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                                         ->whereIn('a1.status', ['done', 'external'])
-                                        ->where('o1.target_url_hash', $targetHash)
+                                        ->whereRaw("COALESCE(o1.target_url_hash, SHA1(TRIM(TRAILING '/' FROM o1.target_url))) = ?", [$targetHash])
                                         ->where('o1.id', '!=', $order->id);
                                 });
 
@@ -712,12 +716,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                     ->whereNotIn('id', $pendingUserIds)
                                     // Compare profile_link ignoring a trailing slash
                                     ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
-                                        ->whereNotIn('id', function ($sub) use ($targetHash, $order) {
+                                        ->whereNotIn('id', function ($sub) use ($targetHash, $order, $normalizedTarget) {
                                             $sub->select('a1.user_id')
                                                 ->from('actions as a1')
                                                 ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                                                 ->whereIn('a1.status', ['done', 'external'])
-                                                ->where('o1.target_url_hash', $targetHash)
+                                                ->whereRaw("COALESCE(o1.target_url_hash, SHA1(TRIM(TRAILING '/' FROM o1.target_url))) = ?", [$targetHash])
                                                 ->where('o1.id', '!=', $order->id);
                                         });
 
@@ -823,6 +827,18 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         }
         unset($metaRef);
 
+        // Preload active user models for per-user eligibility checks
+        // We'll use ResumeOrderService::checkUserEligibility($order, $user)
+        // for a definitive per-user decision rather than relying solely on
+        // the precomputed eligible sets which operate at batch-level.
+        $activeUserModels = [];
+        try {
+            $activeUserModels = \App\Models\User::whereIn('id', $activeUsers)->get()->keyBy('id')->all();
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to preload active user models', ['error' => $e->getMessage()]);
+            $activeUserModels = [];
+        }
+
         // Second phase: for each order, iterate active users and try to fill
         // remaining slots. This is an order-major approach: pick users for
         // the oldest order first, then move to the next order. It better
@@ -849,12 +865,25 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
                     if ($uc >= $perUserLimit) continue;
 
-                    // Skip if user already has action or is not eligible for
-                    // this particular order. Use the per-order eligibleActive
-                    // set computed above to ensure we respect order-specific
-                    // eligibility.
+                    // Skip if user already has action
                     if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
-                    if (!isset($ordersMeta[$oid]['eligibleActive'][$uid])) continue;
+
+                    // Per-user eligibility check: consult ResumeOrderService for
+                    // definitive decision for this user/order pair. This avoids
+                    // the whole-batch eligible-set approach which can miss
+                    // nuanced per-user conditions.
+                    $userModel = $activeUserModels[$uid] ?? null;
+                    if (! $userModel) continue;
+
+                    try {
+                        if (! $resumeService->checkUserEligibility($order, $userModel)) {
+                            continue;
+                        }
+                    } catch (\Throwable $e) {
+                        // If the per-user check fails unexpectedly, skip this user
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] per-user eligibility check failed', ['order_id' => $oid, 'user_id' => $uid, 'error' => $e->getMessage()]);
+                        continue;
+                    }
 
                     // Avoid adding the same uid twice
                     if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
@@ -919,6 +948,23 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
     // publishes in up to $maxBatches batches
     $totalPublishes = count($publishList);
     Log::info('[InsertAndPublishForActiveDashboardUsers] total publishes collected', ['total' => $totalPublishes]);
+
+        // Final dedupe: ensure we never enqueue the same URL to the same user
+        // more than once (canonicalize URL by trimming trailing slash).
+        $deduped = [];
+        $seenUrlUser = [];
+        foreach ($publishList as $item) {
+            $uid = intval($item['user_id']);
+            $url = isset($item['payload']['url']) ? rtrim($item['payload']['url'], '/') : '';
+            $key = $url . ':' . $uid;
+            if (isset($seenUrlUser[$key])) {
+                // skip duplicate
+                continue;
+            }
+            $seenUrlUser[$key] = true;
+            $deduped[] = $item;
+        }
+        $publishList = $deduped;
 
         // Enforce global cap strictly on the final publish list. It's possible
         // that due to reservation logic or race conditions the in-memory
