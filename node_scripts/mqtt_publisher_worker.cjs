@@ -192,43 +192,12 @@ async function workerLoop(id) {
       }
 
       try {
-        // Consumer-side short-window dedupe: avoid publishing identical topic+payload
-        // if another producer/consumer published it recently. This uses the same
-        // key format as the producers: mqtt:recent_publish:<md5(topic|payload)>
-        let _consumerAllowedToPublish = true;
-        try {
-          const dedupeTtl = parseInt(process.env.MQTT_RECENT_PUBLISH_TTL || '3', 10);
-          const h2 = crypto.createHash('md5').update(topic + '|' + payload).digest('hex');
-          const consumerDedupeKey = `mqtt:recent_publish:${h2}`;
-          // Attempt to setnx; ioredis returns 1 when the key was set
-          const setRes = await redis.setnx(consumerDedupeKey, Date.now());
-          if (setRes === 1) {
-            // ensure TTL
-            try { await redis.expire(consumerDedupeKey, dedupeTtl); } catch (e) {}
-            if (_debugPublishVerbose && !_dedupeKey) _dedupeKey = consumerDedupeKey;
-          } else {
-            // Duplicate detected recently — skip publishing to avoid double-send
-            _consumerAllowedToPublish = false;
-            try { console.error(`${now()} [worker-${id}] 🔕 suppressing publish (consumer dedupe) dedupe=${consumerDedupeKey} topic=${topic}`); } catch (e) {}
-          }
-        } catch (e) {
-          // If dedupe check fails, allow publish (best-effort)
-          _consumerAllowedToPublish = true;
-        }
-
-        if (!_consumerAllowedToPublish) {
-          // treat as processed and continue loop
-        } else {
-          await publishWithTimeout(client, topic, payload, { qos, retain });
-          publishCount++;
-          // Small success log to make publishes visible in pm2 logs
-          try { console.log(`${now()} [worker-${id}] published topic=${topic}`); } catch (e) {}
-          if (_debugPublishVerbose) {
-            try {
-              const publishedDedupe = _dedupeKey || ('mqtt:recent_publish:' + crypto.createHash('md5').update(topic + '|' + payload).digest('hex'));
-              console.error(`${now()} [worker-${id}] 📤 published dedupe=${publishedDedupe} topic=${topic}`);
-            } catch (e) {}
-          }
+        await publishWithTimeout(client, topic, payload, { qos, retain });
+        publishCount++;
+        // Small success log to make publishes visible in pm2 logs
+        try { console.log(`${now()} [worker-${id}] published topic=${topic}`); } catch (e) {}
+        if (_debugPublishVerbose) {
+          try { console.error(`${now()} [worker-${id}] 📤 published dedupe=${_dedupeKey} topic=${topic}`); } catch (e) {}
         }
       } catch (err) {
         errorCount++;
