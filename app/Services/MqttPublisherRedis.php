@@ -84,11 +84,17 @@ class MqttPublisherRedis
                     try { $redisConn->expire($dedupeKey, $dedupeTtl); } catch (\Throwable $__ignore) {}
                 } else {
                     // Duplicate detected within TTL window — suppress enqueue and log
-                    Log::info('[MqttPublisherRedis] Suppressing duplicate publish (recently published)', [
-                        'topic' => $topic,
-                        'dedupe_key' => $dedupeKey,
-                        'ttl' => $dedupeTtl
-                    ]);
+                    try {
+                        Log::info('[MqttPublisherRedis] Suppressing duplicate publish (recently published)', [
+                            'topic' => $topic,
+                            'dedupe_key' => $dedupeKey,
+                            'ttl' => $dedupeTtl,
+                            'payload_sample' => mb_substr($job['payload'], 0, 200)
+                        ]);
+                    } catch (\Throwable $__ll) {
+                        // fallback log
+                        Log::info('[MqttPublisherRedis] Suppressing duplicate publish (recently published) - payload too large or logging failed', ['topic' => $topic, 'dedupe_key' => $dedupeKey]);
+                    }
                     // Treat as success: upstream will assume message handled to avoid fallback execs
                     return true;
                 }
@@ -136,7 +142,15 @@ class MqttPublisherRedis
             }
 
             try {
-                Log::info('[MqttPublisherRedis] enqueued', ['key' => $this->key, 'len' => $rpushRes, 'topic' => $job['topic']]);
+                // Also log dedupe key and a small payload sample for tracing duplicates
+                $dedupeKey = 'mqtt:recent_publish:' . md5($job['topic'] . '|' . $job['payload']);
+                Log::info('[MqttPublisherRedis] enqueued', [
+                    'key' => $this->key,
+                    'len' => $rpushRes,
+                    'topic' => $job['topic'],
+                    'dedupe_key' => $dedupeKey,
+                    'payload_sample' => mb_substr($job['payload'], 0, 200)
+                ]);
             } catch (\Throwable $e) {
                 // ignore logging errors
             }

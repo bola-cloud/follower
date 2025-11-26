@@ -61,6 +61,18 @@ async function loop() {
 
     if (DEBUG) console.log('📤 popped job', { topic, opts, rawSnippet: raw.slice(0, 200) });
 
+    // Optional verbose publish tracing (enable with DEBUG_MQTT_PUBLISH_VERBOSE=1)
+    const VERBOSE = process.env.DEBUG_MQTT_PUBLISH_VERBOSE === '1' || process.env.DEBUG_MQTT_PUBLISH_VERBOSE === 'true';
+    if (VERBOSE) {
+      try {
+        const crypto = require('crypto');
+        const dedupeKey = 'mqtt:recent_publish:' + crypto.createHash('md5').update(topic + '|' + payload).digest('hex');
+        console.log('📤 publish trace', { topic, dedupeKey, payloadSnippet: payload.slice(0,200) });
+      } catch (e) {
+        console.log('📤 publish trace error', e && e.message ? e.message : e);
+      }
+    }
+
     // publish with a callback; don't block other operations but ensure we log failures
     await new Promise((resolve) => {
       client.publish(topic, payload, opts, async (err) => {
