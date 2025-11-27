@@ -231,7 +231,12 @@ class ResumeOrderService
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->where('o1.target_url_hash', $targetHash)
+                    ->where(function ($q) use ($targetHash) {
+                        // Use precomputed target_url_hash when available (fast/indexed),
+                        // or fall back to comparing SHA1 of normalized target_url for legacy rows.
+                        $q->where('o1.target_url_hash', $targetHash)
+                          ->orWhereRaw("o1.target_url_hash IS NULL AND SHA1(TRIM(TRAILING '/' FROM o1.target_url)) = ?", [$targetHash]);
+                    })
                     ->where('o1.id', '!=', $order->id);
             })
             // ✅ Exclude users who have done/external actions on OTHER orders with same target_url
