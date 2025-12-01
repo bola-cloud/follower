@@ -333,6 +333,11 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         $resumeService = app(ResumeOrderService::class);
         $ordersMeta = []; // order_id => meta (includes order model)
         $totalReserved = 0; // pending + reserved by user iteration (pre-claim)
+        
+        // ✅ CRITICAL FIX: Track user assignments by target URL hash WITHIN THIS RUN
+        // Prevents same user from being assigned to multiple orders with same link
+        // when those orders are processed in the same coordinator run
+        $assignedUsersByTargetHash = []; // target_hash => [user_id1, user_id2, ...]
 
         foreach ($orders as $order) {
             try {
@@ -353,6 +358,27 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 // Consider all currently active users for eligibility checks
                 $candidates = $activeUsers;
                 if (empty($candidates)) {
+                    continue;
+                }
+                
+                // ✅ CRITICAL: Exclude users already assigned to this target URL in THIS RUN
+                // This prevents duplicate assignments when multiple orders with same link
+                // are processed in the same coordinator execution
+                $normalizedTarget = rtrim($order->target_url, '/');
+                $targetHash = sha1($normalizedTarget);
+                $alreadyAssignedToThisLink = $assignedUsersByTargetHash[$targetHash] ?? [];
+                if (!empty($alreadyAssignedToThisLink)) {
+                    $candidates = array_values(array_diff($candidates, $alreadyAssignedToThisLink));
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] excluded users already assigned to this link in current run', [
+                        'order_id' => $order->id,
+                        'target_hash' => substr($targetHash, 0, 8),
+                        'excluded_count' => count($alreadyAssignedToThisLink),
+                        'remaining_candidates' => count($candidates)
+                    ]);
+                }
+                
+                if (empty($candidates)) {
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] no candidates left after excluding already-assigned users', ['order_id' => $order->id]);
                     continue;
                 }
 
@@ -425,6 +451,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $userCounts[$uid] = $uc + 1;
                     $assigned++;
                     $ordersSummary[$order->id]['pending_added']++;
+                    
+                    // Track this user as assigned to this target URL hash
+                    $tHash = $ordersMeta[$order->id]['targetHash'];
+                    if (!isset($assignedUsersByTargetHash[$tHash])) {
+                        $assignedUsersByTargetHash[$tHash] = [];
+                    }
+                    $assignedUsersByTargetHash[$tHash][] = $uid;
                     // Keep the global publishes counter in sync with the list so
                     // the later batching logic sees the correct total.
                     $totalPublishes++;
@@ -448,6 +481,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     'alreadyActioned' => array_flip($alreadyActionedActive),
                     'toClaim' => [],
                     'payloadBase' => $payloadBase,
+                    'targetHash' => $targetHash, // store for tracking assignments
                 ];
 
                 // Count pending adds towards reserved (they will be published)
@@ -825,6 +859,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $ordersMeta[$oid]['remaining']--;
                     $userCounts[$uid] = $uc + 1;
                     $totalReserved++;
+                    
+                    // Track this user as assigned to this target URL hash
+                    $tHash = $ordersMeta[$oid]['targetHash'];
+                    if (!isset($assignedUsersByTargetHash[$tHash])) {
+                        $assignedUsersByTargetHash[$tHash] = [];
+                    }
+                    $assignedUsersByTargetHash[$tHash][] = $uid;
                 }
             }
         }
@@ -872,6 +913,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 $seenPublish[$pairKey] = true;
                 $ordersSummary[$oid]['claimed_added']++;
                 $totalPublishes++;
+                
+                // Track this user as assigned to this target URL hash
+                $tHash = $meta['targetHash'];
+                if (!isset($assignedUsersByTargetHash[$tHash])) {
+                    $assignedUsersByTargetHash[$tHash] = [];
+                }
+                $assignedUsersByTargetHash[$tHash][] = $uid;
             }
         }
 
