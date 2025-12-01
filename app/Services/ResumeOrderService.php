@@ -164,6 +164,90 @@ class ResumeOrderService
 
     // performBatchInsert moved to BatchActionService
 
+    /**
+     * Batch eligibility check: given an order and a list of candidate user IDs,
+     * returns the subset of user IDs that are eligible for this order.
+     * This avoids calling getEligibleUsers multiple times and eliminates code duplication.
+     * 
+     * @param Order $order The order to check eligibility for
+     * @param array $candidateUserIds Array of user IDs to check (e.g., active users)
+     * @return array Array of eligible user IDs from the candidates
+     */
+    public function batchCheckEligibility(Order $order, array $candidateUserIds): array
+    {
+        if (empty($candidateUserIds)) {
+            return [];
+        }
+
+        // Normalize target URL for comparisons (ignore trailing slash)
+        $normalizedTarget = rtrim($order->target_url, '/');
+        $targetHash = sha1($normalizedTarget);
+
+        // Get pending users for this order (intersected with candidates)
+        $pendingUserIds = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'pending')
+            ->whereIn('user_id', $candidateUserIds)
+            ->pluck('user_id')
+            ->toArray();
+
+        // Count actual done actions
+        $actualDoneCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'done')
+            ->count();
+
+        // Count recent pending actions (last 30 minutes)
+        $recentPendingCount = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->where('status', 'pending')
+            ->where('created_at', '>=', now()->subMinutes(30))
+            ->count();
+
+        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
+
+        // If no remaining slots, only return pending users
+        if ($remaining <= 0) {
+            return $pendingUserIds;
+        }
+
+        // Query new eligible users restricted to the candidate IDs
+        // ✅ CRITICAL FIX: Exclude users who already took action (done/external) on ANY order with the same target URL
+        $eligibleUserIds = DB::table('users')
+            ->select('users.id')
+            ->where('users.type', 'user')
+            ->whereIn('users.id', $candidateUserIds)
+            // Exclude users who already have done/external actions on THIS order
+            ->whereNotIn('users.id', function ($q) use ($order) {
+                $q->select('user_id')
+                    ->from('actions')
+                    ->where('order_id', $order->id)
+                    ->whereIn('status', ['done', 'external']);
+            })
+            // Exclude pending users (we'll add them separately)
+            ->whereNotIn('users.id', $pendingUserIds)
+            // Exclude users whose profile_link matches the target (ignoring trailing slash)
+            ->whereRaw("TRIM(TRAILING '/' FROM users.profile_link) != ?", [$normalizedTarget])
+            // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
+            ->whereNotIn('users.id', function ($sub) use ($order, $targetHash) {
+                $sub->select('a1.user_id')
+                    ->from('actions as a1')
+                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                    ->whereIn('a1.status', ['done', 'external'])
+                    ->where(function ($q) use ($targetHash) {
+                        // Use precomputed hash when available, fallback to SHA1 comparison
+                        $q->where('o1.target_url_hash', $targetHash)
+                          ->orWhereRaw("o1.target_url_hash IS NULL AND SHA1(TRIM(TRAILING '/' FROM o1.target_url)) = ?", [$targetHash]);
+                    })
+                    ->where('o1.id', '!=', $order->id);
+            })
+            ->pluck('users.id')
+            ->toArray();
+
+        // Combine pending users (at front) with newly eligible users
+        return array_values(array_unique(array_merge($pendingUserIds, $eligibleUserIds)));
+    }
+
     public function checkUserEligibility(Order $order, User $user): bool
     {
         Log::error('[ResumeOrderService] checkUserEligibility start', [

@@ -318,6 +318,17 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         $totalInserted = 0; // sum of inserted actions from BatchActionService
         $publishedEnqueued = 0; // actual number of publish jobs pushed to Redis
 
+        // ✅ FIX ISSUE #3: Re-read active users from Redis immediately before eligibility checks
+        // This ensures we capture any users who became active AFTER the initial snapshot
+        // (e.g., users who responded to ping or opened dashboard during job execution)
+        try {
+            $activeUsers = $redis->smembers($activeKey) ?: [];
+            $activeUsers = array_values(array_filter(array_map('intval', $activeUsers)));
+            Log::info('[InsertAndPublishForActiveDashboardUsers] refreshed active users before eligibility checks', ['count' => count($activeUsers)]);
+        } catch (\Throwable $e) {
+            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to refresh active users, using previous snapshot', ['error' => $e->getMessage()]);
+        }
+
         // Build per-order metadata first: capacity, eligible set and pending users.
         $resumeService = app(ResumeOrderService::class);
         $ordersMeta = []; // order_id => meta (includes order model)
@@ -339,101 +350,32 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     continue;
                 }
 
-                // Consider all currently active users for eligibility checks.
-                // Previously we limited to the first $usersPerOrderLimit which could
-                // skip eligible users. The second-phase selection still respects
-                // per-user caps and global caps, so it's safe to consider the
-                // full active set here.
+                // Consider all currently active users for eligibility checks
                 $candidates = $activeUsers;
                 if (empty($candidates)) {
                     continue;
                 }
 
-                // Compute eligible users for this order (cached here so we can
-                // test membership quickly when iterating active users). Measure
-                // elapsed time to diagnose slow ResumeOrderService calls.
+                // ✅ FIX ISSUE #1 & #2: Use new batch eligibility method instead of duplicated logic
+                // This is faster, cleaner, and correctly excludes users who took action on same link in OTHER orders
                 try {
                     $t0 = microtime(true);
-
-                    $candidateIds = $candidates;
-                        if (empty($candidateIds)) {
-                        $eligibleUsersCollection = collect([]);
-                    } else {
-                            // Normalize target URL for comparisons (ignore trailing slash)
-                            $normalizedTarget = rtrim($order->target_url, '/');
-                            $targetHash = sha1($normalizedTarget);
-
-                        // Pending users for this order
-                        $pendingUserIds = DB::table('actions')
-                            ->where('order_id', $order->id)
-                            ->where('status', 'pending')
-                            ->pluck('user_id')
-                            ->toArray();
-
-                        $actualDoneCount = DB::table('actions')
-                            ->where('order_id', $order->id)
-                            ->where('status', 'done')
-                            ->count();
-
-                        $recentPendingCount = DB::table('actions')
-                            ->where('order_id', $order->id)
-                            ->where('status', 'pending')
-                            ->where('created_at', '>=', now()->subMinutes(30))
-                            ->count();
-
-                        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
-
-                        // If no remaining slots, only consider pending users (intersected with candidates)
-                        if ($remaining <= 0) {
-                            $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
-                            $eligibleUsersCollection = \App\Models\User::whereIn('id', $intersectPending)->get();
-                        } else {
-                            // Query new eligible users restricted to the candidate IDs
-                            $eligibleQuery = \App\Models\User::where('type', 'user')
-                                ->whereIn('id', $candidateIds)
-                                ->whereNotIn('id', function ($q) use ($order) {
-                                    $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
-                                })
-                                ->whereNotIn('id', $pendingUserIds)
-                                // Compare profile_link ignoring a trailing slash
-                                ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
-                                ->whereNotIn('id', function ($sub) use ($order, $targetHash, $normalizedTarget) {
-                                    // Exclude users who have already performed done/external actions
-                                    // on any OTHER order whose target URL matches this order's target.
-                                    // Prefer index-backed `target_url_hash` comparison when present,
-                                    // but also fall back to comparing normalized `target_url` text
-                                    // for legacy rows that haven't been backfilled.
-                                    $sub->select('a1.user_id')
-                                        ->from('actions as a1')
-                                        ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                                        ->whereIn('a1.status', ['done', 'external'])
-                                        ->whereRaw("COALESCE(o1.target_url_hash, SHA1(TRIM(TRAILING '/' FROM o1.target_url))) = ?", [$targetHash])
-                                        ->where('o1.id', '!=', $order->id);
-                                });
-
-                            $eligibleUsers = $eligibleQuery->get();
-
-                            // Include pending users (within candidates) at front
-                            $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
-                            $pendingUsers = \App\Models\User::whereIn('id', $intersectPending)->get();
-                            $eligibleUsersCollection = $pendingUsers->merge($eligibleUsers);
-                        }
-                    }
-
+                    
+                    $eligibleIdsAll = $resumeService->batchCheckEligibility($order, $candidates);
+                    
                     $t1 = microtime(true);
-                    $eligibleIdsAll = $eligibleUsersCollection->pluck('id')->toArray();
                     $elapsedMs = round(($t1 - $t0) * 1000, 2);
-                    Log::info('[ResumeOrderService] getEligibleUsers (batched) completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+                    Log::info('[ResumeOrderService] batchCheckEligibility completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs, 'eligible_count' => count($eligibleIdsAll)]);
                     if ($elapsedMs > 500) {
-                        Log::warning('[ResumeOrderService] getEligibleUsers (batched) slow', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+                        Log::warning('[ResumeOrderService] batchCheckEligibility slow', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
                     }
                 } catch (\Throwable $e) {
                     Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users (batched)', ['order_id' => $order->id, 'error' => $e->getMessage()]);
                     $eligibleIdsAll = $candidates;
                 }
 
-                $eligible = array_values(array_intersect($eligibleIdsAll, $candidates));
-                Log::info('[InsertAndPublishForActiveDashboardUsers] eligible intersection counts', ['order_id' => $order->id, 'eligible_total' => count($eligibleIdsAll), 'active_checked' => count($candidates), 'eligible_after_intersect' => count($eligible)]);
+                $eligible = $eligibleIdsAll;
+                Log::info('[InsertAndPublishForActiveDashboardUsers] eligible counts', ['order_id' => $order->id, 'eligible_count' => count($eligible), 'active_checked' => count($candidates)]);
                 if (empty($eligible)) {
                     // No eligible active users for this order
                     continue;
@@ -868,22 +810,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     // Skip if user already has action
                     if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
 
-                    // Per-user eligibility check: consult ResumeOrderService for
-                    // definitive decision for this user/order pair. This avoids
-                    // the whole-batch eligible-set approach which can miss
-                    // nuanced per-user conditions.
-                    $userModel = $activeUserModels[$uid] ?? null;
-                    if (! $userModel) continue;
-
-                    try {
-                        if (! $resumeService->checkUserEligibility($order, $userModel)) {
-                            continue;
-                        }
-                    } catch (\Throwable $e) {
-                        // If the per-user check fails unexpectedly, skip this user
-                        Log::warning('[InsertAndPublishForActiveDashboardUsers] per-user eligibility check failed', ['order_id' => $oid, 'user_id' => $uid, 'error' => $e->getMessage()]);
-                        continue;
-                    }
+                    // Eligibility already checked by batchCheckEligibility - no need for per-user check
+                    // The eligible set in ordersMeta is authoritative and already excludes:
+                    // - Users with done/external on THIS order
+                    // - Users with done/external on OTHER orders with same target URL
+                    // - Users whose profile_link matches the target
+                    // This avoids expensive per-user DB queries
 
                     // Avoid adding the same uid twice
                     if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
