@@ -361,11 +361,11 @@ class MqttResponseController extends Controller
     {
         $startTime = microtime(true);
 
-        Log::info("[MQTT_API_DRAIN] Request received", [
-            'content_length' => strlen($request->getContent()),
-            'has_actions' => $request->has('actions'),
-            'actions_count' => is_array($request->input('actions')) ? count($request->input('actions')) : 0
-        ]);
+        // Log::info("[MQTT_API_DRAIN] Request received", [
+        //     'content_length' => strlen($request->getContent()),
+        //     'has_actions' => $request->has('actions'),
+        //     'actions_count' => is_array($request->input('actions')) ? count($request->input('actions')) : 0
+        // ]);
 
         try {
             $validated = $request->validate([
@@ -387,11 +387,11 @@ class MqttResponseController extends Controller
         $batchId = $validated['batch_id'] ?? 'drain_batch_' . time();
         $totalActions = count($actions);
 
-        Log::info("[MQTT_API_DRAIN] Batch validated and starting processing", [
-            'batch_id' => $batchId,
-            'total_actions' => $totalActions,
-            'sample_actions' => array_slice($actions, 0, 3)
-        ]);
+        // Log::info("[MQTT_API_DRAIN] Batch validated and starting processing", [
+        //     'batch_id' => $batchId,
+        //     'total_actions' => $totalActions,
+        //     'sample_actions' => array_slice($actions, 0, 3)
+        // ]);
 
         // Group by status and push to Redis drain queues
         $groupedByStatus = $this->groupActionsByStatus($actions);
@@ -405,13 +405,13 @@ class MqttResponseController extends Controller
 
             $queueKey = "order_responses:drain_queue:{$status}";
 
-            Log::info("[MQTT_API_DRAIN] Pushing to Redis", [
-                'batch_id' => $batchId,
-                'status' => $status,
-                'count' => count($responses),
-                'queue_key' => $queueKey,
-                'sample' => array_slice($responses, 0, 2)
-            ]);
+            // Log::info("[MQTT_API_DRAIN] Pushing to Redis", [
+            //     'batch_id' => $batchId,
+            //     'status' => $status,
+            //     'count' => count($responses),
+            //     'queue_key' => $queueKey,
+            //     'sample' => array_slice($responses, 0, 2)
+            // ]);
 
             // Push all responses to Redis (atomic, guaranteed)
             $pipeline = Redis::pipeline(function ($pipe) use ($responses, $queueKey) {
@@ -425,13 +425,13 @@ class MqttResponseController extends Controller
             // Verify items were added to Redis
             $queueLength = Redis::llen($queueKey);
 
-            Log::info("[MQTT_API_DRAIN] Pushed to drain queue", [
-                'batch_id' => $batchId,
-                'status' => $status,
-                'count' => count($responses),
-                'queue_key' => $queueKey,
-                'queue_length_after' => $queueLength
-            ]);
+            // Log::info("[MQTT_API_DRAIN] Pushed to drain queue", [
+            //     'batch_id' => $batchId,
+            //     'status' => $status,
+            //     'count' => count($responses),
+            //     'queue_key' => $queueKey,
+            //     'queue_length_after' => $queueLength
+            // ]);
 
             // Start drain job if not already running
             $this->startDrainJobIfNeeded($status);
@@ -471,10 +471,10 @@ class MqttResponseController extends Controller
             // Dispatch drain job immediately - no lock needed
             \App\Jobs\DrainOrderResponsesJob::dispatch($status);
 
-            Log::info('[MQTT_API_DRAIN] Drain job dispatched (lockless)', [
-                'status' => $status,
-                'queue_length' => $queueLength
-            ]);
+            // Log::info('[MQTT_API_DRAIN] Drain job dispatched (lockless)', [
+            //     'status' => $status,
+            //     'queue_length' => $queueLength
+            // ]);
         } else {
             Log::debug('[MQTT_API_DRAIN] Queue empty, no drain job needed', [
                 'status' => $status
@@ -575,11 +575,11 @@ class MqttResponseController extends Controller
     public function triggerOrder(Request $request)
     {
         // Remove noisy stray debug; add structured trace for visibility
-        Log::error('[MqttResponseController] entry trace', [
-            'method' => __METHOD__,
-            'request_path' => request()->path(),
-            'ip' => request()->ip()
-        ]);
+        // Log::error('[MqttResponseController] entry trace', [
+        //     'method' => __METHOD__,
+        //     'request_path' => request()->path(),
+        //     'ip' => request()->ip()
+        // ]);
         // Check database connectivity first
         if (!$this->checkDatabaseConnectivity()) {
             \Log::error("[triggerOrder] Database connection failed, rejecting request");
@@ -729,10 +729,10 @@ class MqttResponseController extends Controller
             $responses = $validated['responses'];
             $totalResponses = count($responses);
 
-            Log::info('[MqttResponseController] batch trigger received', [
-                'batch_id' => $batchId,
-                'count' => $totalResponses
-            ]);
+            // Log::info('[MqttResponseController] batch trigger received', [
+            //     'batch_id' => $batchId,
+            //     'count' => $totalResponses
+            // ]);
 
             // Group responses by order_id and type for efficient processing
             $grouped = [];
@@ -779,12 +779,12 @@ class MqttResponseController extends Controller
 
                 $jobsDispatched++;
 
-                Log::info('[MqttResponseController] batch job dispatched', [
-                    'batch_id' => $jobBatchId,
-                    'order_id' => $group['order_id'],
-                    'type' => $group['type'],
-                    'user_count' => $count
-                ]);
+                // Log::info('[MqttResponseController] batch job dispatched', [
+                //     'batch_id' => $jobBatchId,
+                //     'order_id' => $group['order_id'],
+                //     'type' => $group['type'],
+                //     'user_count' => $count
+                // ]);
             }
 
             $duration = round((microtime(true) - $startTime) * 1000, 2);
@@ -888,12 +888,12 @@ class MqttResponseController extends Controller
             Redis::expire($redisKey, 3600);
 
             $queueSize = Redis::llen($redisKey);
-            \Log::info("[MQTT_API] Action queued for batch processing", [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'status' => $status,
-                'queue_size' => $queueSize
-            ]);
+            // \Log::info("[MQTT_API] Action queued for batch processing", [
+            //     'order_id' => $orderId,
+            //     'user_id' => $userId,
+            //     'status' => $status,
+            //     'queue_size' => $queueSize
+            // ]);
 
             // Dispatch ActionQueueJob if not already running
             $this->ensureActionQueueJobRunning();

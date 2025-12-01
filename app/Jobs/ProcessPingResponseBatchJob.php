@@ -48,13 +48,13 @@ class ProcessPingResponseBatchJob implements ShouldQueue
         $startTime = microtime(true);
         $totalUsers = count($this->userIds);
 
-        Log::info('[ProcessPingResponseBatchJob] start', [
-            'batch_id' => $this->batchId,
-            'order_id' => $this->orderId,
-            'type' => $this->type,
-            'user_count' => $totalUsers,
-            'attempt' => $this->attempts()
-        ]);
+        // Log::info('[ProcessPingResponseBatchJob] start', [
+        //     'batch_id' => $this->batchId,
+        //     'order_id' => $this->orderId,
+        //     'type' => $this->type,
+        //     'user_count' => $totalUsers,
+        //     'attempt' => $this->attempts()
+        // ]);
 
         try {
             // Load order once
@@ -163,12 +163,12 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                 $eligibleCount = count($eligibleUserIds);
             }
 
-            Log::info('[ProcessPingResponseBatchJob] eligible users filtered', [
-                'batch_id' => $this->batchId,
-                'order_id' => $this->orderId,
-                'total_users' => $totalUsers,
-                'eligible_count' => $eligibleCount
-            ]);
+            // Log::info('[ProcessPingResponseBatchJob] eligible users filtered', [
+            //     'batch_id' => $this->batchId,
+            //     'order_id' => $this->orderId,
+            //     'total_users' => $totalUsers,
+            //     'eligible_count' => $eligibleCount
+            // ]);
 
             // Compute capacity counts before publishing (no locks)
             $doneCount = DB::table('actions')
@@ -185,13 +185,13 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             $remaining = $order->total_count - $doneCount;
             $availableSlots = $order->total_count - $doneCount - $pendingCount;
 
-            Log::info('[ProcessPingResponseBatchJob] capacity computed', [
-                'order_id' => $order->id,
-                'done_count' => $doneCount,
-                'pending_count' => $pendingCount,
-                'remaining' => $remaining,
-                'available_slots' => $availableSlots
-            ]);
+            // Log::info('[ProcessPingResponseBatchJob] capacity computed', [
+            //     'order_id' => $order->id,
+            //     'done_count' => $doneCount,
+            //     'pending_count' => $pendingCount,
+            //     'remaining' => $remaining,
+            //     'available_slots' => $availableSlots
+            // ]);
 
             if ($remaining <= 0) {
                 Log::info('[ProcessPingResponseBatchJob] Order already completed (after capacity check), skipping', ['order_id' => $order->id]);
@@ -279,15 +279,15 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
             $duration = round((microtime(true) - $startTime) * 1000, 2);
 
-            Log::info('[ProcessPingResponseBatchJob] completed', [
-                'batch_id' => $this->batchId,
-                'order_id' => $this->orderId,
-                'total_users' => $totalUsers,
-                'eligible_count' => $eligibleCount,
-                'processed' => $totalProcessed,
-                'published' => $totalPublished,
-                'duration_ms' => $duration
-            ]);
+            // Log::info('[ProcessPingResponseBatchJob] completed', [
+            //     'batch_id' => $this->batchId,
+            //     'order_id' => $this->orderId,
+            //     'total_users' => $totalUsers,
+            //     'eligible_count' => $eligibleCount,
+            //     'processed' => $totalProcessed,
+            //     'published' => $totalPublished,
+            //     'duration_ms' => $duration
+            // ]);
 
             // Record metrics in Redis
             $this->recordMetrics($totalUsers, $eligibleCount, $totalProcessed, $totalPublished, $duration);
@@ -484,10 +484,10 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
             $published = count($jobs);
 
-            Log::info('[ProcessPingResponseBatchJob] published chunk', [
-                'order_id' => $order->id,
-                'published' => $published
-            ]);
+            // Log::info('[ProcessPingResponseBatchJob] published chunk', [
+            //     'order_id' => $order->id,
+            //     'published' => $published
+            // ]);
 
         } catch (\Throwable $e) {
             Log::error('[ProcessPingResponseBatchJob] publish chunk failed', [

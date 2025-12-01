@@ -16,16 +16,16 @@ class InstagramLookupService
     public function resolve(string $target, string $type, int $tries = 5): ?string
     {
         // Determine what to lookup
-        Log::info('[InstagramLookup] resolve called', ['target' => $target, 'type' => $type, 'tries' => $tries]);
+        // Log::info('[InstagramLookup] resolve called', ['target' => $target, 'type' => $type, 'tries' => $tries]);
         if ($type === 'like') {
             // target may be shortcode or full url; extract shortcode
             $shortcode = $this->extractShortcode($target) ?? $target;
-            Log::info('[InstagramLookup] resolving mediaId', ['shortcode' => $shortcode]);
+            // Log::info('[InstagramLookup] resolving mediaId', ['shortcode' => $shortcode]);
             if (!$shortcode) return null;
             $resolved = $this->getMediaIdFromShortcodeWithCookies($shortcode, $tries);
             $preferred = setting('preferred_cookie_user_id');
             if ($resolved === null && is_numeric($preferred) && (int)$preferred > 0) {
-                Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'shortcode' => $shortcode]);
+                // Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'shortcode' => $shortcode]);
                 throw InstagramLookupException::forMediaIdFailure($preferred, $shortcode);
             }
             return $resolved;
@@ -33,12 +33,12 @@ class InstagramLookupService
 
         if ($type === 'follow') {
             $username = $this->extractUsername($target) ?? $target;
-            Log::info('[InstagramLookup] resolving userPk', ['username' => $username]);
+            // Log::info('[InstagramLookup] resolving userPk', ['username' => $username]);
             if (!$username) return null;
             $resolved = $this->getUserPkWithCookies($username, $tries);
             $preferred = setting('preferred_cookie_user_id');
             if ($resolved === null && is_numeric($preferred) && (int)$preferred > 0) {
-                Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'username' => $username]);
+                // Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'username' => $username]);
                 throw InstagramLookupException::forUserPkFailure($preferred, $username);
             }
             return $resolved;
@@ -84,10 +84,10 @@ class InstagramLookupService
             $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
         }
 
-        Log::info('[InstagramLookup] getMediaIdFromShortcodeWithCookies users_found', ['count' => $users->count(), 'shortcode' => $shortcode]);
+        // Log::info('[InstagramLookup] getMediaIdFromShortcodeWithCookies users_found', ['count' => $users->count(), 'shortcode' => $shortcode]);
 
         foreach ($users as $u) {
-            Log::info('[InstagramLookup] trying user for mediaId', ['user_id' => $u->id]);
+            // Log::info('[InstagramLookup] trying user for mediaId', ['user_id' => $u->id]);
             $cookieHeader = $this->buildCookieHeader($u->cookies);
             $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
             // Log cookie keys present without values to avoid leaking secrets
@@ -99,7 +99,7 @@ class InstagramLookupService
             } else {
                 $cookieSummary = [];
             }
-            Log::info('[InstagramLookup] cookie summary', ['user_id' => $u->id, 'cookie_keys' => $cookieSummary, 'has_csrf' => $csrf ? true : false]);
+            // Log::info('[InstagramLookup] cookie summary', ['user_id' => $u->id, 'cookie_keys' => $cookieSummary, 'has_csrf' => $csrf ? true : false]);
             if (!$cookieHeader || !$csrf) {
                 Log::warning('[InstagramLookup] skipping user due to missing cookie/header', ['user_id' => $u->id]);
                 continue;
@@ -134,7 +134,7 @@ class InstagramLookupService
                 ])->post('https://www.instagram.com/graphql/query', $body);
 
                 $duration = round((microtime(true) - $start) * 1000);
-                Log::info('[InstagramLookup] mediaId request completed', ['user_id' => $u->id, 'status' => $resp->status(), 'duration_ms' => $duration]);
+                // Log::info('[InstagramLookup] mediaId request completed', ['user_id' => $u->id, 'status' => $resp->status(), 'duration_ms' => $duration]);
                 if ($resp->ok()) {
                     $json = $resp->json();
                     // If GraphQL returned errors, log truncated message but DON'T skip yet — try fallbacks first
@@ -196,12 +196,12 @@ class InstagramLookupService
                     } catch (\Throwable $e) {
                         $bodyLength = null;
                     }
-                    Log::warning('[InstagramLookup] mediaId not found in graphql response, trying fallbacks', [
-                        'user_id' => $u->id,
-                        'status' => $resp->status(),
-                        'response_json_top_keys' => $jsonTopKeys,
-                        'response_body_length' => $bodyLength,
-                    ]);
+                    // Log::warning('[InstagramLookup] mediaId not found in graphql response, trying fallbacks', [
+                    //     'user_id' => $u->id,
+                    //     'status' => $resp->status(),
+                    //     'response_json_top_keys' => $jsonTopKeys,
+                    //     'response_body_length' => $bodyLength,
+                    // ]);
                     // Fall through to try fallbacks below (no longer nested inside this block)
                 } else {
                     Log::warning('[InstagramLookup] mediaId request non-OK', ['user_id' => $u->id, 'status' => $resp->status()]);
@@ -231,7 +231,7 @@ class InstagramLookupService
                                     'referer' => "https://www.instagram.com/p/{$shortcode}/",
                                 ])->get($je);
                                 $dur2 = round((microtime(true) - $start2) * 1000);
-                                Log::info('[InstagramLookup] mediaId fallback json endpoint request', ['user_id' => $u->id, 'url' => $je, 'status' => $resp2->status(), 'duration_ms' => $dur2]);
+                                // Log::info('[InstagramLookup] mediaId fallback json endpoint request', ['user_id' => $u->id, 'url' => $je, 'status' => $resp2->status(), 'duration_ms' => $dur2]);
                                 if ($resp2->ok()) {
                                     $j2 = $resp2->json();
                                     // attempt same extraction strategy
@@ -291,7 +291,7 @@ class InstagramLookupService
                             'user-agent' => 'Mozilla/5.0 (compatible; InstagramLookup/1.0)',
                         ])->get($pageUrl);
                         $dur3 = round((microtime(true) - $start3) * 1000);
-                        Log::info('[InstagramLookup] mediaId fallback html page request', ['user_id' => $u->id, 'url' => $pageUrl, 'status' => $resp3->status(), 'duration_ms' => $dur3]);
+                        // Log::info('[InstagramLookup] mediaId fallback html page request', ['user_id' => $u->id, 'url' => $pageUrl, 'status' => $resp3->status(), 'duration_ms' => $dur3]);
                         if ($resp3->ok()) {
                             $html = $resp3->body();
                             $foundFromHtml = null;
@@ -404,7 +404,7 @@ class InstagramLookupService
         if ($preferredId) {
             $u = User::find($preferredId);
             if ($u && $u->cookies) {
-                Log::info('[InstagramLookup] trying preferred user for userPk', ['user_id' => $u->id]);
+                // Log::info('[InstagramLookup] trying preferred user for userPk', ['user_id' => $u->id]);
                 $cookieHeader = $this->buildCookieHeader($u->cookies);
                 $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
                 if ($cookieHeader) {
@@ -421,10 +421,10 @@ class InstagramLookupService
             $users = User::whereNotNull('cookies')->inRandomOrder()->limit($tries)->get();
         }
 
-        Log::info('[InstagramLookup] getUserPkWithCookies users_found', ['count' => $users->count(), 'username' => $username]);
+        // Log::info('[InstagramLookup] getUserPkWithCookies users_found', ['count' => $users->count(), 'username' => $username]);
 
         foreach ($users as $u) {
-            Log::info('[InstagramLookup] trying user for userPk', ['user_id' => $u->id]);
+            // Log::info('[InstagramLookup] trying user for userPk', ['user_id' => $u->id]);
             $cookieHeader = $this->buildCookieHeader($u->cookies);
             $csrf = $this->extractCsrfTokenFromCookies($cookieHeader);
             // summarize cookie keys, do not log values
@@ -436,7 +436,7 @@ class InstagramLookupService
             } else {
                 $cookieSummary = [];
             }
-            Log::info('[InstagramLookup] cookie summary', ['user_id' => $u->id, 'cookie_keys' => $cookieSummary, 'has_csrf' => $csrf ? true : false]);
+            // Log::info('[InstagramLookup] cookie summary', ['user_id' => $u->id, 'cookie_keys' => $cookieSummary, 'has_csrf' => $csrf ? true : false]);
             if (!$cookieHeader) {
                 Log::warning('[InstagramLookup] skipping user for userPk: missing cookieHeader', ['user_id' => $u->id]);
                 continue;

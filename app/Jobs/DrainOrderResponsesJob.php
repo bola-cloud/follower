@@ -94,12 +94,12 @@ class DrainOrderResponsesJob implements ShouldQueue
             }
 
             $count = count($responses);
-            Log::info('[DrainOrderResponsesJob] Processing batch from drain queue', [
-                'status' => $this->status,
-                'batch_size' => $count,
-                'queue_key' => $this->queueKey,
-                'sample_responses' => array_slice($responses, 0, 3)
-            ]);
+            // Log::info('[DrainOrderResponsesJob] Processing batch from drain queue', [
+            //     'status' => $this->status,
+            //     'batch_size' => $count,
+            //     'queue_key' => $this->queueKey,
+            //     'sample_responses' => array_slice($responses, 0, 3)
+            // ]);
 
             // Group by order_id for efficient processing
             $orderGroups = $this->groupByOrder($responses);
@@ -116,11 +116,11 @@ class DrainOrderResponsesJob implements ShouldQueue
                 $updated = $this->updateActions($orderId, $userIds);
                 $totalUpdated += $updated;
 
-                Log::info('[DrainOrderResponsesJob] Actions updated', [
-                    'status' => $this->status,
-                    'order_id' => $orderId,
-                    'updated_count' => $updated
-                ]);
+                // Log::info('[DrainOrderResponsesJob] Actions updated', [
+                //     'status' => $this->status,
+                //     'order_id' => $orderId,
+                //     'updated_count' => $updated
+                // ]);
 
                 // Update order done_count if status is 'done'
                 if ($this->status === 'done' && $updated > 0) {
@@ -130,13 +130,13 @@ class DrainOrderResponsesJob implements ShouldQueue
 
             $duration = round((microtime(true) - $startTime) * 1000, 2);
 
-            Log::info('[DrainOrderResponsesJob] Batch processed successfully', [
-                'status' => $this->status,
-                'processed_count' => $count,
-                'updated_count' => $totalUpdated,
-                'order_count' => count($orderGroups),
-                'duration_ms' => $duration
-            ]);
+            // Log::info('[DrainOrderResponsesJob] Batch processed successfully', [
+            //     'status' => $this->status,
+            //     'processed_count' => $count,
+            //     'updated_count' => $totalUpdated,
+            //     'order_count' => count($orderGroups),
+            //     'duration_ms' => $duration
+            // ]);
 
             // Check if more items remain in queue
             $remainingCount = $this->getQueueLength();
@@ -239,12 +239,12 @@ class DrainOrderResponsesJob implements ShouldQueue
         $chunkSize = 500; // Increased from 200 to 500 for faster bulk updates
         $totalUpdated = 0;
 
-        Log::info('[DrainOrderResponsesJob] Starting updateActions', [
-            'status' => $this->status,
-            'order_id' => $orderId,
-            'user_count' => count($userIds),
-            'chunk_size' => $chunkSize
-        ]);
+        // Log::info('[DrainOrderResponsesJob] Starting updateActions', [
+        //     'status' => $this->status,
+        //     'order_id' => $orderId,
+        //     'user_count' => count($userIds),
+        //     'chunk_size' => $chunkSize
+        // ]);
 
         foreach (array_chunk($userIds, $chunkSize) as $chunkIndex => $chunk) {
             // Update actions that are NOT already in the target status
@@ -262,23 +262,23 @@ class DrainOrderResponsesJob implements ShouldQueue
 
             $totalUpdated += $updated;
 
-            Log::info('[DrainOrderResponsesJob] Chunk updated', [
-                'status' => $this->status,
-                'order_id' => $orderId,
-                'chunk_index' => $chunkIndex,
-                'chunk_size' => count($chunk),
-                'updated' => $updated
-            ]);
+            // Log::info('[DrainOrderResponsesJob] Chunk updated', [
+            //     'status' => $this->status,
+            //     'order_id' => $orderId,
+            //     'chunk_index' => $chunkIndex,
+            //     'chunk_size' => count($chunk),
+            //     'updated' => $updated
+            // ]);
 
             // REMOVED: usleep delay - no need to slow down processing
             // DB can handle the load with proper indexing
         }
 
-        Log::info('[DrainOrderResponsesJob] Completed updateActions', [
-            'status' => $this->status,
-            'order_id' => $orderId,
-            'total_updated' => $totalUpdated
-        ]);
+        // Log::info('[DrainOrderResponsesJob] Completed updateActions', [
+        //     'status' => $this->status,
+        //     'order_id' => $orderId,
+        //     'total_updated' => $totalUpdated
+        // ]);
 
         return $totalUpdated;
     }
@@ -310,11 +310,11 @@ class DrainOrderResponsesJob implements ShouldQueue
                 ->where('status', '!=', 'completed')
                 ->update(['status' => 'completed', 'updated_at' => now()]);
 
-            Log::info('[DrainOrderResponsesJob] Order marked as completed', [
-                'order_id' => $orderId,
-                'done_count' => $order->done_count,
-                'total_count' => $order->total_count
-            ]);
+            // Log::info('[DrainOrderResponsesJob] Order marked as completed', [
+            //     'order_id' => $orderId,
+            //     'done_count' => $order->done_count,
+            //     'total_count' => $order->total_count
+            // ]);
         }
     }
 

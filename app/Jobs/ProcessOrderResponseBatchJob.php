@@ -103,13 +103,13 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
         $startTime = microtime(true);
         $totalResponses = count($this->responses);
 
-        Log::info('[ProcessOrderResponseBatchJob] Starting batch processing', [
-            'batch_id' => $this->batchId,
-            'status' => $this->status,
-            'total_responses' => $totalResponses,
-            'chunk_size' => $this->chunkSize,
-            'chunk_delay_ms' => $this->chunkDelayMs
-        ]);
+        // Log::info('[ProcessOrderResponseBatchJob] Starting batch processing', [
+        //     'batch_id' => $this->batchId,
+        //     'status' => $this->status,
+        //     'total_responses' => $totalResponses,
+        //     'chunk_size' => $this->chunkSize,
+        //     'chunk_delay_ms' => $this->chunkDelayMs
+        // ]);
 
         try {
             // Deduplicate responses using Redis to prevent processing the same action multiple times
@@ -129,11 +129,11 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
             // Group responses by order_id for efficient processing
             $orderGroups = $this->groupResponsesByOrder($responses);
 
-            Log::info('[ProcessOrderResponseBatchJob] Grouped responses', [
-                'batch_id' => $this->batchId,
-                'order_count' => count($orderGroups),
-                'total_responses' => $totalResponses
-            ]);
+            // Log::info('[ProcessOrderResponseBatchJob] Grouped responses', [
+            //     'batch_id' => $this->batchId,
+            //     'order_count' => count($orderGroups),
+            //     'total_responses' => $totalResponses
+            // ]);
 
             // Process each order's responses
             $totalUpdated = 0;
@@ -144,12 +144,12 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
                 $totalUpdated += $updated;
                 $orderIds[] = $orderId;
 
-                Log::info('[ProcessOrderResponseBatchJob] Order processed', [
-                    'batch_id' => $this->batchId,
-                    'order_id' => $orderId,
-                    'user_count' => count($userIds),
-                    'updated_count' => $updated
-                ]);
+                // Log::info('[ProcessOrderResponseBatchJob] Order processed', [
+                //     'batch_id' => $this->batchId,
+                //     'order_id' => $orderId,
+                //     'user_count' => count($userIds),
+                //     'updated_count' => $updated
+                // ]);
             }
 
             // Update order completion status if processing 'done' status
@@ -167,13 +167,13 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
                 'duration_ms' => $duration
             ]);
 
-            Log::info('[ProcessOrderResponseBatchJob] Batch completed successfully', [
-                'batch_id' => $this->batchId,
-                'status' => $this->status,
-                'total_responses' => $totalResponses,
-                'updated_count' => $totalUpdated,
-                'duration_ms' => $duration
-            ]);
+            // Log::info('[ProcessOrderResponseBatchJob] Batch completed successfully', [
+            //     'batch_id' => $this->batchId,
+            //     'status' => $this->status,
+            //     'total_responses' => $totalResponses,
+            //     'updated_count' => $totalUpdated,
+            //     'duration_ms' => $duration
+            // ]);
 
         } catch (\Throwable $e) {
             Log::error('[ProcessOrderResponseBatchJob] Batch processing failed', [
@@ -232,13 +232,13 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
         $chunks = array_chunk($userIds, $this->chunkSize);
         $chunkCount = count($chunks);
 
-        Log::info('[ProcessOrderResponseBatchJob] Processing order in chunks', [
-            'batch_id' => $this->batchId,
-            'order_id' => $orderId,
-            'total_users' => count($userIds),
-            'chunk_count' => $chunkCount,
-            'chunk_size' => $this->chunkSize
-        ]);
+        // Log::info('[ProcessOrderResponseBatchJob] Processing order in chunks', [
+        //     'batch_id' => $this->batchId,
+        //     'order_id' => $orderId,
+        //     'total_users' => count($userIds),
+        //     'chunk_count' => $chunkCount,
+        //     'chunk_size' => $this->chunkSize
+        // ]);
 
         foreach ($chunks as $chunkIndex => $userIdsChunk) {
             try {
@@ -251,14 +251,14 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
                     $this->incrementOrderDoneCount($orderId, $updated);
                 }
 
-                Log::info('[ProcessOrderResponseBatchJob] Chunk processed', [
-                    'batch_id' => $this->batchId,
-                    'order_id' => $orderId,
-                    'chunk_index' => $chunkIndex + 1,
-                    'chunk_count' => $chunkCount,
-                    'chunk_size' => count($userIdsChunk),
-                    'updated' => $updated
-                ]);
+                // Log::info('[ProcessOrderResponseBatchJob] Chunk processed', [
+                //     'batch_id' => $this->batchId,
+                //     'order_id' => $orderId,
+                //     'chunk_index' => $chunkIndex + 1,
+                //     'chunk_count' => $chunkCount,
+                //     'chunk_size' => count($userIdsChunk),
+                //     'updated' => $updated
+                // ]);
 
                 // Delay between chunks to prevent DB overload
                 if ($chunkIndex < $chunkCount - 1 && $this->chunkDelayMs > 0) {
@@ -376,11 +376,11 @@ class ProcessOrderResponseBatchJob implements ShouldQueue
 
             DB::update($query, [$increment, $orderId]);
 
-            Log::info('[ProcessOrderResponseBatchJob] Order done_count incremented', [
-                'batch_id' => $this->batchId,
-                'order_id' => $orderId,
-                'increment' => $increment
-            ]);
+            // Log::info('[ProcessOrderResponseBatchJob] Order done_count incremented', [
+            //     'batch_id' => $this->batchId,
+            //     'order_id' => $orderId,
+            //     'increment' => $increment
+            // ]);
 
         } catch (\Illuminate\Database\QueryException $e) {
             Log::error('[ProcessOrderResponseBatchJob] Failed to increment done_count', [
