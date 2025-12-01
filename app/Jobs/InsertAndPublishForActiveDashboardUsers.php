@@ -490,11 +490,11 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $ordersSummary[$order->id]['pending_added']++;
                     
                     // Track this user as assigned to this target URL hash
-                    $tHash = $ordersMeta[$order->id]['targetHash'];
-                    if (!isset($assignedUsersByTargetHash[$tHash])) {
-                        $assignedUsersByTargetHash[$tHash] = [];
+                    // Use the $targetHash variable computed earlier, not from $ordersMeta which doesn't exist yet
+                    if (!isset($assignedUsersByTargetHash[$targetHash])) {
+                        $assignedUsersByTargetHash[$targetHash] = [];
                     }
-                    $assignedUsersByTargetHash[$tHash][] = $uid;
+                    $assignedUsersByTargetHash[$targetHash][] = $uid;
                     // Keep the global publishes counter in sync with the list so
                     // the later batching logic sees the correct total.
                     $totalPublishes++;
