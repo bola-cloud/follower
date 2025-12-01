@@ -364,7 +364,16 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 // ✅ CRITICAL: Exclude users already assigned to this target URL in THIS RUN
                 // This prevents duplicate assignments when multiple orders with same link
                 // are processed in the same coordinator execution
-                $normalizedTarget = rtrim($order->target_url, '/');
+                // Normalize URL: strip protocol, www, query params, fragments, trailing slashes
+                $normalizedTarget = preg_replace('#^https?://#i', '', $order->target_url);
+                $normalizedTarget = preg_replace('#^www\\.#i', '', $normalizedTarget);
+                if (($pos = strpos($normalizedTarget, '?')) !== false) {
+                    $normalizedTarget = substr($normalizedTarget, 0, $pos);
+                }
+                if (($pos = strpos($normalizedTarget, '#')) !== false) {
+                    $normalizedTarget = substr($normalizedTarget, 0, $pos);
+                }
+                $normalizedTarget = strtolower(rtrim($normalizedTarget, '/'));
                 $targetHash = sha1($normalizedTarget);
                 $alreadyAssignedToThisLink = $assignedUsersByTargetHash[$targetHash] ?? [];
                 if (!empty($alreadyAssignedToThisLink)) {

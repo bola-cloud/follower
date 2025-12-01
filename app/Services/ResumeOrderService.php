@@ -12,6 +12,42 @@ use Carbon\Carbon;
 
 class ResumeOrderService
 {
+    /**
+     * Normalize URL for comparison: remove query params, fragments, protocol, www, trailing slashes
+     * This ensures URLs like:
+     * - https://www.instagram.com/reel/DRqCdG0DDZS/?igsh=Y3k2bXZ4bXdoMmM2
+     * - https://www.instagram.com/reel/DRqCdG0DDZS/?igsh=Y3k2bXZ4bXdoMmM2/
+     * - https://instagram.com/reel/DRqCdG0DDZS/
+     * - http://www.instagram.com/reel/DRqCdG0DDZS
+     * All produce the same normalized URL: instagram.com/reel/DRqCdG0DDZS
+     */
+    private function normalizeUrl(string $url): string
+    {
+        // Remove protocol (http:// or https://)
+        $normalized = preg_replace('#^https?://#i', '', $url);
+        
+        // Remove www. prefix
+        $normalized = preg_replace('#^www\.#i', '', $normalized);
+        
+        // Remove query string (everything after ?)
+        if (($pos = strpos($normalized, '?')) !== false) {
+            $normalized = substr($normalized, 0, $pos);
+        }
+        
+        // Remove fragment (everything after #)
+        if (($pos = strpos($normalized, '#')) !== false) {
+            $normalized = substr($normalized, 0, $pos);
+        }
+        
+        // Remove all trailing slashes
+        $normalized = rtrim($normalized, '/');
+        
+        // Convert to lowercase for case-insensitive comparison
+        $normalized = strtolower($normalized);
+        
+        return $normalized;
+    }
+
     public function handle(Order $order, User $user): array
     {
         // Focused info logging for resume processing
@@ -179,8 +215,8 @@ class ResumeOrderService
             return [];
         }
 
-        // Normalize target URL for comparisons (ignore trailing slash)
-        $normalizedTarget = rtrim($order->target_url, '/');
+        // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
+        $normalizedTarget = $this->normalizeUrl($order->target_url);
         $targetHash = sha1($normalizedTarget);
 
         // Get pending users for this order (intersected with candidates)
@@ -226,8 +262,13 @@ class ResumeOrderService
             })
             // Exclude pending users (we'll add them separately)
             ->whereNotIn('users.id', $pendingUserIds)
-            // Exclude users whose profile_link matches the target (ignoring trailing slash)
-            ->whereRaw("TRIM(TRAILING '/' FROM users.profile_link) != ?", [$normalizedTarget])
+            // Exclude users whose profile_link matches the target (normalize for comparison)
+            // Note: In SQL we can't call the PHP normalizeUrl, so we do basic normalization
+            // Strip protocol, www, query params, fragments, and trailing slashes
+            ->whereRaw(
+                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(users.profile_link, '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''))) != ?",
+                [strtolower($normalizedTarget)]
+            )
             // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
             ->whereNotIn('users.id', function ($sub) use ($order, $targetHash) {
                 $sub->select('a1.user_id')
@@ -235,9 +276,13 @@ class ResumeOrderService
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->where(function ($q) use ($targetHash) {
-                        // Use precomputed hash when available, fallback to SHA1 comparison
+                        // Use precomputed hash when available, fallback to SHA1 of normalized URL
+                        // Normalize: strip protocol, www, query params, fragments, trailing slashes
                         $q->where('o1.target_url_hash', $targetHash)
-                          ->orWhereRaw("o1.target_url_hash IS NULL AND SHA1(TRIM(TRAILING '/' FROM o1.target_url)) = ?", [$targetHash]);
+                          ->orWhereRaw(
+                              "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(o1.target_url, '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))) = ?",
+                              [$targetHash]
+                          );
                     })
                     ->where('o1.id', '!=', $order->id);
             })
@@ -297,8 +342,8 @@ class ResumeOrderService
             return User::whereIn('id', $pendingUserIds)->get();
         }
 
-        // Normalize target URL for comparisons (ignore trailing slash)
-        $normalizedTarget = rtrim($order->target_url, '/');
+        // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
+        $normalizedTarget = $this->normalizeUrl($order->target_url);
         $targetHash = sha1($normalizedTarget);
 
         // Get new eligible users
@@ -308,8 +353,11 @@ class ResumeOrderService
                 $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
             })
             ->whereNotIn('id', $pendingUserIds)
-            // Compare profile_link ignoring a trailing slash
-            ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
+            // Compare profile_link with normalized URL
+            ->whereRaw(
+                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(profile_link, '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''))) != ?",
+                [strtolower($normalizedTarget)]
+            )
             ->whereNotIn('id', function ($sub) use ($targetHash, $order) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
@@ -319,7 +367,10 @@ class ResumeOrderService
                         // Use precomputed target_url_hash when available (fast/indexed),
                         // or fall back to comparing SHA1 of normalized target_url for legacy rows.
                         $q->where('o1.target_url_hash', $targetHash)
-                          ->orWhereRaw("o1.target_url_hash IS NULL AND SHA1(TRIM(TRAILING '/' FROM o1.target_url)) = ?", [$targetHash]);
+                          ->orWhereRaw(
+                              "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(o1.target_url, '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))) = ?",
+                              [$targetHash]
+                          );
                     })
                     ->where('o1.id', '!=', $order->id);
             })
