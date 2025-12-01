@@ -424,6 +424,34 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     ->pluck('user_id')
                     ->toArray();
 
+                // ✅ CRITICAL FINAL CHECK: Exclude users who have done/external on ANY order with this normalized URL
+                // This catches users who completed the link AFTER batchCheckEligibility ran or in previous coordinator runs
+                if (!empty($pendingUsers)) {
+                    $usersWithDoneOnThisLink = DB::table('actions as a1')
+                        ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                        ->whereIn('a1.user_id', $pendingUsers)
+                        ->whereIn('a1.status', ['done', 'external'])
+                        ->where(function ($q) use ($targetHash) {
+                            $q->where('o1.target_url_hash', $targetHash)
+                              ->orWhereRaw(
+                                  "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(o1.target_url, '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
+                                  [$targetHash]
+                              );
+                        })
+                        ->pluck('a1.user_id')
+                        ->toArray();
+                    
+                    if (!empty($usersWithDoneOnThisLink)) {
+                        $pendingUsers = array_diff($pendingUsers, $usersWithDoneOnThisLink);
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] BLOCKED users who already completed this link', [
+                            'order_id' => $order->id,
+                            'blocked_count' => count($usersWithDoneOnThisLink),
+                            'blocked_users' => array_slice($usersWithDoneOnThisLink, 0, 10),
+                            'target_hash' => substr($targetHash, 0, 8)
+                        ]);
+                    }
+                }
+
                 $ordersSummary[$order->id] = [
                     'pending_found' => count($pendingUsers),
                     'pending_added' => 0,
@@ -852,6 +880,31 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     // Skip if user already has action
                     if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
+
+                    // ✅ CRITICAL: Final DB check - skip if user has done/external on ANY order with this normalized URL
+                    // This prevents assigning users who completed the link between initial eligibility check and now
+                    try {
+                        $hasDoneOnThisLink = DB::table('actions as a1')
+                            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                            ->where('a1.user_id', $uid)
+                            ->whereIn('a1.status', ['done', 'external'])
+                            ->where(function ($q) use ($ordersMeta, $oid) {
+                                $tHash = $ordersMeta[$oid]['targetHash'];
+                                $q->where('o1.target_url_hash', $tHash)
+                                  ->orWhereRaw(
+                                      "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(o1.target_url, '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
+                                      [$tHash]
+                                  );
+                            })
+                            ->exists();
+                        
+                        if ($hasDoneOnThisLink) {
+                            continue; // Skip this user
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] failed final link check for user', ['order_id' => $oid, 'user_id' => $uid, 'error' => $e->getMessage()]);
+                        continue; // Skip on error to be safe
+                    }
 
                     // Eligibility already checked by batchCheckEligibility - no need for per-user check
                     // The eligible set in ordersMeta is authoritative and already excludes:
