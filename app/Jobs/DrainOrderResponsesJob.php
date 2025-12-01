@@ -106,12 +106,12 @@ class DrainOrderResponsesJob implements ShouldQueue
 
             $totalUpdated = 0;
             foreach ($orderGroups as $orderId => $userIds) {
-                Log::info('[DrainOrderResponsesJob] Updating actions for order', [
-                    'status' => $this->status,
-                    'order_id' => $orderId,
-                    'user_count' => count($userIds),
-                    'sample_users' => array_slice($userIds, 0, 5)
-                ]);
+                // Log::info('[DrainOrderResponsesJob] Updating actions for order', [
+                //     'status' => $this->status,
+                //     'order_id' => $orderId,
+                //     'user_count' => count($userIds),
+                //     'sample_users' => array_slice($userIds, 0, 5)
+                // ]);
 
                 $updated = $this->updateActions($orderId, $userIds);
                 $totalUpdated += $updated;
