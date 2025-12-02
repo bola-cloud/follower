@@ -713,9 +713,16 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         if (empty($candidateIds)) {
                             $eligibleUsersCollection = collect([]);
                         } else {
-                            // Normalize target URL for comparisons (ignore trailing slash)
-                            $normalizedTarget = rtrim($order->target_url, '/');
-                            $targetHash = sha1($normalizedTarget);
+                            // Normalize target URL for comparisons
+                            $normalizedTarget = preg_replace('#^https?://#i', '', $order->target_url);
+                            $normalizedTarget = preg_replace('#^www\\.#i', '', $normalizedTarget);
+                            if (($pos = strpos($normalizedTarget, '?')) !== false) {
+                                $normalizedTarget = substr($normalizedTarget, 0, $pos);
+                            }
+                            if (($pos = strpos($normalizedTarget, '#')) !== false) {
+                                $normalizedTarget = substr($normalizedTarget, 0, $pos);
+                            }
+                            $normalizedTarget = strtolower(rtrim($normalizedTarget, '/'));
 
                             $pendingUserIds = DB::table('actions')
                                 ->where('order_id', $order->id)
@@ -746,16 +753,22 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                         $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
                                     })
                                     ->whereNotIn('id', $pendingUserIds)
-                                    // Compare profile_link ignoring a trailing slash
-                                    ->whereRaw("TRIM(TRAILING '/' FROM profile_link) != ?", [$normalizedTarget])
-                                        ->whereNotIn('id', function ($sub) use ($targetHash, $order, $normalizedTarget) {
-                                            $sub->select('a1.user_id')
-                                                ->from('actions as a1')
-                                                ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                                                ->whereIn('a1.status', ['done', 'external'])
-                                                ->whereRaw("COALESCE(o1.target_url_hash, SHA1(TRIM(TRAILING '/' FROM o1.target_url))) = ?", [$targetHash])
-                                                ->where('o1.id', '!=', $order->id);
-                                        });
+                                    // Compare profile_link with normalized URL
+                                    ->whereRaw(
+                                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(profile_link, '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''))) != ?",
+                                        [strtolower($normalizedTarget)]
+                                    )
+                                    ->whereNotIn('id', function ($sub) use ($order, $normalizedTarget) {
+                                        $sub->select('a1.user_id')
+                                            ->from('actions as a1')
+                                            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                                            ->whereIn('a1.status', ['done', 'external'])
+                                            ->whereRaw(
+                                                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
+                                                [$normalizedTarget]
+                                            )
+                                            ->where('o1.id', '!=', $order->id);
+                                    });
 
                                 $eligibleUsers = $eligibleQuery->get();
                                 $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
