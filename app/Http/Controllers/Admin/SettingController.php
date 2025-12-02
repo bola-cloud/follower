@@ -21,6 +21,7 @@ class SettingController extends Controller
     public function update(Request $request)
     {
         $validated = $request->validate([
+            'points_per_ads' => 'required|integer',
             'points_per_follow' => 'required|integer',
             'points_per_like' => 'required|integer',
             'app_version' => 'required|string',

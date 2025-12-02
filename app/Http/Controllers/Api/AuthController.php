@@ -301,6 +301,42 @@ class AuthController extends Controller
         ]);
     }
 
+    /**
+     * Add points to authenticated user for viewing an ad.
+     * POST /api/addPointsFromAd
+     * Returns: { points: <int> }
+     */
+    public function addPointsFromAd(Request $request)
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
+
+        // Read points_per_ads from settings, fallback to 1 if missing or invalid
+        try {
+            $pointsSetting = \App\Models\Setting::where('key', 'points_per_ads')->first();
+            $add = 1;
+            if ($pointsSetting && is_numeric($pointsSetting->value)) {
+                $add = intval($pointsSetting->value);
+            }
+        } catch (\Throwable $e) {
+            $add = 1;
+        }
+
+        // Increment user's points safely
+        try {
+            $user->points = intval($user->points ?? 0) + $add;
+            $user->save();
+        } catch (\Throwable $e) {
+            \Log::error('[AuthController] addPointsFromAd failed to save user points', ['error' => $e->getMessage(), 'user_id' => $user->id]);
+            return response()->json(['error' => 'Failed to add points'], 500);
+        }
+
+        return response()->json(['points' => $user->points]);
+    }
+
     public function disconnectAccount(Request $request)
     {
         $user = $request->user();

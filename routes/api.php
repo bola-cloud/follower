@@ -51,6 +51,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/promocode/redeem', [PromocodeController::class, 'redeem']);
     Route::get('/user/points', [AuthController::class, 'points']);
     Route::post('/user/process-active-orders', [OrderController::class, 'processActiveUserOrders']);
+    // Add points from viewing an ad
+    Route::post('/addPointsFromAd', [AuthController::class, 'addPointsFromAd']);
     // Disconnect Google/Instagram account
     Route::post('/user/disconnect-account', [AuthController::class, 'disconnectAccount']);
     // Reassign email from existing account (authenticated) and create new user
