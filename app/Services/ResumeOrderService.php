@@ -221,7 +221,7 @@ class ResumeOrderService
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
         $normalizedTarget = $this->normalizeUrl($order->target_url);
         $targetHash = sha1($normalizedTarget);
-        
+
         // DEBUG: Log normalization details
         Log::info('[batchCheckEligibility] URL normalization', [
             'order_id' => $order->id,
@@ -274,7 +274,7 @@ class ResumeOrderService
             ->whereIn('a1.user_id', $candidateUserIds)
             ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'o1.target_url_hash as other_hash', 'a1.status')
             ->get();
-        
+
         if ($usersWithSameLink->isNotEmpty()) {
             Log::warning('[batchCheckEligibility] Found users who already completed same link', [
                 'order_id' => $order->id,
@@ -334,11 +334,11 @@ class ResumeOrderService
             })
             ->pluck('users.id')
             ->toArray();
-        
+
         // DEBUG: Check if any users who should be excluded are still in eligible list
         $shouldBeExcluded = $usersWithSameLink->pluck('user_id')->toArray();
         $wronglyIncluded = array_intersect($shouldBeExcluded, $eligibleUserIds);
-        
+
         if (!empty($wronglyIncluded)) {
             Log::error('[batchCheckEligibility] CRITICAL: Users wrongly included despite completing same link', [
                 'order_id' => $order->id,

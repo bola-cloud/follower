@@ -15,12 +15,13 @@ class BackfillOrdersTargetUrlHash extends Migration
     public function up()
     {
         // Backfill missing or empty hashes using normalized URL:
-        // 1. Remove protocol (http:// or https://)
-        // 2. Remove www. prefix
-        // 3. Remove query string (everything after ?)
-        // 4. Remove fragment (everything after #)
-        // 5. Remove trailing slashes
-        // 6. Convert to lowercase
+        // 1. Remove leading/trailing spaces
+        // 2. Remove protocol (http:// or https://)
+        // 3. Remove www. prefix
+        // 4. Remove query string (everything after ?)
+        // 5. Remove fragment (everything after #)
+        // 6. Remove trailing slashes
+        // 7. Convert to lowercase
         DB::statement("
             UPDATE orders
             SET target_url_hash = SHA1(
@@ -28,10 +29,10 @@ class BackfillOrdersTargetUrlHash extends Migration
                     TRIM(TRAILING '/' FROM
                         REGEXP_REPLACE(
                             REGEXP_REPLACE(
-                                REGEXP_REPLACE(target_url, '\\\\?.*$', ''),
+                                REGEXP_REPLACE(TRIM(target_url), '\\\\\\\\?.*$', ''),
                                 '#.*$', ''
                             ),
-                            '^(https?://)?(www\\\\.)?', ''
+                            '^(https?://)?(www\\\\\\\\.)?', ''
                         )
                     )
                 )
