@@ -426,18 +426,16 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                 // ✅ CRITICAL FINAL CHECK: Exclude users who have done/external on ANY order with this normalized URL
                 // This catches users who completed the link AFTER batchCheckEligibility ran or in previous coordinator runs
+                // Compare normalized URLs directly instead of using unreliable target_url_hash column
                 if (!empty($pendingUsers)) {
                     $usersWithDoneOnThisLink = DB::table('actions as a1')
                         ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                         ->whereIn('a1.user_id', $pendingUsers)
                         ->whereIn('a1.status', ['done', 'external'])
-                        ->where(function ($q) use ($targetHash) {
-                            $q->where('o1.target_url_hash', $targetHash)
-                              ->orWhereRaw(
-                                  "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(o1.target_url, '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
-                                  [$targetHash]
-                              );
-                        })
+                        ->whereRaw(
+                            "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
+                            [$normalizedTarget]
+                        )
                         ->pluck('a1.user_id')
                         ->toArray();
 
@@ -447,7 +445,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                             'order_id' => $order->id,
                             'blocked_count' => count($usersWithDoneOnThisLink),
                             'blocked_users' => array_slice($usersWithDoneOnThisLink, 0, 10),
-                            'target_hash' => substr($targetHash, 0, 8)
+                            'normalized_target' => $normalizedTarget
                         ]);
                     }
                 }
@@ -883,19 +881,28 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     // ✅ CRITICAL: Final DB check - skip if user has done/external on ANY order with this normalized URL
                     // This prevents assigning users who completed the link between initial eligibility check and now
+                    // Compare normalized URLs directly instead of using unreliable target_url_hash column
                     try {
+                        // Get the normalized target from order metadata
+                        $orderObj = $ordersMeta[$oid]['order'];
+                        $normalizedUrl = preg_replace('#^https?://#i', '', $orderObj->target_url);
+                        $normalizedUrl = preg_replace('#^www\\.#i', '', $normalizedUrl);
+                        if (($pos = strpos($normalizedUrl, '?')) !== false) {
+                            $normalizedUrl = substr($normalizedUrl, 0, $pos);
+                        }
+                        if (($pos = strpos($normalizedUrl, '#')) !== false) {
+                            $normalizedUrl = substr($normalizedUrl, 0, $pos);
+                        }
+                        $normalizedUrl = strtolower(rtrim($normalizedUrl, '/'));
+
                         $hasDoneOnThisLink = DB::table('actions as a1')
                             ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                             ->where('a1.user_id', $uid)
                             ->whereIn('a1.status', ['done', 'external'])
-                            ->where(function ($q) use ($ordersMeta, $oid) {
-                                $tHash = $ordersMeta[$oid]['targetHash'];
-                                $q->where('o1.target_url_hash', $tHash)
-                                  ->orWhereRaw(
-                                      "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(o1.target_url, '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
-                                      [$tHash]
-                                  );
-                            })
+                            ->whereRaw(
+                                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
+                                [$normalizedUrl]
+                            )
                             ->exists();
 
                         if ($hasDoneOnThisLink) {
