@@ -404,6 +404,52 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         'already_assigned_count' => count($alreadyAssignedToThisLink)
                     ]);
 
+                    // Coordinator-level diagnostics: list other orders that normalize to the same target
+                    try {
+                        $matchingOrders = DB::table('orders')
+                            ->whereRaw(
+                                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))) = ?",
+                                [$normalizedTarget]
+                            )
+                            ->select('id', 'target_url', 'target_url_hash')
+                            ->get();
+
+                        if ($matchingOrders->isNotEmpty()) {
+                            Log::info('[InsertAndPublishForActiveDashboardUsers] matching_orders_for_target', [
+                                'order_id' => $order->id,
+                                'normalized_target' => $normalizedTarget,
+                                'matching_count' => $matchingOrders->count(),
+                                'matching_sample' => $matchingOrders->take(10)->map(function($r){ return ['id'=>$r->id,'url'=>$r->target_url,'hash'=>$r->target_url_hash]; })->toArray()
+                            ]);
+
+                            $matchingOrderIds = $matchingOrders->pluck('id')->toArray();
+                            $actionsOnMatching = DB::table('actions as a1')
+                                ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                                ->whereIn('o1.id', $matchingOrderIds)
+                                ->whereIn('a1.status', ['done', 'external'])
+                                ->select('a1.user_id', 'a1.order_id', 'a1.status')
+                                ->get();
+
+                            Log::info('[InsertAndPublishForActiveDashboardUsers] actions_on_matching_orders', [
+                                'order_id' => $order->id,
+                                'normalized_target' => $normalizedTarget,
+                                'actions_count' => $actionsOnMatching->count(),
+                                'actions_sample' => $actionsOnMatching->take(20)->toArray()
+                            ]);
+
+                            // Extra verbose trace for the known problematic link
+                            if ($normalizedTarget === 'instagram.com/reel/drqcdg0ddzs') {
+                                Log::warning('[InsertAndPublishForActiveDashboardUsers] VERBOSE: problematic target detailed dump', [
+                                    'order_id' => $order->id,
+                                    'matching_orders' => $matchingOrders->toArray(),
+                                    'actions_on_matching' => $actionsOnMatching->toArray()
+                                ]);
+                            }
+                        }
+                    } catch (\Throwable $e) {
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to fetch matching orders/actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                    }
+
                     $t0 = microtime(true);
 
                     $eligibleIdsAll = $resumeService->batchCheckEligibility($order, $candidates);
@@ -781,6 +827,43 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         $eligibleIdsAll = $eligibleUsersCollection->pluck('id')->toArray();
                         $elapsedMs = round(($t1 - $t0) * 1000, 2);
                         Log::info('[ResumeOrderService] getEligibleUsers (backfill) completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
+
+                        // Backfill-level diagnostics: list matching orders and recent actions for normalized target
+                        try {
+                            $matchingOrders = DB::table('orders')
+                                ->whereRaw(
+                                    "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))) = ?",
+                                    [$normalizedTarget]
+                                )
+                                ->select('id', 'target_url', 'target_url_hash')
+                                ->get();
+
+                            Log::info('[InsertAndPublishForActiveDashboardUsers] backfill_matching_orders', [
+                                'order_id' => $order->id,
+                                'normalized_target' => $normalizedTarget,
+                                'matching_count' => $matchingOrders->count(),
+                                'matching_sample' => $matchingOrders->take(10)->map(function($r){ return ['id'=>$r->id,'url'=>$r->target_url,'hash'=>$r->target_url_hash]; })->toArray()
+                            ]);
+
+                            if ($matchingOrders->isNotEmpty()) {
+                                $matchingOrderIds = $matchingOrders->pluck('id')->toArray();
+                                $actionsOnMatching = DB::table('actions as a1')
+                                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                                    ->whereIn('o1.id', $matchingOrderIds)
+                                    ->whereIn('a1.status', ['done', 'external'])
+                                    ->select('a1.user_id', 'a1.order_id', 'a1.status')
+                                    ->get();
+
+                                Log::info('[InsertAndPublishForActiveDashboardUsers] backfill_actions_on_matching_orders', [
+                                    'order_id' => $order->id,
+                                    'normalized_target' => $normalizedTarget,
+                                    'actions_count' => $actionsOnMatching->count(),
+                                    'actions_sample' => $actionsOnMatching->take(20)->toArray()
+                                ]);
+                            }
+                        } catch (\Throwable $e) {
+                            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to fetch backfill matching orders/actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                        }
                     } catch (\Throwable $e) {
                         Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users (backfill)', ['order_id' => $order->id, 'error' => $e->getMessage()]);
                         $eligibleIdsAll = $candidates;
