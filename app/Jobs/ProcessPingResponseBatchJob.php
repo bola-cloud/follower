@@ -96,41 +96,44 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                 ->get()
                 ->keyBy('id');
 
-            // Precompute excluded users who already performed done/external on OTHER orders
-            // Compute canonical identifier from order->target_url (last path segment) for LIKE fallback
+            // ✅ CRITICAL FIX: Normalize URL and compare directly instead of using hashes
+            // This matches the fix in ResumeOrderService::batchCheckEligibility
             $targetUrl = $order->target_url ?? '';
-            $targetIdentifier = null;
-            try {
-                $parts = parse_url($targetUrl);
-                if (!empty($parts['path'])) {
-                    $segments = array_values(array_filter(explode('/', $parts['path'])));
-                    if (!empty($segments)) {
-                        $targetIdentifier = end($segments);
-                    }
-                }
-            } catch (\Throwable $_e) {
-                $targetIdentifier = $targetUrl;
+            
+            // Normalize URL: remove protocol, www, query params, fragments, trailing slashes, convert to lowercase
+            $normalizedTarget = trim($targetUrl);
+            $normalizedTarget = preg_replace('#^https?://#i', '', $normalizedTarget);
+            $normalizedTarget = preg_replace('#^www\.#i', '', $normalizedTarget);
+            if (($pos = strpos($normalizedTarget, '?')) !== false) {
+                $normalizedTarget = substr($normalizedTarget, 0, $pos);
             }
-            $targetHash = $order->target_url_hash ?? ($targetIdentifier ? sha1($targetIdentifier) : sha1($targetUrl));
+            if (($pos = strpos($normalizedTarget, '#')) !== false) {
+                $normalizedTarget = substr($normalizedTarget, 0, $pos);
+            }
+            $normalizedTarget = strtolower(rtrim($normalizedTarget, '/'));
 
-            // Query excluded user IDs among this batch's userIds to avoid scanning entire action table
+            // Query excluded user IDs using direct normalized URL comparison
+            // This ensures we catch users who completed the SAME LINK on OTHER orders
+            // regardless of hash mismatches in the database
             $excludedUserIds = DB::table('actions')
                 ->join('orders', 'actions.order_id', '=', 'orders.id')
                 ->whereIn('actions.status', ['done', 'external'])
                 ->where('orders.id', '!=', $order->id)
-                ->where(function ($q) use ($targetHash, $targetIdentifier) {
-                    $q->where('orders.target_url_hash', $targetHash);
-                    if ($targetIdentifier) {
-                        $q->orWhere('orders.target_url', 'like', '%' . $targetIdentifier . '%');
-                    }
-                })
+                ->whereRaw(
+                    "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(orders.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
+                    [$normalizedTarget]
+                )
                 ->whereIn('actions.user_id', $this->userIds)
                 ->distinct()
                 ->pluck('actions.user_id')
                 ->toArray();
 
             if (!empty($excludedUserIds)) {
-                Log::info('[ProcessPingResponseBatchJob] excluded users from other orders with same target', ['order_id' => $order->id, 'excluded_count' => count($excludedUserIds)]);
+                Log::info('[ProcessPingResponseBatchJob] excluded users from other orders with same target', [
+                    'order_id' => $order->id,
+                    'excluded_count' => count($excludedUserIds),
+                    'normalized_target' => $normalizedTarget
+                ]);
             }
 
             // Filter eligible users (basic check + exclude previously-acting users)
