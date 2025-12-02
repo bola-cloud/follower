@@ -334,7 +334,7 @@ class ResumeOrderService
                 'order_id' => $order->id,
                 'wrongly_included_count' => count($wronglyIncluded),
                 'wrongly_included_users' => $wronglyIncluded,
-                'normalized_target' => $normalizedTarget
+                // 'target_hash' => $targetHash
             ]);
         }
 
@@ -394,39 +394,32 @@ class ResumeOrderService
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
         $normalizedTarget = $this->normalizeUrl($order->target_url);
 
-        // Get new eligible users
+        // Get new eligible users - EXACTLY matching batchCheckEligibility logic
         $eligibleUsers = User::where('type', 'user')
             ->orderBy('id', 'desc')
             ->whereNotIn('id', function ($q) use ($order) {
                 $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
             })
             ->whereNotIn('id', $pendingUserIds)
-            // Compare profile_link with normalized URL
+            // Exclude users whose profile_link matches the target username
+            // Extract username from normalized target: instagram.com/username -> username
             ->whereRaw(
-                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(profile_link, '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''))) != ?",
-                [strtolower($normalizedTarget)]
+                "LOWER(TRIM(users.profile_link)) != ?",
+                [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
             )
-            ->whereNotIn('id', function ($sub) use ($normalizedTarget, $order) {
+            // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
+            // Compare normalized URLs directly (no hash usage)
+            ->whereNotIn('id', function ($sub) use ($order, $normalizedTarget) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->whereRaw(
-                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''))) = ?",
+                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
                         [$normalizedTarget]
                     )
                     ->where('o1.id', '!=', $order->id);
             })
-            // ✅ Exclude users who have done/external actions on OTHER orders with same target_url
-            // ->whereNotIn('id', function ($sub) use ($order) {
-            //     $sub->select('user_id')
-            //         ->from('actions')
-            //         ->join('orders', 'actions.order_id', '=', 'orders.id')
-            //         ->where('orders.target_url', $order->target_url)
-            //         ->where('orders.id', '!=', $order->id) // Different order, same target URL
-            //         ->whereIn('actions.status', ['done', 'external']); // Exclude done/external, allow pending
-            // })
-            // ->limit($remaining)
             ->get();
 
         // Combine pending and new eligible users

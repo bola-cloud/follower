@@ -484,38 +484,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 }
 
                 // Pending users among the eligible+active set — they'll be published first
+                // batchCheckEligibility already verified these users are eligible (no done/external on same normalized URL)
                 $pendingUsers = DB::table('actions')
                     ->where('order_id', $order->id)
                     ->where('status', 'pending')
                     ->whereIn('user_id', $eligible)
                     ->pluck('user_id')
                     ->toArray();
-
-                // ✅ CRITICAL FINAL CHECK: Exclude users who have done/external on ANY order with this normalized URL
-                // This catches users who completed the link AFTER batchCheckEligibility ran or in previous coordinator runs
-                // Compare normalized URLs directly instead of using unreliable target_url_hash column
-                if (!empty($pendingUsers)) {
-                    $usersWithDoneOnThisLink = DB::table('actions as a1')
-                        ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                        ->whereIn('a1.user_id', $pendingUsers)
-                        ->whereIn('a1.status', ['done', 'external'])
-                        ->whereRaw(
-                            "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
-                            [$normalizedTarget]
-                        )
-                        ->pluck('a1.user_id')
-                        ->toArray();
-
-                    if (!empty($usersWithDoneOnThisLink)) {
-                        $pendingUsers = array_diff($pendingUsers, $usersWithDoneOnThisLink);
-                        Log::warning('[InsertAndPublishForActiveDashboardUsers] BLOCKED users who already completed this link', [
-                            'order_id' => $order->id,
-                            'blocked_count' => count($usersWithDoneOnThisLink),
-                            'blocked_users' => array_slice($usersWithDoneOnThisLink, 0, 10),
-                            'normalized_target' => $normalizedTarget
-                        ]);
-                    }
-                }
 
                 $ordersSummary[$order->id] = [
                     'pending_found' => count($pendingUsers),
@@ -996,46 +971,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     // Skip if user already has action
                     if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
 
-                    // ✅ CRITICAL: Final DB check - skip if user has done/external on ANY order with this normalized URL
-                    // This prevents assigning users who completed the link between initial eligibility check and now
-                    // Compare normalized URLs directly instead of using unreliable target_url_hash column
-                    try {
-                        // Get the normalized target from order metadata
-                        $orderObj = $ordersMeta[$oid]['order'];
-                        $normalizedUrl = preg_replace('#^https?://#i', '', $orderObj->target_url);
-                        $normalizedUrl = preg_replace('#^www\\.#i', '', $normalizedUrl);
-                        if (($pos = strpos($normalizedUrl, '?')) !== false) {
-                            $normalizedUrl = substr($normalizedUrl, 0, $pos);
-                        }
-                        if (($pos = strpos($normalizedUrl, '#')) !== false) {
-                            $normalizedUrl = substr($normalizedUrl, 0, $pos);
-                        }
-                        $normalizedUrl = strtolower(rtrim($normalizedUrl, '/'));
-
-                        $hasDoneOnThisLink = DB::table('actions as a1')
-                            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                            ->where('a1.user_id', $uid)
-                            ->whereIn('a1.status', ['done', 'external'])
-                            ->whereRaw(
-                                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
-                                [$normalizedUrl]
-                            )
-                            ->exists();
-
-                        if ($hasDoneOnThisLink) {
-                            continue; // Skip this user
-                        }
-                    } catch (\Throwable $e) {
-                        Log::warning('[InsertAndPublishForActiveDashboardUsers] failed final link check for user', ['order_id' => $oid, 'user_id' => $uid, 'error' => $e->getMessage()]);
-                        continue; // Skip on error to be safe
-                    }
-
                     // Eligibility already checked by batchCheckEligibility - no need for per-user check
                     // The eligible set in ordersMeta is authoritative and already excludes:
                     // - Users with done/external on THIS order
                     // - Users with done/external on OTHER orders with same target URL
                     // - Users whose profile_link matches the target
-                    // This avoids expensive per-user DB queries
+                    // Trust batchCheckEligibility results to avoid expensive per-user DB queries
 
                     // Avoid adding the same uid twice
                     if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
