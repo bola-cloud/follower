@@ -20,7 +20,7 @@ return new class extends Migration {
             ]);
         } catch (\Throwable $e) {
             // best-effort; do not fail migration on missing table in some edge cases
-            
+
         }
     }
 

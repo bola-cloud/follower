@@ -726,125 +726,24 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         continue;
                     }
 
-                    // Compute eligible users (same logic as initial orders)
+                    // ✅ Use batchCheckEligibility for backfill orders (same as initial orders)
+                    // This ensures consistent eligibility logic and prevents duplicate link assignments
                     try {
                         $t0 = microtime(true);
-
-                        $candidateIds = $candidates;
-                        if (empty($candidateIds)) {
-                            $eligibleUsersCollection = collect([]);
-                        } else {
-                            // Normalize target URL for comparisons
-                            $normalizedTarget = preg_replace('#^https?://#i', '', $order->target_url);
-                            $normalizedTarget = preg_replace('#^www\\.#i', '', $normalizedTarget);
-                            if (($pos = strpos($normalizedTarget, '?')) !== false) {
-                                $normalizedTarget = substr($normalizedTarget, 0, $pos);
-                            }
-                            if (($pos = strpos($normalizedTarget, '#')) !== false) {
-                                $normalizedTarget = substr($normalizedTarget, 0, $pos);
-                            }
-                            $normalizedTarget = strtolower(rtrim($normalizedTarget, '/'));
-
-                            $pendingUserIds = DB::table('actions')
-                                ->where('order_id', $order->id)
-                                ->where('status', 'pending')
-                                ->pluck('user_id')
-                                ->toArray();
-
-                            $actualDoneCount = DB::table('actions')
-                                ->where('order_id', $order->id)
-                                ->where('status', 'done')
-                                ->count();
-
-                            $recentPendingCount = DB::table('actions')
-                                ->where('order_id', $order->id)
-                                ->where('status', 'pending')
-                                ->where('created_at', '>=', now()->subMinutes(30))
-                                ->count();
-
-                            $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
-
-                            if ($remaining <= 0) {
-                                $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
-                                $eligibleUsersCollection = \App\Models\User::whereIn('id', $intersectPending)->get();
-                            } else {
-                                    $eligibleQuery = \App\Models\User::where('type', 'user')
-                                    ->whereIn('id', $candidateIds)
-                                    ->whereNotIn('id', function ($q) use ($order) {
-                                        $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
-                                    })
-                                    ->whereNotIn('id', $pendingUserIds)
-                                    // Compare profile_link with normalized URL
-                                    ->whereRaw(
-                                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(profile_link, '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''))) != ?",
-                                        [strtolower($normalizedTarget)]
-                                    )
-                                    ->whereNotIn('id', function ($sub) use ($order, $normalizedTarget) {
-                                        $sub->select('a1.user_id')
-                                            ->from('actions as a1')
-                                            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                                            ->whereIn('a1.status', ['done', 'external'])
-                                            ->whereRaw(
-                                                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
-                                                [$normalizedTarget]
-                                            )
-                                            ->where('o1.id', '!=', $order->id);
-                                    });
-
-                                $eligibleUsers = $eligibleQuery->get();
-                                $intersectPending = array_values(array_intersect($pendingUserIds, $candidateIds));
-                                $pendingUsers = \App\Models\User::whereIn('id', $intersectPending)->get();
-                                $eligibleUsersCollection = $pendingUsers->merge($eligibleUsers);
-                            }
-                        }
-
+                        $eligibleIdsAll = $resumeService->batchCheckEligibility($order, $candidates);
                         $t1 = microtime(true);
-                        $eligibleIdsAll = $eligibleUsersCollection->pluck('id')->toArray();
                         $elapsedMs = round(($t1 - $t0) * 1000, 2);
-                        Log::info('[ResumeOrderService] getEligibleUsers (backfill) completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
-
-                        // Backfill-level diagnostics: list matching orders and recent actions for normalized target
-                        try {
-                            $matchingOrders = DB::table('orders')
-                                ->whereRaw(
-                                    "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))) = ?",
-                                    [$normalizedTarget]
-                                )
-                                ->select('id', 'target_url', 'target_url_hash')
-                                ->get();
-
-                            Log::info('[InsertAndPublishForActiveDashboardUsers] backfill_matching_orders', [
-                                'order_id' => $order->id,
-                                'normalized_target' => $normalizedTarget,
-                                'matching_count' => $matchingOrders->count(),
-                                'matching_sample' => $matchingOrders->take(10)->map(function($r){ return ['id'=>$r->id,'url'=>$r->target_url,'hash'=>$r->target_url_hash]; })->toArray()
-                            ]);
-
-                            if ($matchingOrders->isNotEmpty()) {
-                                $matchingOrderIds = $matchingOrders->pluck('id')->toArray();
-                                $actionsOnMatching = DB::table('actions as a1')
-                                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                                    ->whereIn('o1.id', $matchingOrderIds)
-                                    ->whereIn('a1.status', ['done', 'external'])
-                                    ->select('a1.user_id', 'a1.order_id', 'a1.status')
-                                    ->get();
-
-                                Log::info('[InsertAndPublishForActiveDashboardUsers] backfill_actions_on_matching_orders', [
-                                    'order_id' => $order->id,
-                                    'normalized_target' => $normalizedTarget,
-                                    'actions_count' => $actionsOnMatching->count(),
-                                    'actions_sample' => $actionsOnMatching->take(20)->toArray()
-                                ]);
-                            }
-                        } catch (\Throwable $e) {
-                            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to fetch backfill matching orders/actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-                        }
+                        Log::info('[InsertAndPublishForActiveDashboardUsers] batchCheckEligibility (backfill) completed', [
+                            'order_id' => $order->id,
+                            'elapsed_ms' => $elapsedMs,
+                            'eligible_count' => count($eligibleIdsAll)
+                        ]);
                     } catch (\Throwable $e) {
                         Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users (backfill)', ['order_id' => $order->id, 'error' => $e->getMessage()]);
                         $eligibleIdsAll = $candidates;
                     }
 
-                    $eligible = array_values(array_intersect($eligibleIdsAll, $candidates));
+                    $eligible = array_values($eligibleIdsAll);
                     Log::info('[InsertAndPublishForActiveDashboardUsers] backfill eligible intersection counts', ['order_id' => $order->id, 'eligible_total' => count($eligibleIdsAll), 'active_checked' => count($candidates), 'eligible_after_intersect' => count($eligible)]);
 
                     $alreadySelectedIds[] = $order->id; // Track this order
@@ -930,24 +829,14 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         }
         unset($metaRef);
 
-        // Preload active user models for per-user eligibility checks
-        // We'll use ResumeOrderService::checkUserEligibility($order, $user)
-        // for a definitive per-user decision rather than relying solely on
-        // the precomputed eligible sets which operate at batch-level.
-        $activeUserModels = [];
-        try {
-            $activeUserModels = \App\Models\User::whereIn('id', $activeUsers)->get()->keyBy('id')->all();
-        } catch (\Throwable $e) {
-            Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to preload active user models', ['error' => $e->getMessage()]);
-            $activeUserModels = [];
-        }
-
         // Second phase: for each order, iterate active users and try to fill
         // remaining slots. This is an order-major approach: pick users for
         // the oldest order first, then move to the next order. It better
         // matches the requirement: "get all active users and check their
         // eligibility then choose from them the number of actions needed
         // to be completed then loop on other uncompleted orders".
+        // All eligibility checks are performed by batchCheckEligibility() which is
+        // the single authoritative source - we trust its eligible sets completely.
     // By default allow claiming new eligible users so orders can be
     // completed using both existing pending actions and newly-claimed
     // eligible users. Operators can still disable this behavior by
@@ -971,12 +860,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     // Skip if user already has action
                     if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
 
-                    // Eligibility already checked by batchCheckEligibility - no need for per-user check
-                    // The eligible set in ordersMeta is authoritative and already excludes:
+                    // ✅ CRITICAL FIX: Check if user is in the eligible set from batchCheckEligibility
+                    // The eligible set already excludes:
                     // - Users with done/external on THIS order
                     // - Users with done/external on OTHER orders with same target URL
                     // - Users whose profile_link matches the target
-                    // Trust batchCheckEligibility results to avoid expensive per-user DB queries
+                    // This is the authoritative source - if user is not in eligibleSet, skip them
+                    if (!isset($ordersMeta[$oid]['eligibleSet'][$uid])) continue;
 
                     // Avoid adding the same uid twice
                     if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
