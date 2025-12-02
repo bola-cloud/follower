@@ -334,10 +334,10 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         $ordersMeta = []; // order_id => meta (includes order model)
         $totalReserved = 0; // pending + reserved by user iteration (pre-claim)
 
-        // ✅ CRITICAL FIX: Track user assignments by target URL hash WITHIN THIS RUN
+        // ✅ CRITICAL FIX: Track user assignments by normalized target string WITHIN THIS RUN
         // Prevents same user from being assigned to multiple orders with same link
         // when those orders are processed in the same coordinator run
-        $assignedUsersByTargetHash = []; // target_hash => [user_id1, user_id2, ...]
+        $assignedUsersByTarget = []; // normalized_target => [user_id1, user_id2, ...]
 
         foreach ($orders as $order) {
             try {
@@ -374,13 +374,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $normalizedTarget = substr($normalizedTarget, 0, $pos);
                 }
                 $normalizedTarget = strtolower(rtrim($normalizedTarget, '/'));
-                $targetHash = sha1($normalizedTarget);
-                $alreadyAssignedToThisLink = $assignedUsersByTargetHash[$targetHash] ?? [];
+                $targetKey = $normalizedTarget; // use normalized string as run-level key
+                $alreadyAssignedToThisLink = $assignedUsersByTarget[$targetKey] ?? [];
                 if (!empty($alreadyAssignedToThisLink)) {
                     $candidates = array_values(array_diff($candidates, $alreadyAssignedToThisLink));
                     Log::info('[InsertAndPublishForActiveDashboardUsers] excluded users already assigned to this link in current run', [
                         'order_id' => $order->id,
-                        'target_hash' => substr($targetHash, 0, 8),
+                        'target_key' => $targetKey,
                         'excluded_count' => count($alreadyAssignedToThisLink),
                         'remaining_candidates' => count($candidates)
                     ]);
@@ -400,7 +400,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         'candidates_count' => count($candidates),
                         'candidates_sample' => array_slice($candidates, 0, 10),
                         'normalized_target' => $normalizedTarget,
-                        'target_hash' => substr($targetHash, 0, 8),
+                        'target_key' => $targetKey,
                         'already_assigned_count' => count($alreadyAssignedToThisLink)
                     ]);
 
@@ -554,12 +554,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $assigned++;
                     $ordersSummary[$order->id]['pending_added']++;
 
-                    // Track this user as assigned to this target URL hash
-                    // Use the $targetHash variable computed earlier, not from $ordersMeta which doesn't exist yet
-                    if (!isset($assignedUsersByTargetHash[$targetHash])) {
-                        $assignedUsersByTargetHash[$targetHash] = [];
+                    // Track this user as assigned to this normalized target for this run
+                    // Use the $targetKey variable computed earlier (normalized string)
+                    if (!isset($assignedUsersByTarget[$targetKey])) {
+                        $assignedUsersByTarget[$targetKey] = [];
                     }
-                    $assignedUsersByTargetHash[$targetHash][] = $uid;
+                    $assignedUsersByTarget[$targetKey][] = $uid;
                     // Keep the global publishes counter in sync with the list so
                     // the later batching logic sees the correct total.
                     $totalPublishes++;
@@ -583,7 +583,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     'alreadyActioned' => array_flip($alreadyActionedActive),
                     'toClaim' => [],
                     'payloadBase' => $payloadBase,
-                    'targetHash' => $targetHash, // store for tracking assignments
+                    'targetKey' => $targetKey, // store normalized key for tracking assignments
                 ];
 
                 // Count pending adds towards reserved (they will be published)
@@ -1046,12 +1046,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $userCounts[$uid] = $uc + 1;
                     $totalReserved++;
 
-                    // Track this user as assigned to this target URL hash
-                    $tHash = $ordersMeta[$oid]['targetHash'];
-                    if (!isset($assignedUsersByTargetHash[$tHash])) {
-                        $assignedUsersByTargetHash[$tHash] = [];
+                    // Track this user as assigned to this normalized target for this run
+                    $tKey = $ordersMeta[$oid]['targetKey'];
+                    if (!isset($assignedUsersByTarget[$tKey])) {
+                        $assignedUsersByTarget[$tKey] = [];
                     }
-                    $assignedUsersByTargetHash[$tHash][] = $uid;
+                    $assignedUsersByTarget[$tKey][] = $uid;
                 }
             }
         }
@@ -1064,6 +1064,26 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
             $ordersSummary[$oid]['claim_attempted'] = count($toClaim);
             try {
+                // Conditional verbose debug for problematic normalized target
+                $normalizedOrderTarget = preg_replace('#^https?://#i', '', $order->target_url);
+                $normalizedOrderTarget = preg_replace('#^www\\.#i', '', $normalizedOrderTarget);
+                if (($pos = strpos($normalizedOrderTarget, '?')) !== false) {
+                    $normalizedOrderTarget = substr($normalizedOrderTarget, 0, $pos);
+                }
+                if (($pos = strpos($normalizedOrderTarget, '#')) !== false) {
+                    $normalizedOrderTarget = substr($normalizedOrderTarget, 0, $pos);
+                }
+                $normalizedOrderTarget = strtolower(rtrim($normalizedOrderTarget, '/'));
+
+                if ($normalizedOrderTarget === 'instagram.com/reel/drqcdg0ddzs') {
+                    Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: about to batchInsertPendingAction', [
+                        'order_id' => $order->id,
+                        'toClaim_count' => count($toClaim),
+                        'toClaim_sample' => array_slice($toClaim, 0, 20),
+                        'normalized_target' => $normalizedOrderTarget
+                    ]);
+                }
+
                 $batchService = app(BatchActionService::class);
                 $result = $batchService->batchInsertPendingAction($order, $toClaim);
                 Log::info('[InsertAndPublishForActiveDashboardUsers] BatchActionService result', ['order_id' => $order->id, 'result' => $result]);
@@ -1076,12 +1096,32 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
 
             // Determine which of the attempted users now have actions (pending/done/external)
-            $existingUserIds = DB::table('actions')
+                $existingUserIds = DB::table('actions')
                 ->where('order_id', $order->id)
                 ->whereIn('user_id', $toClaim)
                 ->whereIn('status', ['pending', 'done', 'external'])
                 ->pluck('user_id')
                 ->toArray();
+
+                // Post-insert diagnostic for problematic normalized target: dump actions rows for claimed users
+                if (isset($normalizedOrderTarget) && $normalizedOrderTarget === 'instagram.com/reel/drqcdg0ddzs') {
+                    try {
+                        $actionsRows = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->whereIn('user_id', $toClaim)
+                            ->select('user_id', 'status', 'created_at', 'updated_at')
+                            ->get();
+
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: post-insert actions snapshot', [
+                            'order_id' => $order->id,
+                            'normalized_target' => $normalizedOrderTarget,
+                            'actions_count' => $actionsRows->count(),
+                            'actions_sample' => $actionsRows->toArray()
+                        ]);
+                    } catch (\Throwable $e) {
+                        Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: failed to read post-insert actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
+                    }
+                }
 
             // Add claimed ones to the global publish list (respecting per-user and global caps)
             foreach ($existingUserIds as $uid) {
@@ -1100,12 +1140,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 $ordersSummary[$oid]['claimed_added']++;
                 $totalPublishes++;
 
-                // Track this user as assigned to this target URL hash
-                $tHash = $meta['targetHash'];
-                if (!isset($assignedUsersByTargetHash[$tHash])) {
-                    $assignedUsersByTargetHash[$tHash] = [];
+                // Track this user as assigned to this normalized target for this run
+                $tKey = $meta['targetKey'];
+                if (!isset($assignedUsersByTarget[$tKey])) {
+                    $assignedUsersByTarget[$tKey] = [];
                 }
-                $assignedUsersByTargetHash[$tHash][] = $uid;
+                $assignedUsersByTarget[$tKey][] = $uid;
             }
         }
 
