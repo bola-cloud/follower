@@ -221,6 +221,15 @@ class ResumeOrderService
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
         $normalizedTarget = $this->normalizeUrl($order->target_url);
         $targetHash = sha1($normalizedTarget);
+        
+        // DEBUG: Log normalization details
+        Log::info('[batchCheckEligibility] URL normalization', [
+            'order_id' => $order->id,
+            'original_url' => $order->target_url,
+            'normalized_url' => $normalizedTarget,
+            'target_hash' => $targetHash,
+            'order_stored_hash' => $order->target_url_hash
+        ]);
 
         // Get pending users for this order (intersected with candidates)
         $pendingUserIds = DB::table('actions')
@@ -248,6 +257,39 @@ class ResumeOrderService
         // If no remaining slots, only return pending users
         if ($remaining <= 0) {
             return $pendingUserIds;
+        }
+
+        // DEBUG: Check how many users already completed this link on OTHER orders
+        $usersWithSameLink = DB::table('actions as a1')
+            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+            ->whereIn('a1.status', ['done', 'external'])
+            ->where(function ($q) use ($targetHash) {
+                $q->where('o1.target_url_hash', $targetHash)
+                  ->orWhereRaw(
+                      "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
+                      [$targetHash]
+                  );
+            })
+            ->where('o1.id', '!=', $order->id)
+            ->whereIn('a1.user_id', $candidateUserIds)
+            ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'o1.target_url_hash as other_hash', 'a1.status')
+            ->get();
+        
+        if ($usersWithSameLink->isNotEmpty()) {
+            Log::warning('[batchCheckEligibility] Found users who already completed same link', [
+                'order_id' => $order->id,
+                'target_hash' => $targetHash,
+                'users_with_same_link_count' => $usersWithSameLink->count(),
+                'sample_users' => $usersWithSameLink->take(10)->map(function($item) {
+                    return [
+                        'user_id' => $item->user_id,
+                        'other_order_id' => $item->other_order_id,
+                        'other_url' => $item->other_url,
+                        'other_hash' => $item->other_hash,
+                        'status' => $item->status
+                    ];
+                })->toArray()
+            ]);
         }
 
         // Query new eligible users restricted to the candidate IDs
@@ -292,6 +334,19 @@ class ResumeOrderService
             })
             ->pluck('users.id')
             ->toArray();
+        
+        // DEBUG: Check if any users who should be excluded are still in eligible list
+        $shouldBeExcluded = $usersWithSameLink->pluck('user_id')->toArray();
+        $wronglyIncluded = array_intersect($shouldBeExcluded, $eligibleUserIds);
+        
+        if (!empty($wronglyIncluded)) {
+            Log::error('[batchCheckEligibility] CRITICAL: Users wrongly included despite completing same link', [
+                'order_id' => $order->id,
+                'wrongly_included_count' => count($wronglyIncluded),
+                'wrongly_included_users' => $wronglyIncluded,
+                'target_hash' => $targetHash
+            ]);
+        }
 
         // Combine pending users (at front) with newly eligible users
         return array_values(array_unique(array_merge($pendingUserIds, $eligibleUserIds)));
