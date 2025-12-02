@@ -23,28 +23,31 @@ class ResumeOrderService
      */
     private function normalizeUrl(string $url): string
     {
+        // Remove leading/trailing whitespace
+        $normalized = trim($url);
+
         // Remove protocol (http:// or https://)
-        $normalized = preg_replace('#^https?://#i', '', $url);
-        
+        $normalized = preg_replace('#^https?://#i', '', $normalized);
+
         // Remove www. prefix
         $normalized = preg_replace('#^www\.#i', '', $normalized);
-        
+
         // Remove query string (everything after ?)
         if (($pos = strpos($normalized, '?')) !== false) {
             $normalized = substr($normalized, 0, $pos);
         }
-        
+
         // Remove fragment (everything after #)
         if (($pos = strpos($normalized, '#')) !== false) {
             $normalized = substr($normalized, 0, $pos);
         }
-        
+
         // Remove all trailing slashes
         $normalized = rtrim($normalized, '/');
-        
+
         // Convert to lowercase for case-insensitive comparison
         $normalized = strtolower($normalized);
-        
+
         return $normalized;
     }
 
@@ -204,7 +207,7 @@ class ResumeOrderService
      * Batch eligibility check: given an order and a list of candidate user IDs,
      * returns the subset of user IDs that are eligible for this order.
      * This avoids calling getEligibleUsers multiple times and eliminates code duplication.
-     * 
+     *
      * @param Order $order The order to check eligibility for
      * @param array $candidateUserIds Array of user IDs to check (e.g., active users)
      * @return array Array of eligible user IDs from the candidates
@@ -262,12 +265,13 @@ class ResumeOrderService
             })
             // Exclude pending users (we'll add them separately)
             ->whereNotIn('users.id', $pendingUserIds)
-            // Exclude users whose profile_link matches the target (normalize for comparison)
-            // Note: In SQL we can't call the PHP normalizeUrl, so we do basic normalization
-            // Strip protocol, www, query params, fragments, and trailing slashes
+            // Exclude users whose profile_link matches the target username
+            // profile_link is stored as username only (e.g., "faris__ahmed25")
+            // target_url can be full URL (e.g., "https://www.instagram.com/faris__ahmed25")
+            // Extract username from normalized target: instagram.com/faris__ahmed25 -> faris__ahmed25
             ->whereRaw(
-                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(users.profile_link, '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''))) != ?",
-                [strtolower($normalizedTarget)]
+                "LOWER(TRIM(users.profile_link)) != ?",
+                [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
             )
             // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
             ->whereNotIn('users.id', function ($sub) use ($order, $targetHash) {
@@ -277,10 +281,10 @@ class ResumeOrderService
                     ->whereIn('a1.status', ['done', 'external'])
                     ->where(function ($q) use ($targetHash) {
                         // Use precomputed hash when available, fallback to SHA1 of normalized URL
-                        // Normalize: strip protocol, www, query params, fragments, trailing slashes
+                        // Normalize: strip spaces, protocol, www, query params, fragments, trailing slashes
                         $q->where('o1.target_url_hash', $targetHash)
                           ->orWhereRaw(
-                              "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(o1.target_url, '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))) = ?",
+                              "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
                               [$targetHash]
                           );
                     })

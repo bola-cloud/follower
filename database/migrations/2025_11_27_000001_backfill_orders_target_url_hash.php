@@ -22,10 +22,10 @@ class BackfillOrdersTargetUrlHash extends Migration
         // 5. Remove trailing slashes
         // 6. Convert to lowercase
         DB::statement("
-            UPDATE orders 
+            UPDATE orders
             SET target_url_hash = SHA1(
                 LOWER(
-                    TRIM(TRAILING '/' FROM 
+                    TRIM(TRAILING '/' FROM
                         REGEXP_REPLACE(
                             REGEXP_REPLACE(
                                 REGEXP_REPLACE(target_url, '\\\\?.*$', ''),
