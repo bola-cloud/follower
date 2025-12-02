@@ -228,10 +228,11 @@ class ResumeOrderService
             'normalized_url' => $normalizedTarget
         ]);
 
-        // Get pending users for this order (intersected with candidates)
-        $pendingUserIds = DB::table('actions')
+        // Get RECENT pending users for this order (last 30 minutes only) - intersected with candidates
+        $recentPendingUserIds = DB::table('actions')
             ->where('order_id', $order->id)
             ->where('status', 'pending')
+            ->where('created_at', '>=', now()->subMinutes(30))
             ->whereIn('user_id', $candidateUserIds)
             ->pluck('user_id')
             ->toArray();
@@ -243,17 +244,13 @@ class ResumeOrderService
             ->count();
 
         // Count recent pending actions (last 30 minutes)
-        $recentPendingCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->where('created_at', '>=', now()->subMinutes(30))
-            ->count();
+        $recentPendingCount = count($recentPendingUserIds);
 
         $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
 
-        // If no remaining slots, only return pending users
+        // If no remaining slots, only return recent pending users
         if ($remaining <= 0) {
-            return $pendingUserIds;
+            return $recentPendingUserIds;
         }
 
         // DEBUG: Check how many users already completed this link on OTHER orders
@@ -271,7 +268,7 @@ class ResumeOrderService
             ->get();
 
         if ($usersWithSameLink->isNotEmpty()) {
-            Log::warning('[batchCheckEligibility] Found users who already completed same link', [
+            Log::info('[batchCheckEligibility] Found users who already completed same link', [
                 'order_id' => $order->id,
                 'normalized_target' => $normalizedTarget,
                 'users_with_same_link_count' => $usersWithSameLink->count(),
@@ -299,8 +296,8 @@ class ResumeOrderService
                     ->where('order_id', $order->id)
                     ->whereIn('status', ['done', 'external']);
             })
-            // Exclude pending users (we'll add them separately)
-            ->whereNotIn('users.id', $pendingUserIds)
+            // Exclude recent pending users (last 30 minutes) - we'll add them separately
+            ->whereNotIn('users.id', $recentPendingUserIds)
             // Exclude users whose profile_link matches the target username
             // profile_link is stored as username only (e.g., "faris__ahmed25")
             // target_url can be full URL (e.g., "https://www.instagram.com/faris__ahmed25")
@@ -338,8 +335,8 @@ class ResumeOrderService
             ]);
         }
 
-        // Combine pending users (at front) with newly eligible users
-        return array_values(array_unique(array_merge($pendingUserIds, $eligibleUserIds)));
+        // Combine recent pending users (at front) with newly eligible users
+        return array_values(array_unique(array_merge($recentPendingUserIds, $eligibleUserIds)));
     }
 
     public function checkUserEligibility(Order $order, User $user): bool
@@ -365,10 +362,11 @@ class ResumeOrderService
             'target_url' => $order->target_url ?? null
         ]);
 
-        // Get pending users and new eligible users similar to resume method
-        $pendingUserIds = DB::table('actions')
+        // Get RECENT pending users (last 30 minutes only) - not all pending users
+        $recentPendingUserIds = DB::table('actions')
             ->where('order_id', $order->id)
             ->where('status', 'pending')
+            ->where('created_at', '>=', now()->subMinutes(30))
             ->pluck('user_id')
             ->toArray();
 
@@ -377,18 +375,14 @@ class ResumeOrderService
             ->where('status', 'done')
             ->count();
 
-        // Count pending actions created within the past 30 minutes
-        $recentPendingCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->where('created_at', '>=', now()->subMinutes(30))
-            ->count();
+        // Count recent pending actions
+        $recentPendingCount = count($recentPendingUserIds);
 
         $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
 
         if ($remaining <= 0) {
-            // Return pending users if any
-            return User::whereIn('id', $pendingUserIds)->get();
+            // Return recent pending users if any
+            return User::whereIn('id', $recentPendingUserIds)->get();
         }
 
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
@@ -406,8 +400,8 @@ class ResumeOrderService
                     ->where('order_id', $order->id)
                     ->whereIn('status', ['done', 'external']);
             })
-            // Exclude pending users (we'll add them separately)
-            ->whereNotIn('users.id', $pendingUserIds)
+            // Exclude recent pending users (last 30 minutes) - we'll add them separately
+            ->whereNotIn('users.id', $recentPendingUserIds)
             // Exclude users whose profile_link matches the target username
             // profile_link is stored as username only (e.g., "faris__ahmed25")
             // target_url can be full URL (e.g., "https://www.instagram.com/faris__ahmed25")
@@ -436,9 +430,9 @@ class ResumeOrderService
         // Get User models for eligible IDs
         $eligibleUsers = User::whereIn('id', $eligibleUserIds)->orderBy('id', 'desc')->get();
 
-        // Combine pending and new eligible users
-        $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
-        $combinedUsers = $pendingUsers->merge($eligibleUsers);
+        // Combine recent pending users and new eligible users
+        $recentPendingUsers = User::whereIn('id', $recentPendingUserIds)->get();
+        $combinedUsers = $recentPendingUsers->merge($eligibleUsers);
 
         // Diagnostic logging: report counts and small samples so operators can
         // tell whether getEligibleUsers returned any candidates or whether
@@ -448,7 +442,7 @@ class ResumeOrderService
             $combinedIds = $combinedUsers->pluck('id')->toArray();
             Log::info('[ResumeOrderService] getEligibleUsers result', [
                 'order_id' => $order->id,
-                'pending_count' => count($pendingUserIds),
+                'recent_pending_count' => count($recentPendingUserIds),
                 'eligible_count' => count($eligibleIds),
                 'combined_count' => count($combinedIds),
                 'eligible_sample' => array_slice($eligibleIds, 0, 20),
