@@ -260,16 +260,14 @@ class ResumeOrderService
         }
 
         // DEBUG: Check how many users already completed this link on OTHER orders
+        // Compare normalized URLs directly instead of hashes to avoid mismatch issues
         $usersWithSameLink = DB::table('actions as a1')
             ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
             ->whereIn('a1.status', ['done', 'external'])
-            ->where(function ($q) use ($targetHash) {
-                $q->where('o1.target_url_hash', $targetHash)
-                  ->orWhereRaw(
-                      "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
-                      [$targetHash]
-                  );
-            })
+            ->whereRaw(
+                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
+                [$normalizedTarget]
+            )
             ->where('o1.id', '!=', $order->id)
             ->whereIn('a1.user_id', $candidateUserIds)
             ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'o1.target_url_hash as other_hash', 'a1.status')
@@ -316,20 +314,16 @@ class ResumeOrderService
                 [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
             )
             // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
-            ->whereNotIn('users.id', function ($sub) use ($order, $targetHash) {
+            // Compare normalized URLs directly instead of hashes to avoid mismatch issues
+            ->whereNotIn('users.id', function ($sub) use ($order, $normalizedTarget) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->where(function ($q) use ($targetHash) {
-                        // Use precomputed hash when available, fallback to SHA1 of normalized URL
-                        // Normalize: strip spaces, protocol, www, query params, fragments, trailing slashes
-                        $q->where('o1.target_url_hash', $targetHash)
-                          ->orWhereRaw(
-                              "o1.target_url_hash IS NULL AND SHA1(LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', '')))) = ?",
-                              [$targetHash]
-                          );
-                    })
+                    ->whereRaw(
+                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\\\\\\\\\.)?', ''))) = ?",
+                        [$normalizedTarget]
+                    )
                     ->where('o1.id', '!=', $order->id);
             })
             ->pluck('users.id')
