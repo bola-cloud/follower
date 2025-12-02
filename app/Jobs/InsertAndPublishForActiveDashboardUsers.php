@@ -394,6 +394,16 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 // ✅ FIX ISSUE #1 & #2: Use new batch eligibility method instead of duplicated logic
                 // This is faster, cleaner, and correctly excludes users who took action on same link in OTHER orders
                 try {
+                    // Detailed start log for batch eligibility
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] batchEligibility.start', [
+                        'order_id' => $order->id,
+                        'candidates_count' => count($candidates),
+                        'candidates_sample' => array_slice($candidates, 0, 10),
+                        'normalized_target' => $normalizedTarget,
+                        'target_hash' => substr($targetHash, 0, 8),
+                        'already_assigned_count' => count($alreadyAssignedToThisLink)
+                    ]);
+
                     $t0 = microtime(true);
 
                     $eligibleIdsAll = $resumeService->batchCheckEligibility($order, $candidates);
@@ -404,6 +414,17 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     if ($elapsedMs > 500) {
                         Log::warning('[ResumeOrderService] batchCheckEligibility slow', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
                     }
+
+                    // Post-check diagnostics: who was removed from candidates
+                    $removed = array_values(array_diff($candidates, $eligibleIdsAll));
+                    Log::info('[InsertAndPublishForActiveDashboardUsers] batchEligibility.result', [
+                        'order_id' => $order->id,
+                        'candidates_count' => count($candidates),
+                        'eligible_count' => count($eligibleIdsAll),
+                        'removed_count' => count($removed),
+                        'removed_sample' => array_slice($removed, 0, 10)
+                    ]);
+
                 } catch (\Throwable $e) {
                     Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to compute eligible users (batched)', ['order_id' => $order->id, 'error' => $e->getMessage()]);
                     $eligibleIdsAll = $candidates;

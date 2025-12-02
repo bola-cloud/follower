@@ -2,7 +2,7 @@
 /**
  * One-time script to recalculate all target_url_hash values in orders table
  * This fixes hash mismatches that prevent proper duplicate detection
- * 
+ *
  * Run with: php fix-target-url-hashes.php
  */
 
@@ -25,7 +25,7 @@ echo "Total orders: {$total}\n";
 // 2. Remove protocol
 // 3. Remove www
 // 4. Remove query params
-// 5. Remove fragments  
+// 5. Remove fragments
 // 6. Remove trailing slashes
 // 7. Lowercase
 $updated = DB::statement("
@@ -49,7 +49,7 @@ echo "Recalculation complete!\n";
 
 // Verify: Check for orders with same URL but different hashes (should be 0)
 $duplicateHashes = DB::select("
-    SELECT 
+    SELECT
         target_url,
         COUNT(DISTINCT target_url_hash) as hash_count,
         GROUP_CONCAT(DISTINCT target_url_hash) as hashes

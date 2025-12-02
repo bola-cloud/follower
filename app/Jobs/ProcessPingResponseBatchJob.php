@@ -99,7 +99,7 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             // ✅ CRITICAL FIX: Normalize URL and compare directly instead of using hashes
             // This matches the fix in ResumeOrderService::batchCheckEligibility
             $targetUrl = $order->target_url ?? '';
-            
+
             // Normalize URL: remove protocol, www, query params, fragments, trailing slashes, convert to lowercase
             $normalizedTarget = trim($targetUrl);
             $normalizedTarget = preg_replace('#^https?://#i', '', $normalizedTarget);
