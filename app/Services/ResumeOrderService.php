@@ -395,32 +395,46 @@ class ResumeOrderService
         $normalizedTarget = $this->normalizeUrl($order->target_url);
 
         // Get new eligible users - EXACTLY matching batchCheckEligibility logic
-        $eligibleUsers = User::where('type', 'user')
-            ->orderBy('id', 'desc')
-            ->whereNotIn('id', function ($q) use ($order) {
-                $q->select('user_id')->from('actions')->where('order_id', $order->id)->whereIn('status', ['done', 'external']);
+        // Use DB::table() instead of Eloquent to ensure consistent query structure
+        $eligibleUserIds = DB::table('users')
+            ->select('users.id')
+            ->where('users.type', 'user')
+            // Exclude users who already have done/external actions on THIS order
+            ->whereNotIn('users.id', function ($q) use ($order) {
+                $q->select('user_id')
+                    ->from('actions')
+                    ->where('order_id', $order->id)
+                    ->whereIn('status', ['done', 'external']);
             })
-            ->whereNotIn('id', $pendingUserIds)
+            // Exclude pending users (we'll add them separately)
+            ->whereNotIn('users.id', $pendingUserIds)
             // Exclude users whose profile_link matches the target username
-            // Extract username from normalized target: instagram.com/username -> username
+            // profile_link is stored as username only (e.g., "faris__ahmed25")
+            // target_url can be full URL (e.g., "https://www.instagram.com/faris__ahmed25")
+            // Extract username from normalized target: instagram.com/faris__ahmed25 -> faris__ahmed25
             ->whereRaw(
                 "LOWER(TRIM(users.profile_link)) != ?",
                 [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
             )
             // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
-            // Compare normalized URLs directly (no hash usage)
-            ->whereNotIn('id', function ($sub) use ($order, $normalizedTarget) {
+            // Compare normalized URLs directly instead of hashes to avoid mismatch issues
+            ->whereNotIn('users.id', function ($sub) use ($order, $normalizedTarget) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->whereRaw(
-                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
+                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\\\\\\\\\.)?', ''))) = ?",
                         [$normalizedTarget]
                     )
                     ->where('o1.id', '!=', $order->id);
             })
-            ->get();
+            ->orderBy('users.id', 'desc')
+            ->pluck('users.id')
+            ->toArray();
+
+        // Get User models for eligible IDs
+        $eligibleUsers = User::whereIn('id', $eligibleUserIds)->orderBy('id', 'desc')->get();
 
         // Combine pending and new eligible users
         $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
