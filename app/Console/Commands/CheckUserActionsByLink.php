@@ -107,14 +107,14 @@ class CheckUserActionsByLink extends Command
 
         // Query 2: Test the SQL expression used in service
         $this->line("\n[Query 2 - SQL EXPRESSION TEST] Using the service's SQL extraction:");
-        $lastSegmentExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(o1.target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
-        
+        $likeBinding = "%/{$targetId}%";
+
         $sqlMatches = DB::table('actions as a1')
             ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
             ->where('a1.user_id', $user->id)
             ->whereIn('a1.status', ['done', 'external'])
-            ->whereRaw("{$lastSegmentExpr} = ?", [$targetId])
-            ->select('a1.user_id', 'a1.status', 'o1.id as order_id', 'o1.target_url', 'a1.created_at', DB::raw("{$lastSegmentExpr} as extracted_by_sql"))
+            ->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding])
+            ->select('a1.user_id', 'a1.status', 'o1.id as order_id', 'o1.target_url', 'a1.created_at', DB::raw("LOWER(o1.target_url) as extracted_by_sql"))
             ->orderBy('a1.created_at', 'desc')
             ->get();
 
@@ -127,10 +127,10 @@ class CheckUserActionsByLink extends Command
 
         // Query 3: List all orders that match the target id
         $this->line("\n[Query 3] All orders matching target_id '{$targetId}':");
-        $lastSegmentOrdersExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
+        $likeOrdersBinding = "%/{$targetId}%";
         $matchingOrders = DB::table('orders')
-            ->whereRaw("{$lastSegmentOrdersExpr} = ?", [$targetId])
-            ->select('id', 'user_id', 'target_url', 'created_at', DB::raw("{$lastSegmentOrdersExpr} as extracted_by_sql"))
+            ->whereRaw("LOWER(target_url) LIKE ?", [$likeOrdersBinding])
+            ->select('id', 'user_id', 'target_url', 'created_at', DB::raw("LOWER(target_url) as extracted_by_sql"))
             ->orderBy('id', 'desc')
             ->limit(100)
             ->get();

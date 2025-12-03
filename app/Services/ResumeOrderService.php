@@ -279,12 +279,14 @@ class ResumeOrderService
 
             // Build a SQL expression to extract last path segment without using REGEXP or question-mark patterns
             // Steps: lower(trim(o1.target_url)) -> remove protocol/www via nested REPLACE -> take substring before '?' -> get last '/' segment
-            $lastSegmentExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(o1.target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
+            // Simpler matching: check if the lowercased target_url contains '/{targetId}'
+            // This is robust against query params and avoids complex SQL functions that may behave differently across MySQL versions.
+            $likeBinding = "%/{$targetId}%";
 
             $usersWithSameLink = DB::table('actions as a1')
                 ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                 ->whereIn('a1.status', ['done', 'external'])
-                ->whereRaw("{$lastSegmentExpr} = ?", [$targetId])
+                ->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding])
                 ->where('o1.id', '!=', $order->id)
                 ->whereIn('a1.user_id', $candidateUserIds)
                 ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'a1.status')
@@ -435,12 +437,12 @@ class ResumeOrderService
             // Exclude users who have done/external on OTHER orders with same target_url
             // Use safe SUBSTRING/REPLACE expression (no REGEXP, no unescaped '?' in patterns)
             ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
-                $lastSegmentExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(o1.target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
+                $likeBinding = "%/{$targetId}%";
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->whereRaw("{$lastSegmentExpr} = ?", [$targetId])
+                    ->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding])
                     ->where('o1.id', '!=', $order->id);
             })
             ->pluck('users.id')

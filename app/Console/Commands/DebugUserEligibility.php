@@ -126,10 +126,10 @@ class DebugUserEligibility extends Command
 
         // 4) Does this user have done/external actions on OTHER orders with the same target id?
         // Use same no-regex extraction as service to avoid SQL placeholders inside pattern
-        $lastSegmentExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(o1.target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
-        $sql4 = "SELECT a1.user_id, a1.status, o1.id as other_order_id, o1.target_url as other_url, a1.created_at FROM actions a1 JOIN orders o1 ON a1.order_id = o1.id WHERE a1.user_id = ? AND a1.status IN ('done','external') AND {$lastSegmentExpr} = ? AND o1.id != ?";
-        $this->line('\n[Query 4] ' . $sql4 . ' -- bindings: [' . $user->id . ', ' . $targetId . ', ' . $order->id . ']');
-        $res4 = DB::select($sql4, [$user->id, $targetId, $order->id]);
+        $likeBinding = "%/{$targetId}%";
+        $sql4 = "SELECT a1.user_id, a1.status, o1.id as other_order_id, o1.target_url as other_url, a1.created_at FROM actions a1 JOIN orders o1 ON a1.order_id = o1.id WHERE a1.user_id = ? AND a1.status IN ('done','external') AND LOWER(o1.target_url) LIKE ? AND o1.id != ?";
+        $this->line('\n[Query 4] ' . $sql4 . ' -- bindings: [' . $user->id . ', ' . $likeBinding . ', ' . $order->id . ']');
+        $res4 = DB::select($sql4, [$user->id, $likeBinding, $order->id]);
         $this->line('Found ' . count($res4) . ' matching done/external actions for this user on other orders (with SQL regex)');
         foreach ($res4 as $row) {
             $this->line(" - order: {$row->other_order_id} status: {$row->status} url: {$row->other_url} at: {$row->created_at}");
@@ -151,10 +151,10 @@ class DebugUserEligibility extends Command
         Log::info('[resume:debug-eligibility] query5', ['sql'=>$sql5,'bindings'=>[$user->id],'result'=>$res5,'extracted'=>$extractedUsername]);
 
         // 6) List all orders that match the target id (sample)
-        $lastSegmentOrdersExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
-        $sql6 = "SELECT id, user_id, target_url, created_at FROM orders WHERE {$lastSegmentOrdersExpr} = ? ORDER BY id DESC LIMIT 200";
-        $this->line('\n[Query 6] ' . $sql6 . ' -- bindings: [' . $targetId . ']');
-        $res6 = DB::select($sql6, [$targetId]);
+        $likeOrdersBinding = "%/{$targetId}%";
+        $sql6 = "SELECT id, user_id, target_url, created_at FROM orders WHERE LOWER(target_url) LIKE ? ORDER BY id DESC LIMIT 200";
+        $this->line('\n[Query 6] ' . $sql6 . ' -- bindings: [' . $likeOrdersBinding . ']');
+        $res6 = DB::select($sql6, [$likeOrdersBinding]);
         $this->line('Found ' . count($res6) . ' orders with same target id');
         foreach ($res6 as $o) {
             $this->line(" - order_id: {$o->id} owner: {$o->user_id} url: {$o->target_url} created: {$o->created_at}");
