@@ -221,6 +221,12 @@ class ResumeOrderService
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
         $normalizedTarget = $this->normalizeUrl($order->target_url);
 
+        // Extract last path segment (reel/profile id) for robust comparisons
+        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+
+        // Extract last path segment (reel/profile id) for robust comparisons
+        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+
         // Extract last path segment (reel/profile id)
         $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
@@ -314,7 +320,7 @@ class ResumeOrderService
             // Extract username from normalized target: instagram.com/faris__ahmed25 -> faris__ahmed25
             ->whereRaw(
                 "LOWER(TRIM(users.profile_link)) != ?",
-                [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
+                [strtolower(preg_replace('#^.*/#', '', $normalizedTarget))]
             )
             // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
             // Compare by extracted target id (last path segment)
@@ -417,7 +423,7 @@ class ResumeOrderService
             // Exclude users whose profile_link matches the target username
             ->whereRaw(
                 "LOWER(TRIM(users.profile_link)) != ?",
-                [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
+                [strtolower(preg_replace('#^.*/#', '', $normalizedTarget))]
             )
             // Exclude users who have done/external on OTHER orders with same target_url
             ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
