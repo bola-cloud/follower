@@ -15,7 +15,7 @@ class FindOrdersByLink extends Command
      *
      * @var string
      */
-    protected $signature = 'resume:find-orders {--url= : URL to search for} {--limit=10 : Max orders to show}';
+    protected $signature = 'resume:find-orders {--url= : URL to search for} {--limit=10 : Max orders to show} {--by-id : Match by last path segment (reel/profile id) instead of full normalized URL}';
 
     /**
      * The console command description.
@@ -38,17 +38,33 @@ class FindOrdersByLink extends Command
         $normalized = $this->normalizeUrl($url);
         $this->info("Searching orders matching normalized URL: {$normalized}");
 
-        // Find orders with same normalized target_url
-        $orders = DB::table('orders')
-            ->select('id', 'target_url', 'user_id', 'created_at')
-            ->whereRaw(
-                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))=?",
-                [$normalized]
-            )
-            ->limit($limit)
-            ->get();
+        // Optionally match by last path segment (reel/profile id)
+        $byId = (bool) $this->option('by-id');
+        $targetId = strtolower(preg_replace('#^.*/#', '', $normalized));
 
-        if ($orders->isEmpty()) {
+        if ($byId) {
+            $this->info("Searching orders matching target id: {$targetId}");
+            $orders = DB::table('orders')
+                ->select('id', 'target_url', 'user_id', 'created_at')
+                ->whereRaw(
+                    "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ?",
+                    [$targetId]
+                )
+                ->limit($limit)
+                ->get();
+        } else {
+            // Find orders with same normalized target_url
+            $orders = DB::table('orders')
+                ->select('id', 'target_url', 'user_id', 'created_at')
+                ->whereRaw(
+                    "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))=?",
+                    [$normalized]
+                )
+                ->limit($limit)
+                ->get();
+            }
+
+            if ($orders->isEmpty()) {
             $this->info('No matching orders found.');
             return 0;
         }

@@ -221,6 +221,9 @@ class ResumeOrderService
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
         $normalizedTarget = $this->normalizeUrl($order->target_url);
 
+        // Extract last path segment (reel/profile id)
+        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+
         // DEBUG: Log normalization details
         Log::info('[batchCheckEligibility] URL normalization', [
             'order_id' => $order->id,
@@ -258,17 +261,21 @@ class ResumeOrderService
 
         // DEBUG: Check how many users already completed this link on OTHER orders
         // Compare normalized URLs directly
-        $usersWithSameLink = DB::table('actions as a1')
-            ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-            ->whereIn('a1.status', ['done', 'external'])
-            ->whereRaw(
-                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
-                [$normalizedTarget]
-            )
-            ->where('o1.id', '!=', $order->id)
-            ->whereIn('a1.user_id', $candidateUserIds)
-            ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'a1.status')
-            ->get();
+            // Extract the target id (last path segment) and compare by that id to avoid
+            // subtle differences in URL formatting (query params, trailing slashes, etc.)
+            $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+
+            $usersWithSameLink = DB::table('actions as a1')
+                ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                ->whereIn('a1.status', ['done', 'external'])
+                ->whereRaw(
+                    "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ?",
+                    [$targetId]
+                )
+                ->where('o1.id', '!=', $order->id)
+                ->whereIn('a1.user_id', $candidateUserIds)
+                ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'a1.status')
+                ->get();
 
         if ($usersWithSameLink->isNotEmpty()) {
             Log::warning('[batchCheckEligibility] Found users who already completed same link', [
@@ -310,15 +317,15 @@ class ResumeOrderService
                 [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
             )
             // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
-            // Compare normalized URLs directly instead of hashes to avoid mismatch issues
-            ->whereNotIn('users.id', function ($sub) use ($order, $normalizedTarget) {
+            // Compare by extracted target id (last path segment)
+            ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->whereRaw(
-                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''))) = ?",
-                        [$normalizedTarget]
+                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ?",
+                        [$targetId]
                     )
                     ->where('o1.id', '!=', $order->id);
             })
@@ -413,14 +420,14 @@ class ResumeOrderService
                 [strtolower(preg_replace('#^[^/]+/#', '', $normalizedTarget))]
             )
             // Exclude users who have done/external on OTHER orders with same target_url
-            ->whereNotIn('users.id', function ($sub) use ($order, $normalizedTarget) {
+            ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->whereRaw(
-                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''))) = ?",
-                        [$normalizedTarget]
+                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ?",
+                        [$targetId]
                     )
                     ->where('o1.id', '!=', $order->id);
             })
