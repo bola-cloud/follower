@@ -433,15 +433,14 @@ class ResumeOrderService
                 [strtolower(preg_replace('#^.*/#', '', $normalizedTarget))]
             )
             // Exclude users who have done/external on OTHER orders with same target_url
+            // Use safe SUBSTRING/REPLACE expression (no REGEXP, no unescaped '?' in patterns)
             ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
+                $lastSegmentExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(o1.target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->whereRaw(
-                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ?",
-                        [$targetId]
-                    )
+                    ->whereRaw("{$lastSegmentExpr} = ?", [$targetId])
                     ->where('o1.id', '!=', $order->id);
             })
             ->pluck('users.id')
