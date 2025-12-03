@@ -317,7 +317,7 @@ class ResumeOrderService
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->whereRaw(
-                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\\\\\\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\\\\\\\\\.)?', ''))) = ?",
+                        "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''))) = ?",
                         [$normalizedTarget]
                     )
                     ->where('o1.id', '!=', $order->id);
