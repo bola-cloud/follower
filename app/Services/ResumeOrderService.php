@@ -342,13 +342,13 @@ class ResumeOrderService
                 [strtolower(preg_replace('#^.*/#', '', $normalizedTarget))]
             )
             // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
-            // Compare by extracted target id (last path segment)
-            ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
+            // Use the same LIKE-based matching as the diagnostic query above
+            ->whereNotIn('users.id', function ($sub) use ($order, $likeBinding) {
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->whereRaw("{$lastSegmentExpr} = ?", [$targetId])
+                    ->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding])
                     ->where('o1.id', '!=', $order->id);
             })
             ->pluck('users.id')
