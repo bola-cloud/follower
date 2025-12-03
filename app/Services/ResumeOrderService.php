@@ -379,114 +379,117 @@ class ResumeOrderService
 
     public function getEligibleUsers(Order $order)
     {
-        Log::error('[ResumeOrderService] getEligibleUsers start', [
-            'order_id' => $order->id ?? null,
-            'target_url' => $order->target_url ?? null
-        ]);
-
-        // Get pending users and new eligible users similar to resume method
-        $pendingUserIds = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->pluck('user_id')
-            ->toArray();
-
-        $actualDoneCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'done')
-            ->count();
-
-        // Count pending actions created within the past 30 minutes
-        $recentPendingCount = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('status', 'pending')
-            ->where('created_at', '>=', now()->subMinutes(30))
-            ->count();
-
-        $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
-
-        if ($remaining <= 0) {
-            // Return pending users if any
-            return User::whereIn('id', $pendingUserIds)->get();
-        }
-
-        // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
-        $normalizedTarget = $this->normalizeUrl($order->target_url);
-
-        // Extract last path segment (reel/profile id) for robust comparisons
-        $targetId = strtolower(preg_replace('#^.*/#', '', rtrim($normalizedTarget, '/')));  // Improved: rtrim for consistency
-
-        // Extract target username/shortcode for self-exclusion
-        $targetUsername = $targetId;
-
-        // Build eligible user IDs using the same DB-shaped query as batchCheckEligibility
-        $eligibleUserIds = DB::table('users')
-            ->select('users.id')
-            ->where('users.type', 'user')
-            // Exclude users who already have done/external actions on THIS order
-            ->whereNotIn('users.id', function ($q) use ($order) {
-                $q->select('user_id')
-                    ->from('actions')
-                    ->where('order_id', $order->id)
-                    ->whereIn('status', ['done', 'external']);
-            })
-            // Exclude pending users (we'll add them separately)
-            ->whereNotIn('users.id', $pendingUserIds)
-            // Exclude users whose profile_link matches the target username (improved extraction for full URLs)
-            ->whereRaw(
-                "LOWER(SUBSTRING_INDEX(RTRIM(TRIM(users.profile_link), '/'), '/', -1)) != ?",
-                [$targetUsername]
-            )
-            // Exclude users who have done/external on OTHER orders with same target (FIX: use IDs for exact match)
-            ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
-                $sub->select('a1.user_id')
-                    ->from('actions as a1')
-                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                    ->whereIn('a1.status', ['done', 'external'])
-                    ->where('o1.id', '!=', $order->id);
-
-                // Prioritize exact ID matching for reliability
-                if ($order->mediaId) {
-                    $sub->where('o1.mediaId', $order->mediaId);
-                } elseif ($order->userPk) {
-                    $sub->where('o1.userPk', $order->userPk);
-                } else {
-                    // Fallback to old URL LIKE if no IDs (rare)
-                    $likeBinding = "%/{$targetId}%";
-                    $sub->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding]);
-                }
-            })
-            ->pluck('users.id')
-            ->toArray();
-
-        // Fetch Eloquent models for the eligible IDs
-        $eligibleUsers = User::whereIn('id', $eligibleUserIds)->orderBy('id', 'desc')->get();
-
-        // Combine pending and new eligible users
-        $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
-        $combinedUsers = $pendingUsers->merge($eligibleUsers);
-
-        // Diagnostic logging: report counts and small samples so operators can
-        // tell whether getEligibleUsers returned any candidates or whether
-        // exclusions filtered everyone out. This does NOT change behavior.
-        try {
-            $eligibleIds = $eligibleUsers->pluck('id')->toArray();
-            $combinedIds = $combinedUsers->pluck('id')->toArray();
-            Log::info('[ResumeOrderService] getEligibleUsers result', [
-                'order_id' => $order->id,
-                'pending_count' => count($pendingUserIds),
-                'eligible_count' => count($eligibleIds),
-                'combined_count' => count($combinedIds),
-                'eligible_sample' => array_slice($eligibleIds, 0, 20),
-                'combined_sample' => array_slice($combinedIds, 0, 20),
-                'remaining' => $remaining,
-            ]);
-        } catch (\Throwable $e) {
-            Log::warning('[ResumeOrderService] failed to log eligibleUsers result sample', ['error' => $e->getMessage()]);
-        }
-
-        return $combinedUsers;
+        return null;
     }
+    // {
+    //     Log::error('[ResumeOrderService] getEligibleUsers start', [
+    //         'order_id' => $order->id ?? null,
+    //         'target_url' => $order->target_url ?? null
+    //     ]);
+
+    //     // Get pending users and new eligible users similar to resume method
+    //     $pendingUserIds = DB::table('actions')
+    //         ->where('order_id', $order->id)
+    //         ->where('status', 'pending')
+    //         ->pluck('user_id')
+    //         ->toArray();
+
+    //     $actualDoneCount = DB::table('actions')
+    //         ->where('order_id', $order->id)
+    //         ->where('status', 'done')
+    //         ->count();
+
+    //     // Count pending actions created within the past 30 minutes
+    //     $recentPendingCount = DB::table('actions')
+    //         ->where('order_id', $order->id)
+    //         ->where('status', 'pending')
+    //         ->where('created_at', '>=', now()->subMinutes(30))
+    //         ->count();
+
+    //     $remaining = $order->total_count - $actualDoneCount - $recentPendingCount;
+
+    //     if ($remaining <= 0) {
+    //         // Return pending users if any
+    //         return User::whereIn('id', $pendingUserIds)->get();
+    //     }
+
+    //     // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
+    //     $normalizedTarget = $this->normalizeUrl($order->target_url);
+
+    //     // Extract last path segment (reel/profile id) for robust comparisons
+    //     $targetId = strtolower(preg_replace('#^.*/#', '', rtrim($normalizedTarget, '/')));  // Improved: rtrim for consistency
+
+    //     // Extract target username/shortcode for self-exclusion
+    //     $targetUsername = $targetId;
+
+    //     // Build eligible user IDs using the same DB-shaped query as batchCheckEligibility
+    //     $eligibleUserIds = DB::table('users')
+    //         ->select('users.id')
+    //         ->where('users.type', 'user')
+    //         // Exclude users who already have done/external actions on THIS order
+    //         ->whereNotIn('users.id', function ($q) use ($order) {
+    //             $q->select('user_id')
+    //                 ->from('actions')
+    //                 ->where('order_id', $order->id)
+    //                 ->whereIn('status', ['done', 'external']);
+    //         })
+    //         // Exclude pending users (we'll add them separately)
+    //         ->whereNotIn('users.id', $pendingUserIds)
+    //         // Exclude users whose profile_link matches the target username (improved extraction for full URLs)
+    //         ->whereRaw(
+    //             "LOWER(SUBSTRING_INDEX(RTRIM(TRIM(users.profile_link), '/'), '/', -1)) != ?",
+    //             [$targetUsername]
+    //         )
+    //         // Exclude users who have done/external on OTHER orders with same target (FIX: use IDs for exact match)
+    //         ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
+    //             $sub->select('a1.user_id')
+    //                 ->from('actions as a1')
+    //                 ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+    //                 ->whereIn('a1.status', ['done', 'external'])
+    //                 ->where('o1.id', '!=', $order->id);
+
+    //             // Prioritize exact ID matching for reliability
+    //             if ($order->mediaId) {
+    //                 $sub->where('o1.mediaId', $order->mediaId);
+    //             } elseif ($order->userPk) {
+    //                 $sub->where('o1.userPk', $order->userPk);
+    //             } else {
+    //                 // Fallback to old URL LIKE if no IDs (rare)
+    //                 $likeBinding = "%/{$targetId}%";
+    //                 $sub->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding]);
+    //             }
+    //         })
+    //         ->pluck('users.id')
+    //         ->toArray();
+
+    //     // Fetch Eloquent models for the eligible IDs
+    //     $eligibleUsers = User::whereIn('id', $eligibleUserIds)->orderBy('id', 'desc')->get();
+
+    //     // Combine pending and new eligible users
+    //     $pendingUsers = User::whereIn('id', $pendingUserIds)->get();
+    //     $combinedUsers = $pendingUsers->merge($eligibleUsers);
+
+    //     // Diagnostic logging: report counts and small samples so operators can
+    //     // tell whether getEligibleUsers returned any candidates or whether
+    //     // exclusions filtered everyone out. This does NOT change behavior.
+    //     try {
+    //         $eligibleIds = $eligibleUsers->pluck('id')->toArray();
+    //         $combinedIds = $combinedUsers->pluck('id')->toArray();
+    //         Log::info('[ResumeOrderService] getEligibleUsers result', [
+    //             'order_id' => $order->id,
+    //             'pending_count' => count($pendingUserIds),
+    //             'eligible_count' => count($eligibleIds),
+    //             'combined_count' => count($combinedIds),
+    //             'eligible_sample' => array_slice($eligibleIds, 0, 20),
+    //             'combined_sample' => array_slice($combinedIds, 0, 20),
+    //             'remaining' => $remaining,
+    //         ]);
+    //     } catch (\Throwable $e) {
+    //         Log::warning('[ResumeOrderService] failed to log eligibleUsers result sample', ['error' => $e->getMessage()]);
+    //     }
+
+    //     return $combinedUsers;
+    // }
 
     private function createPendingActionForUser(Order $order, User $user): void
     {
