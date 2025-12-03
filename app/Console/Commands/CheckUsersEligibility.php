@@ -16,7 +16,7 @@ class CheckUsersEligibility extends Command
      *
      * @var string
      */
-    protected $signature = 'resume:check-users {--order= : Order ID to check against} {--users= : Comma separated user ids}';
+    protected $signature = 'resume:check-users {--order= : Order ID to check against} {--users= : Comma separated user ids} {--method=batch : Eligibility method: "batch" (batchCheckEligibility) or "single" (checkUserEligibility)}';
 
     /**
      * The console command description.
@@ -51,27 +51,44 @@ class CheckUsersEligibility extends Command
 
         $this->info("Checking eligibility for order {$order->id} against users: " . implode(',', $userIds));
 
-        // Use batchCheckEligibility to compute eligible user ids among candidates
-        $eligible = $resumeService->batchCheckEligibility($order, $userIds);
-        $eligibleMap = array_flip($eligible);
+        $method = strtolower($this->option('method') ?? 'batch');
 
-        $headers = ['user_id', 'eligible', 'reason_sample'];
+        $headers = ['user_id', 'eligible', 'method', 'note'];
         $rows = [];
 
-        foreach ($userIds as $uid) {
-            $isEligible = isset($eligibleMap[$uid]);
-            $rows[] = [
-                $uid,
-                $isEligible ? 'YES' : 'NO',
-                $isEligible ? '' : 'excluded or pending/done'
-            ];
+        if ($method === 'single') {
+            // Call checkUserEligibility for each user (may be heavier)
+            foreach ($userIds as $uid) {
+                $user = User::find($uid);
+                if (!$user) {
+                    $rows[] = [$uid, 'NO', 'single', 'user-not-found'];
+                    continue;
+                }
+                try {
+                    $ok = $resumeService->checkUserEligibility($order, $user);
+                    $rows[] = [$uid, $ok ? 'YES' : 'NO', 'single', $ok ? '' : 'excluded or pending/done'];
+                } catch (\Throwable $e) {
+                    $rows[] = [$uid, 'ERROR', 'single', $e->getMessage()];
+                }
+            }
+            // Summary
+            $eligibleCount = count(array_filter($rows, function($r){ return $r[1] === 'YES'; }));
+            $this->table($headers, $rows);
+            $this->info('Eligible count: ' . $eligibleCount);
+        } else {
+            // Default: batch method
+            $eligible = $resumeService->batchCheckEligibility($order, $userIds);
+            $eligibleMap = array_flip($eligible);
+
+            foreach ($userIds as $uid) {
+                $isEligible = isset($eligibleMap[$uid]);
+                $rows[] = [$uid, $isEligible ? 'YES' : 'NO', 'batch', $isEligible ? '' : 'excluded or pending/done'];
+            }
+
+            $this->table($headers, $rows);
+            $this->info('Eligible count: ' . count($eligible));
+            $this->info('Eligible IDs: ' . (empty($eligible) ? 'none' : implode(',', $eligible)));
         }
-
-        $this->table($headers, $rows);
-
-        // Also print a short summary
-        $this->info('Eligible count: ' . count($eligible));
-        $this->info('Eligible IDs: ' . (empty($eligible) ? 'none' : implode(',', $eligible)));
 
         return 0;
     }
