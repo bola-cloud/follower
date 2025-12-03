@@ -76,7 +76,7 @@ class CheckUserActionsByLink extends Command
             ->get();
 
         $this->line("Found {$rawActions->count()} done/external actions");
-        
+
         $matchCount = 0;
         foreach ($rawActions as $action) {
             // Normalize each URL to see if it matches
@@ -89,12 +89,12 @@ class CheckUserActionsByLink extends Command
             $norm = rtrim($norm, '/');
             $norm = strtolower($norm);
             $extractedId = strtolower(preg_replace('#^.*/#', '', $norm));
-            
+
             $isMatch = ($extractedId === $targetId);
             if ($isMatch) {
                 $matchCount++;
             }
-            
+
             $matchLabel = $isMatch ? '[MATCH ✓]' : '[NO_MATCH]';
             $this->line(" - order: {$action->order_id} status: {$action->status} created: {$action->created_at}");
             $this->line("   url: {$rawUrl}");
@@ -143,7 +143,7 @@ class CheckUserActionsByLink extends Command
         }
 
         $this->info("\n✓ Done. User {$user->id} should be EXCLUDED if PHP match count > 0 and SQL match count > 0.");
-        
+
         if ($matchCount > 0 && $sqlMatches->count() === 0) {
             $this->error("⚠ PROBLEM: PHP found {$matchCount} matches but SQL found 0 — SQL expression is broken!");
         } elseif ($matchCount > 0 && $sqlMatches->count() > 0) {

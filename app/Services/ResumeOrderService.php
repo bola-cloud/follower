@@ -414,7 +414,10 @@ class ResumeOrderService
         $normalizedTarget = $this->normalizeUrl($order->target_url);
 
         // Extract last path segment (reel/profile id) for robust comparisons
-        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+        $targetId = strtolower(preg_replace('#^.*/#', '', rtrim($normalizedTarget, '/')));  // Improved: rtrim for consistency
+
+        // Extract target username/shortcode for self-exclusion
+        $targetUsername = $targetId;
 
         // Build eligible user IDs using the same DB-shaped query as batchCheckEligibility
         $eligibleUserIds = DB::table('users')
@@ -429,21 +432,29 @@ class ResumeOrderService
             })
             // Exclude pending users (we'll add them separately)
             ->whereNotIn('users.id', $pendingUserIds)
-            // Exclude users whose profile_link matches the target username
+            // Exclude users whose profile_link matches the target username (improved extraction for full URLs)
             ->whereRaw(
-                "LOWER(TRIM(users.profile_link)) != ?",
-                [strtolower(preg_replace('#^.*/#', '', $normalizedTarget))]
+                "LOWER(SUBSTRING_INDEX(RTRIM(TRIM(users.profile_link), '/'), '/', -1)) != ?",
+                [$targetUsername]
             )
-            // Exclude users who have done/external on OTHER orders with same target_url
-            // Use safe SUBSTRING/REPLACE expression (no REGEXP, no unescaped '?' in patterns)
+            // Exclude users who have done/external on OTHER orders with same target (FIX: use IDs for exact match)
             ->whereNotIn('users.id', function ($sub) use ($order, $targetId) {
-                $likeBinding = "%/{$targetId}%";
                 $sub->select('a1.user_id')
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding])
                     ->where('o1.id', '!=', $order->id);
+
+                // Prioritize exact ID matching for reliability
+                if ($order->mediaId) {
+                    $sub->where('o1.mediaId', $order->mediaId);
+                } elseif ($order->userPk) {
+                    $sub->where('o1.userPk', $order->userPk);
+                } else {
+                    // Fallback to old URL LIKE if no IDs (rare)
+                    $likeBinding = "%/{$targetId}%";
+                    $sub->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding]);
+                }
             })
             ->pluck('users.id')
             ->toArray();
