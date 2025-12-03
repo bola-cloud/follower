@@ -230,6 +230,9 @@ class ResumeOrderService
         // Extract last path segment (reel/profile id) for robust comparisons
         $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
+        // Extract last path segment (reel/profile id) for robust comparisons
+        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+
         // Extract last path segment (reel/profile id)
         $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
@@ -409,6 +412,9 @@ class ResumeOrderService
 
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
         $normalizedTarget = $this->normalizeUrl($order->target_url);
+
+        // Extract last path segment (reel/profile id) for robust comparisons
+        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
         // Build eligible user IDs using the same DB-shaped query as batchCheckEligibility
         $eligibleUserIds = DB::table('users')
