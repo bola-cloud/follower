@@ -102,11 +102,33 @@ class DebugUserEligibility extends Command
         $this->line('Result count: ' . count($res3));
         Log::info('[resume:debug-eligibility] query3', ['sql'=>$sql3,'bindings'=>[$order->id],'count'=>count($res3)]);
 
+        // 3.5) First check: what actions does this user have on OTHER orders (raw, no filtering)
+        $sql3_5 = "SELECT a1.user_id, a1.status, o1.id as other_order_id, o1.target_url as other_url, a1.created_at FROM actions a1 JOIN orders o1 ON a1.order_id = o1.id WHERE a1.user_id = ? AND a1.status IN ('done','external') AND o1.id != ? ORDER BY a1.created_at DESC LIMIT 50";
+        $this->line('\n[Query 3.5 - RAW] ' . $sql3_5 . ' -- bindings: [' . $user->id . ', ' . $order->id . ']');
+        $res3_5 = DB::select($sql3_5, [$user->id, $order->id]);
+        $this->line('Found ' . count($res3_5) . ' done/external actions for this user on OTHER orders (unfiltered)');
+        foreach ($res3_5 as $row) {
+            // Manually normalize to see if pattern matches
+            $rawUrl = $row->other_url;
+            $norm = trim($rawUrl);
+            $norm = preg_replace('#^https?://#i', '', $norm);
+            $norm = preg_replace('#^www\.#i', '', $norm);
+            if (($pos = strpos($norm, '?')) !== false) { $norm = substr($norm, 0, $pos); }
+            if (($pos = strpos($norm, '#')) !== false) { $norm = substr($norm, 0, $pos); }
+            $norm = rtrim($norm, '/');
+            $norm = strtolower($norm);
+            $extractedId = strtolower(preg_replace('#^.*/#', '', $norm));
+            $match = ($extractedId === $targetId) ? 'MATCH' : 'NO_MATCH';
+            $this->line(" - order: {$row->other_order_id} status: {$row->status} url: {$rawUrl}");
+            $this->line("   normalized: {$norm} -> extracted_id: {$extractedId} [{$match}]");
+        }
+        Log::info('[resume:debug-eligibility] query3_5_raw', ['sql'=>$sql3_5,'bindings'=>[$user->id,$order->id],'count'=>count($res3_5)]);
+
         // 4) Does this user have done/external actions on OTHER orders with the same target id?
-        $sql4 = "SELECT a1.user_id, a1.status, o1.id as other_order_id, o1.target_url as other_url, a1.created_at FROM actions a1 JOIN orders o1 ON a1.order_id = o1.id WHERE a1.user_id = ? AND a1.status IN ('done','external') AND LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ? AND o1.id != ?";
+        $sql4 = "SELECT a1.user_id, a1.status, o1.id as other_order_id, o1.target_url as other_url, a1.created_at FROM actions a1 JOIN orders o1 ON a1.order_id = o1.id WHERE a1.user_id = ? AND a1.status IN ('done','external') AND LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ? AND o1.id != ?";
         $this->line('\n[Query 4] ' . $sql4 . ' -- bindings: [' . $user->id . ', ' . $targetId . ', ' . $order->id . ']');
         $res4 = DB::select($sql4, [$user->id, $targetId, $order->id]);
-        $this->line('Found ' . count($res4) . ' matching done/external actions for this user on other orders');
+        $this->line('Found ' . count($res4) . ' matching done/external actions for this user on other orders (with SQL regex)');
         foreach ($res4 as $row) {
             $this->line(" - order: {$row->other_order_id} status: {$row->status} url: {$row->other_url} at: {$row->created_at}");
         }
@@ -127,7 +149,7 @@ class DebugUserEligibility extends Command
         Log::info('[resume:debug-eligibility] query5', ['sql'=>$sql5,'bindings'=>[$user->id],'result'=>$res5,'extracted'=>$extractedUsername]);
 
         // 6) List all orders that match the target id (sample)
-        $sql6 = "SELECT id, user_id, target_url, created_at FROM orders WHERE LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ? ORDER BY id DESC LIMIT 200";
+        $sql6 = "SELECT id, user_id, target_url, created_at FROM orders WHERE LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ? ORDER BY id DESC LIMIT 200";
         $this->line('\n[Query 6] ' . $sql6 . ' -- bindings: [' . $targetId . ']');
         $res6 = DB::select($sql6, [$targetId]);
         $this->line('Found ' . count($res6) . ' orders with same target id');

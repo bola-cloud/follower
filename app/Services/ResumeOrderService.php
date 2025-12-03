@@ -281,7 +281,7 @@ class ResumeOrderService
                 ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                 ->whereIn('a1.status', ['done', 'external'])
                 ->whereRaw(
-                    "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ?",
+                    "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ?",
                     [$targetId]
                 )
                 ->where('o1.id', '!=', $order->id)
@@ -336,7 +336,7 @@ class ResumeOrderService
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->whereRaw(
-                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ?",
+                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ?",
                         [$targetId]
                     )
                     ->where('o1.id', '!=', $order->id);
@@ -441,7 +441,7 @@ class ResumeOrderService
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
                     ->whereRaw(
-                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', ''), '/', -1))) = ?",
+                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ?",
                         [$targetId]
                     )
                     ->where('o1.id', '!=', $order->id);
