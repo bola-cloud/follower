@@ -227,6 +227,9 @@ class ResumeOrderService
         // Extract last path segment (reel/profile id) for robust comparisons
         $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
+        // Extract last path segment (reel/profile id) for robust comparisons
+        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+
         // Extract last path segment (reel/profile id)
         $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
