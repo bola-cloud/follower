@@ -90,65 +90,10 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                 $totalUsers = count($this->userIds);
             }
 
-            // Batch eligibility check: Load all users at once
-            $users = User::select('id', 'type', 'points')
-                ->whereIn('id', $this->userIds)
-                ->get()
-                ->keyBy('id');
-
-            // ✅ CRITICAL FIX: Normalize URL and compare directly instead of using hashes
-            // This matches the fix in ResumeOrderService::batchCheckEligibility
-            $targetUrl = $order->target_url ?? '';
-
-            // Normalize URL: remove protocol, www, query params, fragments, trailing slashes, convert to lowercase
-            $normalizedTarget = trim($targetUrl);
-            $normalizedTarget = preg_replace('#^https?://#i', '', $normalizedTarget);
-            $normalizedTarget = preg_replace('#^www\.#i', '', $normalizedTarget);
-            if (($pos = strpos($normalizedTarget, '?')) !== false) {
-                $normalizedTarget = substr($normalizedTarget, 0, $pos);
-            }
-            if (($pos = strpos($normalizedTarget, '#')) !== false) {
-                $normalizedTarget = substr($normalizedTarget, 0, $pos);
-            }
-            $normalizedTarget = strtolower(rtrim($normalizedTarget, '/'));
-
-            // Query excluded user IDs using direct normalized URL comparison
-            // This ensures we catch users who completed the SAME LINK on OTHER orders
-            // regardless of hash mismatches in the database
-            $excludedUserIds = DB::table('actions')
-                ->join('orders', 'actions.order_id', '=', 'orders.id')
-                ->whereIn('actions.status', ['done', 'external'])
-                ->where('orders.id', '!=', $order->id)
-                ->whereRaw(
-                    "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(orders.target_url), '\\\\\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\\\\\.)?', ''))) = ?",
-                    [$normalizedTarget]
-                )
-                ->whereIn('actions.user_id', $this->userIds)
-                ->distinct()
-                ->pluck('actions.user_id')
-                ->toArray();
-
-            if (!empty($excludedUserIds)) {
-                Log::info('[ProcessPingResponseBatchJob] excluded users from other orders with same target', [
-                    'order_id' => $order->id,
-                    'excluded_count' => count($excludedUserIds),
-                    'normalized_target' => $normalizedTarget
-                ]);
-            }
-
-            // Filter eligible users (basic check + exclude previously-acting users)
-            $eligibleUserIds = [];
-            foreach ($this->userIds as $userId) {
-                if (in_array($userId, $excludedUserIds, true)) {
-                    // skip users who already acted on same target via other orders
-                    continue;
-                }
-                $user = $users->get($userId);
-                if ($user && $this->isUserEligible($user, $order)) {
-                    $eligibleUserIds[] = $userId;
-                }
-            }
-
+            // ✅ CRITICAL FIX: Use centralized ResumeOrderService::batchCheckEligibility
+            // This ensures consistent eligibility logic across all jobs and commands
+            $resumeService = app(\App\Services\ResumeOrderService::class);
+            $eligibleUserIds = $resumeService->batchCheckEligibility($order, $this->userIds);
             $eligibleCount = count($eligibleUserIds);
 
             if ($eligibleCount === 0) {
@@ -362,39 +307,7 @@ class ProcessPingResponseBatchJob implements ShouldQueue
         }
     }
 
-    private function isUserEligible(User $user, Order $order): bool
-    {
-        // Basic eligibility checks
-        // Check if user already has an action for this order
-        $hasAction = DB::table('actions')
-            ->where('order_id', $order->id)
-            ->where('user_id', $user->id)
-            ->exists();
-
-        if ($hasAction) {
-            return false;
-        }
-
-        // Don't allow order owner to participate
-        if ($order->user_id === $user->id) {
-            return false;
-        }
-
-        // // ✅ Check if user has done/external actions on OTHER orders with same target_url
-        // $hasSameTargetAction = DB::table('actions')
-        //     ->join('orders', 'actions.order_id', '=', 'orders.id')
-        //     ->where('orders.target_url', $order->target_url)
-        //     ->where('orders.id', '!=', $order->id) // Different order, same target URL
-        //     ->where('actions.user_id', $user->id)
-        //     ->whereIn('actions.status', ['done', 'external']) // Exclude done/external, allow pending
-        //     ->exists();
-
-        // if ($hasSameTargetAction) {
-        //     return false;
-        // }
-
-        return true;
-    }
+    // REMOVED: isUserEligible() - now using ResumeOrderService::batchCheckEligibility() for all eligibility checks
 
     private function insertPendingActionsChunk(Order $order, array $userIds): int
     {

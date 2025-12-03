@@ -368,18 +368,21 @@ class ResumeOrderService
             'user_id' => $user->id ?? null
         ]);
 
-        $eligibleUsers = $this->getEligibleUsers($order);
+        // Use the centralized batch eligibility check for single user
+        $eligibleUserIds = $this->batchCheckEligibility($order, [$user->id]);
 
-        // Use a more efficient lookup by creating an array of eligible user IDs
-        $eligibleUserIds = $eligibleUsers->pluck('id')->toArray();
-
-        // Check if the user ID exists in the eligible user IDs
+        // Check if the user ID is in the eligible list
         return in_array($user->id, $eligibleUserIds);
     }
 
     public function getEligibleUsers(Order $order)
     {
-        return null;
+        // This method is deprecated - use batchCheckEligibility instead
+        // Kept for backwards compatibility but returns empty collection
+        Log::warning('[ResumeOrderService] getEligibleUsers is deprecated, use batchCheckEligibility instead', [
+            'order_id' => $order->id ?? null
+        ]);
+        return collect([]);
     }
     // {
     //     Log::error('[ResumeOrderService] getEligibleUsers start', [
