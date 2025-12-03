@@ -361,19 +361,9 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     continue;
                 }
 
-                // ✅ CRITICAL: Exclude users already assigned to this target URL in THIS RUN
-                // This prevents duplicate assignments when multiple orders with same link
-                // are processed in the same coordinator execution
-                // Normalize URL: strip protocol, www, query params, fragments, trailing slashes
-                $normalizedTarget = preg_replace('#^https?://#i', '', $order->target_url);
-                $normalizedTarget = preg_replace('#^www\\.#i', '', $normalizedTarget);
-                if (($pos = strpos($normalizedTarget, '?')) !== false) {
-                    $normalizedTarget = substr($normalizedTarget, 0, $pos);
-                }
-                if (($pos = strpos($normalizedTarget, '#')) !== false) {
-                    $normalizedTarget = substr($normalizedTarget, 0, $pos);
-                }
-                $normalizedTarget = strtolower(rtrim($normalizedTarget, '/'));
+                // ✅ CRITICAL: Use centralized normalization helper from ResumeOrderService
+                // This ensures the same canonical key is used across all jobs and services.
+                $normalizedTarget = $resumeService->getNormalizedTargetKey($order->target_url);
                 $targetKey = $normalizedTarget; // use normalized string as run-level key
                 $alreadyAssignedToThisLink = $assignedUsersByTarget[$targetKey] ?? [];
                 if (!empty($alreadyAssignedToThisLink)) {
@@ -406,20 +396,23 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     // Coordinator-level diagnostics: list other orders that normalize to the same target
                     try {
-                        $matchingOrders = DB::table('orders')
-                            ->whereRaw(
-                                "LOWER(TRIM(TRAILING '/' FROM REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\\\.)?', '')))) = ?",
-                                [$normalizedTarget]
-                            )
+                        // Fetch candidate orders (active) and filter in PHP using the centralized normalizer.
+                        // This avoids fragile DB regex constructs and guarantees identical canonicalization.
+                        $candidateOrders = \App\Models\Order::where('status', 'active')
+                            ->where('id', '!=', $order->id)
                             ->select('id', 'target_url', 'target_url_hash')
                             ->get();
+
+                        $matchingOrders = $candidateOrders->filter(function ($r) use ($resumeService, $normalizedTarget) {
+                            return $resumeService->getNormalizedTargetKey($r->target_url) === $normalizedTarget;
+                        })->values();
 
                         if ($matchingOrders->isNotEmpty()) {
                             Log::info('[InsertAndPublishForActiveDashboardUsers] matching_orders_for_target', [
                                 'order_id' => $order->id,
                                 'normalized_target' => $normalizedTarget,
                                 'matching_count' => $matchingOrders->count(),
-                                'matching_sample' => $matchingOrders->take(10)->map(function($r){ return ['id'=>$r->id,'url'=>$r->target_url,'hash'=>$r->target_url_hash]; })->toArray()
+                                'matching_sample' => $matchingOrders->take(10)->map(function ($r) { return ['id' => $r->id, 'url' => $r->target_url, 'hash' => $r->target_url_hash]; })->toArray()
                             ]);
 
                             $matchingOrderIds = $matchingOrders->pluck('id')->toArray();
@@ -895,16 +888,8 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
             $ordersSummary[$oid]['claim_attempted'] = count($toClaim);
             try {
-                // Conditional verbose debug for problematic normalized target
-                $normalizedOrderTarget = preg_replace('#^https?://#i', '', $order->target_url);
-                $normalizedOrderTarget = preg_replace('#^www\\.#i', '', $normalizedOrderTarget);
-                if (($pos = strpos($normalizedOrderTarget, '?')) !== false) {
-                    $normalizedOrderTarget = substr($normalizedOrderTarget, 0, $pos);
-                }
-                if (($pos = strpos($normalizedOrderTarget, '#')) !== false) {
-                    $normalizedOrderTarget = substr($normalizedOrderTarget, 0, $pos);
-                }
-                $normalizedOrderTarget = strtolower(rtrim($normalizedOrderTarget, '/'));
+                // Use centralized normalizer for debug comparisons as well
+                $normalizedOrderTarget = $resumeService->getNormalizedTargetKey($order->target_url);
 
                 if ($normalizedOrderTarget === 'instagram.com/reel/drqcdg0ddzs') {
                     Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: about to batchInsertPendingAction', [

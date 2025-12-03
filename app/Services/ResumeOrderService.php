@@ -51,6 +51,16 @@ class ResumeOrderService
         return $normalized;
     }
 
+    /**
+     * Public helper to get normalized target key for other callers.
+     * Exposes the same normalization used internally so all jobs use the
+     * identical canonicalization logic for run-time comparisons.
+     */
+    public function getNormalizedTargetKey(string $url): string
+    {
+        return $this->normalizeUrl($url);
+    }
+
     public function handle(Order $order, User $user): array
     {
         // Focused info logging for resume processing
