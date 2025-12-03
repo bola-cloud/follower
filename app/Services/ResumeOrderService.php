@@ -277,13 +277,14 @@ class ResumeOrderService
             // subtle differences in URL formatting (query params, trailing slashes, etc.)
             $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
+            // Build a SQL expression to extract last path segment without using REGEXP or question-mark patterns
+            // Steps: lower(trim(o1.target_url)) -> remove protocol/www via nested REPLACE -> take substring before '?' -> get last '/' segment
+            $lastSegmentExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(o1.target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
+
             $usersWithSameLink = DB::table('actions as a1')
                 ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                 ->whereIn('a1.status', ['done', 'external'])
-                ->whereRaw(
-                    "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ?",
-                    [$targetId]
-                )
+                ->whereRaw("{$lastSegmentExpr} = ?", [$targetId])
                 ->where('o1.id', '!=', $order->id)
                 ->whereIn('a1.user_id', $candidateUserIds)
                 ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'a1.status')
@@ -335,10 +336,7 @@ class ResumeOrderService
                     ->from('actions as a1')
                     ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
                     ->whereIn('a1.status', ['done', 'external'])
-                    ->whereRaw(
-                        "LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ?",
-                        [$targetId]
-                    )
+                    ->whereRaw("{$lastSegmentExpr} = ?", [$targetId])
                     ->where('o1.id', '!=', $order->id);
             })
             ->pluck('users.id')

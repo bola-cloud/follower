@@ -125,7 +125,9 @@ class DebugUserEligibility extends Command
         Log::info('[resume:debug-eligibility] query3_5_raw', ['sql'=>$sql3_5,'bindings'=>[$user->id,$order->id],'count'=>count($res3_5)]);
 
         // 4) Does this user have done/external actions on OTHER orders with the same target id?
-        $sql4 = "SELECT a1.user_id, a1.status, o1.id as other_order_id, o1.target_url as other_url, a1.created_at FROM actions a1 JOIN orders o1 ON a1.order_id = o1.id WHERE a1.user_id = ? AND a1.status IN ('done','external') AND LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(o1.target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ? AND o1.id != ?";
+        // Use same no-regex extraction as service to avoid SQL placeholders inside pattern
+        $lastSegmentExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(o1.target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
+        $sql4 = "SELECT a1.user_id, a1.status, o1.id as other_order_id, o1.target_url as other_url, a1.created_at FROM actions a1 JOIN orders o1 ON a1.order_id = o1.id WHERE a1.user_id = ? AND a1.status IN ('done','external') AND {$lastSegmentExpr} = ? AND o1.id != ?";
         $this->line('\n[Query 4] ' . $sql4 . ' -- bindings: [' . $user->id . ', ' . $targetId . ', ' . $order->id . ']');
         $res4 = DB::select($sql4, [$user->id, $targetId, $order->id]);
         $this->line('Found ' . count($res4) . ' matching done/external actions for this user on other orders (with SQL regex)');
@@ -149,7 +151,8 @@ class DebugUserEligibility extends Command
         Log::info('[resume:debug-eligibility] query5', ['sql'=>$sql5,'bindings'=>[$user->id],'result'=>$res5,'extracted'=>$extractedUsername]);
 
         // 6) List all orders that match the target id (sample)
-        $sql6 = "SELECT id, user_id, target_url, created_at FROM orders WHERE LOWER(TRIM(SUBSTRING_INDEX(REGEXP_REPLACE(REGEXP_REPLACE(REGEXP_REPLACE(TRIM(target_url), '\\?.*$', ''), '#.*$', ''), '^(https?://)?(www\\.)?', ''), '/', -1))) = ? ORDER BY id DESC LIMIT 200";
+        $lastSegmentOrdersExpr = "LOWER(TRIM(SUBSTRING_INDEX(SUBSTRING_INDEX(REPLACE(REPLACE(REPLACE(TRIM(target_url), 'https://', ''), 'http://', ''), 'www.', ''), '?', 1), '/', -1)))";
+        $sql6 = "SELECT id, user_id, target_url, created_at FROM orders WHERE {$lastSegmentOrdersExpr} = ? ORDER BY id DESC LIMIT 200";
         $this->line('\n[Query 6] ' . $sql6 . ' -- bindings: [' . $targetId . ']');
         $res6 = DB::select($sql6, [$targetId]);
         $this->line('Found ' . count($res6) . ' orders with same target id');
