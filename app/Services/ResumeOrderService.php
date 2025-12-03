@@ -54,11 +54,11 @@ class ResumeOrderService
     public function handle(Order $order, User $user): array
     {
         // Focused info logging for resume processing
-        Log::error('[ResumeOrderService] handle start', [
-            'user_id' => $user->id ?? null,
-            'order_id' => $order->id ?? null,
-            'order_type' => $order->type ?? null
-        ]);
+        // Log::error('[ResumeOrderService] handle start', [
+        //     'user_id' => $user->id ?? null,
+        //     'order_id' => $order->id ?? null,
+        //     'order_type' => $order->type ?? null
+        // ]);
         // No transaction or lock needed here - triggerOrder already validated slots and eligibility
         // Just check basic eligibility and create the action
 
