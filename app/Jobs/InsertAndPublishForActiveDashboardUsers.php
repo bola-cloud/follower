@@ -690,8 +690,26 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 break; // No more orders to fetch
             }
 
+            // Early termination: if we fetched significantly fewer orders than requested,
+            // it means we've exhausted the available orders in the database.
+            // Stop trying to backfill to avoid unnecessary iterations.
+            $fetchedCount = $additionalOrders->count();
+            $requestedCount = $needed; // Total requested for this backfill attempt
+            $earlyStopThreshold = 0.3; // If we got less than 30% of requested, stop
+
+            if ($fetchedCount < ($requestedCount * $earlyStopThreshold)) {
+                Log::info('[InsertAndPublishForActiveDashboardUsers] backfill early stop - insufficient orders in database', [
+                    'fetched_count' => $fetchedCount,
+                    'requested_count' => $requestedCount,
+                    'threshold' => ($requestedCount * $earlyStopThreshold),
+                    'current_total' => count($ordersMeta)
+                ]);
+                // Process what we got, then break after this iteration
+            }
+
             Log::info('[InsertAndPublishForActiveDashboardUsers] backfill fetched orders', [
-                'fetched_count' => $additionalOrders->count()
+                'fetched_count' => $fetchedCount,
+                'requested_count' => $requestedCount
             ]);
 
             // Process additional orders (same logic as initial orders)
@@ -867,6 +885,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             // If we didn't add any new orders this round, stop trying
             if ($addedCount === 0) {
                 Log::info('[InsertAndPublishForActiveDashboardUsers] backfill stopping - no eligible orders found in this batch');
+                break;
+            }
+
+            // Stop if we detected insufficient orders in database (early stop condition)
+            if (isset($fetchedCount) && isset($requestedCount) && $fetchedCount < ($requestedCount * 0.3)) {
+                Log::info('[InsertAndPublishForActiveDashboardUsers] backfill stopping - insufficient orders available in database');
                 break;
             }
         }
