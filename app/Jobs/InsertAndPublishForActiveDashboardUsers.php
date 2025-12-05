@@ -719,6 +719,27 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         continue;
                     }
 
+                    // ✅ CRITICAL: Use centralized normalization helper from ResumeOrderService
+                    // This ensures the same canonical key is used across all jobs and services.
+                    $normalizedTarget = $resumeService->getNormalizedTargetKey($order->target_url);
+                    $targetKey = $normalizedTarget; // use normalized string as run-level key
+                    $alreadyAssignedToThisLink = $assignedUsersByTarget[$targetKey] ?? [];
+                    if (!empty($alreadyAssignedToThisLink)) {
+                        $candidates = array_values(array_diff($candidates, $alreadyAssignedToThisLink));
+                        Log::info('[InsertAndPublishForActiveDashboardUsers] backfill: excluded users already assigned to this link in current run', [
+                            'order_id' => $order->id,
+                            'target_key' => $targetKey,
+                            'excluded_count' => count($alreadyAssignedToThisLink),
+                            'remaining_candidates' => count($candidates)
+                        ]);
+                    }
+
+                    if (empty($candidates)) {
+                        Log::info('[InsertAndPublishForActiveDashboardUsers] backfill: no candidates left after excluding already-assigned users', ['order_id' => $order->id]);
+                        $alreadySelectedIds[] = $order->id;
+                        continue;
+                    }
+
                     // ✅ Use batchCheckEligibility for backfill orders (same as initial orders)
                     // This ensures consistent eligibility logic and prevents duplicate link assignments
                     try {
@@ -761,18 +782,66 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     $eligibleSet = array_fill_keys($eligible, true);
 
-                    $ordersMeta[$order->id] = [
-                        'order' => $order,
-                        'available' => $available,
-                        'eligibleSet' => $eligibleSet,
-                        'pendingUsers' => $pendingUsers,
-                        'alreadyActioned' => array_flip($alreadyActioned),
-                        'toClaim' => [],
-                        'remaining' => $available
+                    $payloadBase = [
+                        'url' => $order->target_url,
+                        'order_id' => $order->id,
+                        'type' => $order->type,
+                        'mediaId' => $order->mediaId ?? null,
+                        'userPk' => $order->userPk ?? null,
                     ];
 
-                    $ordersSummary[$order->id] = ['pending_found' => count($pendingUsers), 'pending_added' => 0, 'claim_attempted' => 0, 'inserted' => 0, 'claimed_added' => 0];
-                    $ordersSummary[$order->id]['pending_added'] = count($pendingUsers);
+                    $ordersSummary[$order->id] = [
+                        'pending_found' => count($pendingUsers),
+                        'pending_added' => 0,
+                        'claim_attempted' => 0,
+                        'inserted' => 0,
+                        'claimed_added' => 0
+                    ];
+
+                    // Add existing pending users first (respecting per-user and global caps)
+                    $assigned = 0;
+                    foreach ($pendingUsers as $uid) {
+                        if ($assigned >= $available) break;
+                        if ($totalPublishes + $totalReserved >= $maxTotal) break;
+                        $uid = (int) $uid;
+                        $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
+                        if ($uc >= $perUserLimit) continue;
+
+                        // avoid enqueueing the same (order,user) pair twice in one run
+                        $pairKey = $order->id . ':' . $uid;
+                        if (isset($seenPublish[$pairKey])) {
+                            continue;
+                        }
+
+                        $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
+                        $seenPublish[$pairKey] = true;
+                        $userCounts[$uid] = $uc + 1;
+                        $assigned++;
+                        $ordersSummary[$order->id]['pending_added']++;
+
+                        // Track this user as assigned to this normalized target for this run
+                        if (!isset($assignedUsersByTarget[$targetKey])) {
+                            $assignedUsersByTarget[$targetKey] = [];
+                        }
+                        $assignedUsersByTarget[$targetKey][] = $uid;
+                        // Keep the global publishes counter in sync with the list
+                        $totalPublishes++;
+                    }
+
+                    // Reduce available by already-added pending publishes
+                    $remaining = max(0, $available - $assigned);
+
+                    $ordersMeta[$order->id] = [
+                        'order' => $order,
+                        'remaining' => $remaining,
+                        'eligibleSet' => $eligibleSet,
+                        'alreadyActioned' => array_flip($alreadyActioned),
+                        'toClaim' => [],
+                        'payloadBase' => $payloadBase,
+                        'targetKey' => $targetKey, // store normalized key for tracking assignments
+                    ];
+
+                    // Count pending adds towards reserved (they will be published)
                     $totalReserved += $ordersSummary[$order->id]['pending_added'];
 
                     $addedCount++;
