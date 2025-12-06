@@ -954,6 +954,18 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     // This is the authoritative source - if user is not in eligibleSet, skip them
                     if (!isset($ordersMeta[$oid]['eligibleSet'][$uid])) continue;
 
+                    // 🔥 CRITICAL DUPLICATE PREVENTION: Check if this user was already assigned
+                    // to ANY order with the same normalized target in THIS RUN.
+                    // This prevents duplicates when multiple orders with same link are processed
+                    // in the same coordinator run, because eligibility was checked before
+                    // actions were inserted for previous orders.
+                    $tKey = $ordersMeta[$oid]['targetKey'];
+                    $alreadyAssignedThisRun = $assignedUsersByTarget[$tKey] ?? [];
+                    if (in_array($uid, $alreadyAssignedThisRun, true)) {
+                        // Skip this user - they were already assigned to another order with same link
+                        continue;
+                    }
+
                     // Avoid adding the same uid twice
                     if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
 
@@ -964,7 +976,6 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $totalReserved++;
 
                     // Track this user as assigned to this normalized target for this run
-                    $tKey = $ordersMeta[$oid]['targetKey'];
                     if (!isset($assignedUsersByTarget[$tKey])) {
                         $assignedUsersByTarget[$tKey] = [];
                     }
