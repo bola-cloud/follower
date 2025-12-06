@@ -963,6 +963,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     $alreadyAssignedThisRun = $assignedUsersByTarget[$tKey] ?? [];
                     if (in_array($uid, $alreadyAssignedThisRun, true)) {
                         // Skip this user - they were already assigned to another order with same link
+                        Log::info('[InsertAndPublishForActiveDashboardUsers] claim_phase_duplicate_prevented', [
+                            'order_id' => $oid,
+                            'user_id' => $uid,
+                            'target_key' => $tKey,
+                            'already_assigned_count' => count($alreadyAssignedThisRun)
+                        ]);
                         continue;
                     }
 
@@ -983,6 +989,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 }
             }
         }
+
+        Log::info('[InsertAndPublishForActiveDashboardUsers] claim_phase_completed', [
+            'total_reserved' => $totalReserved,
+            'orders_with_claims' => count(array_filter($ordersMeta, fn($m) => !empty($m['toClaim']))),
+            'targets_with_assignments' => count($assignedUsersByTarget),
+            'assignment_summary' => array_map('count', $assignedUsersByTarget)
+        ]);
 
         // Third phase: perform batch inserts for claimed users per order and add resulting publishes
         foreach ($ordersMeta as $oid => $meta) {
