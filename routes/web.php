@@ -16,7 +16,7 @@ use App\Events\TestBroadcast;
 |
 */
 Route::get('/', function () {
-    return view('landing');
+    return view('new-design');
 });
 
 
