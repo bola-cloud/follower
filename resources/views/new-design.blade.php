@@ -146,7 +146,7 @@
 
                     <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start mb-6">
                         <!-- Google Play Button -->
-                        <a href="#" id="google-play-btn" class="flex items-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3.5 rounded-xl transition-all hover:shadow-xl hover:-translate-y-1 group">
+                        <a href="https://play.google.com/store/apps/details?id=com.abdoo.egfollow" id="google-play-btn" class="flex items-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3.5 rounded-xl transition-all hover:shadow-xl hover:-translate-y-1 group">
                             <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm11.468 11.122L5.01 23.003c.21.09.445.09.656 0l11.86-6.794-2.449-3.273zm1.27-1.7l4.827-2.753a.993.993 0 0 1 1.023.036.998.998 0 0 1-.056 1.706l-4.815 2.758-1.196-1.598.217-.15zm-1.27-1.7L15.077 2.936l-10.067 10.067 10.067-3.467z"/>
                             </svg>
@@ -157,7 +157,7 @@
                         </a>
 
                         <!-- APK Button -->
-                        <a href="#" id="apk-download-btn-hero" class="flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-brand-purple/50 text-slate-700 px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:-translate-y-1 group">
+                        <a href="https://play.google.com/store/apps/details?id=com.abdoo.egfollow" id="apk-download-btn-hero" class="flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-brand-purple/50 text-slate-700 px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:-translate-y-1 group">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6 group-hover:text-brand-purple transition-colors">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                             </svg>
@@ -328,7 +328,7 @@
     </section>
 
     <!-- Pricing Section -->
-    <section id="pricing" class="py-20 bg-slate-50">
+    {{-- <section id="pricing" class="py-20 bg-slate-50">
         <div class="container mx-auto px-4">
             <div class="text-center mb-16 max-w-2xl mx-auto">
                 <h2 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Simple Coin Packages</h2>
@@ -415,7 +415,7 @@
                 </div>
             </div>
         </div>
-    </section>
+    </section> --}}
 
     <!-- How It Works -->
     <section id="how-it-works" class="py-20 bg-slate-50 relative overflow-hidden">
