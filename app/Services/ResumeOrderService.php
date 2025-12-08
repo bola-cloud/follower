@@ -224,24 +224,14 @@ class ResumeOrderService
      */
     public function batchCheckEligibility(Order $order, array $candidateUserIds): array
     {
+        $startTime = microtime(true);
+        
         if (empty($candidateUserIds)) {
             return [];
         }
 
         // Normalize target URL for comparisons (strip query params, fragments, protocol, www, trailing slashes)
         $normalizedTarget = $this->normalizeUrl($order->target_url);
-
-        // Extract last path segment (reel/profile id) for robust comparisons
-        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
-
-        // Extract last path segment (reel/profile id) for robust comparisons
-        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
-
-        // Extract last path segment (reel/profile id) for robust comparisons
-        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
-
-        // Extract last path segment (reel/profile id) for robust comparisons
-        $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
         // Extract last path segment (reel/profile id)
         $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
@@ -281,94 +271,112 @@ class ResumeOrderService
             return $pendingUserIds;
         }
 
-        // DEBUG: Check how many users already completed this link on OTHER orders
-        // Compare normalized URLs directly
-            // Extract the target id (last path segment) and compare by that id to avoid
-            // subtle differences in URL formatting (query params, trailing slashes, etc.)
-            $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
-
-            // Build a SQL expression to extract last path segment without using REGEXP or question-mark patterns
-            // Steps: lower(trim(o1.target_url)) -> remove protocol/www via nested REPLACE -> take substring before '?' -> get last '/' segment
-            // Simpler matching: check if the lowercased target_url contains '/{targetId}'
-            // This is robust against query params and avoids complex SQL functions that may behave differently across MySQL versions.
-            $likeBinding = "%/{$targetId}%";
-
-            $usersWithSameLink = DB::table('actions as a1')
-                ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                ->whereIn('a1.status', ['done', 'external'])
-                ->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding])
-                ->where('o1.id', '!=', $order->id)
-                ->whereIn('a1.user_id', $candidateUserIds)
-                ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'a1.status')
-                ->get();
-
-        if ($usersWithSameLink->isNotEmpty()) {
-            Log::warning('[batchCheckEligibility] Found users who already completed same link', [
-                'order_id' => $order->id,
-                'normalized_target' => $normalizedTarget,
-                'users_with_same_link_count' => $usersWithSameLink->count(),
-                'sample_users' => $usersWithSameLink->take(10)->map(function($item) {
-                    return [
-                        'user_id' => $item->user_id,
-                        'other_order_id' => $item->other_order_id,
-                        'other_url' => $item->other_url,
-                        'status' => $item->status
-                    ];
-                })->toArray()
-            ]);
-        }
-
-        // Query new eligible users restricted to the candidate IDs
-        // ✅ CRITICAL FIX: Exclude users who already took action (done/external) on ANY order with the same target URL
-        $eligibleUserIds = DB::table('users')
-            ->select('users.id')
-            ->where('users.type', 'user')
-            ->whereIn('users.id', $candidateUserIds)
-            // Exclude users who already have done/external actions on THIS order
-            ->whereNotIn('users.id', function ($q) use ($order) {
-                $q->select('user_id')
-                    ->from('actions')
-                    ->where('order_id', $order->id)
-                    ->whereIn('status', ['done', 'external']);
-            })
-            // Exclude pending users (we'll add them separately)
-            ->whereNotIn('users.id', $pendingUserIds)
-            // Exclude users whose profile_link matches the target username
-            // profile_link is stored as username only (e.g., "faris__ahmed25")
-            // target_url can be full URL (e.g., "https://www.instagram.com/faris__ahmed25")
-            // Extract username from normalized target: instagram.com/faris__ahmed25 -> faris__ahmed25
-            ->whereRaw(
-                "LOWER(TRIM(users.profile_link)) != ?",
-                [strtolower(preg_replace('#^.*/#', '', $normalizedTarget))]
-            )
-            // ✅ CRITICAL: Exclude users who have done/external on OTHER orders with same target_url
-            // Use the same LIKE-based matching as the diagnostic query above
-            ->whereNotIn('users.id', function ($sub) use ($order, $likeBinding) {
-                $sub->select('a1.user_id')
-                    ->from('actions as a1')
-                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
-                    ->whereIn('a1.status', ['done', 'external'])
-                    ->whereRaw("LOWER(o1.target_url) LIKE ?", [$likeBinding])
-                    ->where('o1.id', '!=', $order->id);
-            })
-            ->pluck('users.id')
+        // OPTIMIZED: Find matching orders by target_url_hash first (indexed lookup)
+        // Then verify with LIKE pattern only on the small result set
+        $likeBinding = "%/{$targetId}%";
+        
+        // Step 1: Get matching order IDs using hash (fast, uses index)
+        $matchingOrderIds = DB::table('orders')
+            ->where('target_url_hash', $order->target_url_hash)
+            ->where('id', '!=', $order->id)
+            ->pluck('id')
             ->toArray();
 
-        // DEBUG: Check if any users who should be excluded are still in eligible list
-        $shouldBeExcluded = $usersWithSameLink->pluck('user_id')->toArray();
-        $wronglyIncluded = array_intersect($shouldBeExcluded, $eligibleUserIds);
+        // If no hash matches, fall back to LIKE pattern (slower but catches hash collisions)
+        if (empty($matchingOrderIds)) {
+            $matchingOrderIds = DB::table('orders')
+                ->whereRaw("LOWER(target_url) LIKE ?", [$likeBinding])
+                ->where('id', '!=', $order->id)
+                ->limit(50) // Limit to prevent massive scans
+                ->pluck('id')
+                ->toArray();
+        }
 
-        if (!empty($wronglyIncluded)) {
-            Log::error('[batchCheckEligibility] CRITICAL: Users wrongly included despite completing same link', [
-                'order_id' => $order->id,
-                'wrongly_included_count' => count($wronglyIncluded),
-                'wrongly_included_users' => $wronglyIncluded,
-                // 'target_hash' => $targetHash
-            ]);
+        // Step 2: Find users who have actions on these matching orders (fast, uses indexes)
+        $excludedUserIds = [];
+        if (!empty($matchingOrderIds)) {
+            $excludedUserIds = DB::table('actions')
+                ->whereIn('order_id', $matchingOrderIds)
+                ->whereIn('status', ['done', 'external'])
+                ->whereIn('user_id', $candidateUserIds)
+                ->distinct()
+                ->pluck('user_id')
+                ->toArray();
+
+            // DEBUG: Log diagnostic sample
+            if (!empty($excludedUserIds)) {
+                $sampleActions = DB::table('actions as a1')
+                    ->join('orders as o1', 'a1.order_id', '=', 'o1.id')
+                    ->whereIn('a1.order_id', $matchingOrderIds)
+                    ->whereIn('a1.user_id', array_slice($excludedUserIds, 0, 10))
+                    ->select('a1.user_id', 'o1.id as other_order_id', 'o1.target_url as other_url', 'a1.status')
+                    ->limit(10)
+                    ->get();
+
+                Log::warning('[batchCheckEligibility] Found users who already completed same link', [
+                    'order_id' => $order->id,
+                    'normalized_target' => $normalizedTarget,
+                    'users_with_same_link_count' => count($excludedUserIds),
+                    'sample_users' => $sampleActions->map(function($item) {
+                        return [
+                            'user_id' => $item->user_id,
+                            'other_order_id' => $item->other_order_id,
+                            'other_url' => $item->other_url,
+                            'status' => $item->status
+                        ];
+                    })->toArray()
+                ]);
+            }
+        }
+
+        // Step 3: Build eligible user list using array operations (much faster than subqueries)
+        $usersWithActionsThisOrder = DB::table('actions')
+            ->where('order_id', $order->id)
+            ->whereIn('status', ['done', 'external'])
+            ->whereIn('user_id', $candidateUserIds)
+            ->pluck('user_id')
+            ->toArray();
+
+        // Extract username from target for profile_link comparison
+        $targetUsername = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
+
+        // Filter eligible users using array operations (much faster than SQL subqueries)
+        $eligibleUserIds = array_values(array_diff(
+            $candidateUserIds,
+            $usersWithActionsThisOrder,
+            $pendingUserIds,
+            $excludedUserIds
+        ));
+
+        // Final filter: exclude users whose profile_link matches target username
+        if (!empty($eligibleUserIds)) {
+            $usersToExclude = DB::table('users')
+                ->whereIn('id', $eligibleUserIds)
+                ->whereRaw("LOWER(TRIM(profile_link)) = ?", [$targetUsername])
+                ->pluck('id')
+                ->toArray();
+            
+            $eligibleUserIds = array_values(array_diff($eligibleUserIds, $usersToExclude));
         }
 
         // Combine pending users (at front) with newly eligible users
-        return array_values(array_unique(array_merge($pendingUserIds, $eligibleUserIds)));
+        $result = array_values(array_unique(array_merge($pendingUserIds, $eligibleUserIds)));
+        
+        $elapsed = round((microtime(true) - $startTime) * 1000, 2);
+        Log::info('[ResumeOrderService] batchCheckEligibility completed', [
+            'order_id' => $order->id,
+            'elapsed_ms' => $elapsed,
+            'eligible_count' => count($result)
+        ]);
+        
+        if ($elapsed > 5000) {
+            Log::warning('[ResumeOrderService] batchCheckEligibility slow', [
+                'order_id' => $order->id,
+                'elapsed_ms' => $elapsed
+            ]);
+        }
+        
+        return $result;
     }
 
     public function checkUserEligibility(Order $order, User $user): bool
