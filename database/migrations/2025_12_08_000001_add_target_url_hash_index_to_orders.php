@@ -13,10 +13,13 @@ class AddTargetUrlHashIndexToOrders extends Migration
      */
     public function up()
     {
-        Schema::table('orders', function (Blueprint $table) {
-            // Add index on target_url_hash for fast lookups in batchCheckEligibility
-            $table->index('target_url_hash', 'idx_orders_target_url_hash');
-        });
+        // Add index only if it does not already exist to avoid duplicate key errors
+        if (!\DB::select("SHOW INDEX FROM `orders` WHERE Key_name = ?", ['idx_orders_target_url_hash'])) {
+            Schema::table('orders', function (Blueprint $table) {
+                // Add index on target_url_hash for fast lookups in batchCheckEligibility
+                $table->index('target_url_hash', 'idx_orders_target_url_hash');
+            });
+        }
     }
 
     /**
@@ -26,8 +29,11 @@ class AddTargetUrlHashIndexToOrders extends Migration
      */
     public function down()
     {
-        Schema::table('orders', function (Blueprint $table) {
-            $table->dropIndex('idx_orders_target_url_hash');
-        });
+        // Drop index only if it exists
+        if (\DB::select("SHOW INDEX FROM `orders` WHERE Key_name = ?", ['idx_orders_target_url_hash'])) {
+            Schema::table('orders', function (Blueprint $table) {
+                $table->dropIndex('idx_orders_target_url_hash');
+            });
+        }
     }
 }
