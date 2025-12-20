@@ -66,7 +66,7 @@ Route::group([
     // APK Management
     // APK Management Routes (protected)
     Route::prefix('front/admin')->group(function () {
-        Route::get('/dashboard', function () {
+        Route::get('/dashboards', function () {
             return view('reactx.index');
         })->name('reactx.dashboard');
         Route::post('/apk/upload', [ApkController::class, 'store'])->name('apk.store');
