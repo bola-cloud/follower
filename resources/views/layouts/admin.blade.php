@@ -159,6 +159,10 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
                 <a href="{{route('admin.settings.index')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> اعدادات التطبيق </span></a>
             </li>
 
+            <li class="{{ Route::currentRouteName() == 'reactx.dashboard' ? 'active':'' }} nav-item">
+                <a href="{{route('reactx.dashboard')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> لوحة الواجهة </span></a>
+            </li>
+
         </ul>
     </div>
 </div>
