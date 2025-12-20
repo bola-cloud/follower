@@ -233,7 +233,7 @@
     });
 
     function loadApkData() {
-      fetch('{{ route("apk.stats") }}')
+      fetch('{{ route("adminapk.stats") }}')
         .then(response => response.json())
         .then(data => {
           document.getElementById('total-downloads').textContent = data.total_downloads.toLocaleString();
