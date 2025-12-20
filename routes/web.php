@@ -5,6 +5,7 @@ use Mcamara\LaravelLocalization\Facades\LaravelLocalization;
 use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
 use App\Events\TestBroadcast;
+use App\Http\Controllers\Admin\front\SettingsController;
 /*
 |--------------------------------------------------------------------------
 | Web Routes
