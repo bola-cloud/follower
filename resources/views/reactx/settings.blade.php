@@ -29,7 +29,7 @@
     @endif
 
     <!-- Settings Form -->
-    <form action="{{ route('settings.update') }}" method="POST" enctype="multipart/form-data" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-6">
+    <form action="{{ route('admin.settings.update') }}" method="POST" enctype="multipart/form-data" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-6">
         @csrf
 
         <!-- App Name -->
@@ -154,7 +154,7 @@
                 Save Settings
             </button>
             <a
-                href="{{ route('reactx.dashboard') }}"
+                href="{{ route('admin.reactx.dashboard') }}"
                 class="px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors"
             >
                 Cancel

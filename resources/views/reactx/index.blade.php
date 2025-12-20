@@ -109,7 +109,7 @@
     <!-- APK Management Card -->
     <div class="bg-white dark:bg-gray-800 rounded-2xl p-6 shadow-sm border border-gray-100 dark:border-gray-700">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">APK Management</h2>
-      <form class="space-y-5" method="POST" action="{{ route('apk.store') }}" enctype="multipart/form-data">
+      <form class="space-y-5" method="POST" action="{{ route('admin.apk.store') }}" enctype="multipart/form-data">
         @csrf
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Version Number</label>
@@ -242,7 +242,7 @@
         .catch(error => console.error('Error loading stats:', error));
 
       // Load APK list
-      fetch("{{ route('apk.list') }}")
+      fetch("{{ route('admin.apk.list') }}")
         .then(response => response.json())
         .then(apks => {
           renderApkTable(apks);
@@ -340,7 +340,7 @@
 
     // Prevent submitting files larger than server/app limits to avoid PostTooLargeException
     (function(){
-      const form = document.querySelector('form[action="{{ route('apk.store') }}"]');
+      const form = document.querySelector('form[action="{{ route('admin.apk.store') }}"]');
       if (!form) return;
 
       form.addEventListener('submit', function(e){
