@@ -67,8 +67,8 @@ Route::group([
     // APK Management Routes (protected)
     Route::prefix('front/admin')->group(function () {
         Route::get('/dashboard', function () {
-            return view('admin.index');
-        })->name('dashboard');
+            return view('reactx.index');
+        })->name('reactx.dashboard');
         Route::post('/apk/upload', [ApkController::class, 'store'])->name('apk.store');
         Route::delete('/apk/{id}', [ApkController::class, 'destroy'])->name('apk.destroy');
         Route::get('/api/apk-stats', [ApkController::class, 'getStats'])->name('apk.stats');

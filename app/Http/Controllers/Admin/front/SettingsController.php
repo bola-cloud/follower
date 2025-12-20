@@ -23,7 +23,7 @@ class SettingsController extends Controller
             'app_logo' => Setting::get('app_logo', null),
         ];
 
-        return view('admin.settings', compact('settings'));
+        return view('reactx.settings', compact('settings'));
     }
 
     /**

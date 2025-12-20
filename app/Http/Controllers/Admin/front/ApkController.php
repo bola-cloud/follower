@@ -81,10 +81,10 @@ class ApkController extends Controller
                 'download_count' => 0,
             ]);
 
-            return redirect()->route('dashboard')
+            return redirect()->route('reactx.dashboard')
                 ->with('success', "APK v{$apk->version} uploaded successfully!");
         } catch (\Exception $e) {
-            return redirect()->route('dashboard')
+            return redirect()->route('reactx.dashboard')
                 ->with('error', 'Failed to upload APK: ' . $e->getMessage());
         }
     }
@@ -152,7 +152,7 @@ class ApkController extends Controller
             return response()->json(['message' => 'APK deleted successfully!'], 200);
         }
 
-        return redirect()->route('dashboard')
+        return redirect()->route('reactx.dashboard')
             ->with('success', 'APK deleted successfully!');
     }
 
