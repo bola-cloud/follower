@@ -225,7 +225,7 @@ class ResumeOrderService
     public function batchCheckEligibility(Order $order, array $candidateUserIds): array
     {
         $startTime = microtime(true);
-        
+
         if (empty($candidateUserIds)) {
             return [];
         }
@@ -274,7 +274,7 @@ class ResumeOrderService
         // OPTIMIZED: Find matching orders by target_url_hash first (indexed lookup)
         // Then verify with LIKE pattern only on the small result set
         $likeBinding = "%/{$targetId}%";
-        
+
         // Step 1: Get matching order IDs using hash (fast, uses index)
         $matchingOrderIds = DB::table('orders')
             ->where('target_url_hash', $order->target_url_hash)
@@ -355,27 +355,27 @@ class ResumeOrderService
                 ->whereRaw("LOWER(TRIM(profile_link)) = ?", [$targetUsername])
                 ->pluck('id')
                 ->toArray();
-            
+
             $eligibleUserIds = array_values(array_diff($eligibleUserIds, $usersToExclude));
         }
 
         // Combine pending users (at front) with newly eligible users
         $result = array_values(array_unique(array_merge($pendingUserIds, $eligibleUserIds)));
-        
+
         $elapsed = round((microtime(true) - $startTime) * 1000, 2);
         Log::info('[ResumeOrderService] batchCheckEligibility completed', [
             'order_id' => $order->id,
             'elapsed_ms' => $elapsed,
             'eligible_count' => count($result)
         ]);
-        
+
         if ($elapsed > 5000) {
             Log::warning('[ResumeOrderService] batchCheckEligibility slow', [
                 'order_id' => $order->id,
                 'elapsed_ms' => $elapsed
             ]);
         }
-        
+
         return $result;
     }
 

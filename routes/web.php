@@ -62,6 +62,32 @@ Route::group([
     Route::delete('/admin/promocodes/bulk-delete', 'PromocodeAdminController@bulkDelete')->name('promocodes.bulkDelete');
     Route::post('/admin/orders/{order}/cancel', [\App\Http\Controllers\Admin\OrderController::class, 'cancel'])->name('orders.cancel');
 
+
+    // APK Management
+    // APK Management Routes (protected)
+    Route::prefix('front/admin')->group(function () {
+        Route::get('/dashboard', function () {
+            return view('admin.index');
+        })->name('dashboard');
+        Route::post('/apk/upload', [ApkController::class, 'store'])->name('apk.store');
+        Route::delete('/apk/{id}', [ApkController::class, 'destroy'])->name('apk.destroy');
+        Route::get('/api/apk-stats', [ApkController::class, 'getStats'])->name('apk.stats');
+
+        // Settings routes
+        Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
+        Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+    });
+
+    // Public APK endpoints
+    Route::get('/api/apks', [ApkController::class, 'getAllApks'])->name('apk.list');
+    Route::get('/apk/download/{id}', [ApkController::class, 'download'])->name('apk.download');
+    Route::get('/apk-downloads', function () {
+        return view('apk-downloads');
+    })->name('apk.downloads');
+
+    // Public settings endpoint
+    Route::get('/front/api/settings', [SettingsController::class, 'getPublic'])->name('settings.public');
+
 });
 
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
