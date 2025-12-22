@@ -79,18 +79,18 @@ Route::group([
         Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
     });
 
-    // Public APK endpoints
-    Route::get('/api/apks', [ApkController::class, 'getAllApks'])->name('apk.list');
-    Route::get('/apk/download/{id}', [ApkController::class, 'download'])->name('apk.download');
-    Route::get('/apk-downloads', function () {
-        return view('apk-downloads');
-    })->name('apk.downloads');
 
-    // Public settings endpoint
 
 });
 
 Route::get('/front/api/settings', [SettingsController::class, 'getPublic'])->name('settings.public');
+// Public settings endpoint
+// Public APK endpoints
+Route::get('/api/apks', [ApkController::class, 'getAllApks'])->name('apk.list');
+Route::get('/apk/download/{id}', [ApkController::class, 'download'])->name('apk.download');
+Route::get('/apk-downloads', function () {
+    return view('apk-downloads');
+})->name('apk.downloads');
 
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
 
