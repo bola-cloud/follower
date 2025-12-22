@@ -242,7 +242,7 @@
         .catch(error => console.error('Error loading stats:', error));
 
       // Load APK list
-      fetch("{{ route('admin.apk.list') }}")
+      fetch("{{ route('apk.list') }}")
         .then(response => response.json())
         .then(apks => {
           renderApkTable(apks);
