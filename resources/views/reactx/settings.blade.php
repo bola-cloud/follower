@@ -29,7 +29,7 @@
     @endif
 
     <!-- Settings Form -->
-    <form action="{{ route('admin.settings.update') }}" method="POST" enctype="multipart/form-data" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-6">
+    <form action="{{ route('admin.front.settings.update') }}" method="POST" enctype="multipart/form-data" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-6">
         @csrf
 
         <!-- App Name -->

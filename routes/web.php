@@ -75,8 +75,8 @@ Route::group([
         Route::get('/api/apk-stats', [ApkController::class, 'getStats'])->name('apk.stats');
 
         // Settings routes
-        Route::get('/settings', [SettingsController::class, 'index'])->name('settings.index');
-        Route::post('/settings', [SettingsController::class, 'update'])->name('settings.update');
+        Route::get('/settings', [SettingsController::class, 'index'])->name('front.settings.index');
+        Route::post('/settings', [SettingsController::class, 'update'])->name('front.settings.update');
     });
 
 
