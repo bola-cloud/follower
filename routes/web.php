@@ -87,9 +87,10 @@ Route::group([
     })->name('apk.downloads');
 
     // Public settings endpoint
-    Route::get('/front/api/settings', [SettingsController::class, 'getPublic'])->name('settings.public');
 
 });
+
+Route::get('/front/api/settings', [SettingsController::class, 'getPublic'])->name('settings.public');
 
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
 
