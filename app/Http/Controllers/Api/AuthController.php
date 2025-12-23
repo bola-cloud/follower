@@ -313,6 +313,7 @@ class AuthController extends Controller
         if (! $user) {
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
+        \Log::info('[AuthController] addPointsFromAd called', ['user_id' => $user->id, 'current_points' => $user->points]);
 
         // Read points_per_ads from settings, fallback to 1 if missing or invalid
         try {
