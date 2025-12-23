@@ -335,7 +335,7 @@ class AuthController extends Controller
         //     return response()->json(['error' => 'Failed to add points'], 500);
         // }
 
-        return response()->json(['points' => "points addition disabled ya kosha"], 200);
+        return response()->json(['points' => $user->points]);
     }
 
     public function disconnectAccount(Request $request)
