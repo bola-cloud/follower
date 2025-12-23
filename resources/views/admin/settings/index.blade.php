@@ -19,6 +19,7 @@
                     'points_per_follow' => 'النقاط لكل متابعة',
                     'points_per_like' => 'النقاط لكل إعجاب',
                     'points_per_ads' => 'النقاط لكل إعلان',
+                    'ads_per_user_per_day' => 'الإعلانات المسموح بها لكل مستخدم يومياً',
                     'added_points' => 'النقاط المضافة عند التسجيل',
                     'app_version' => 'إصدار التطبيق',
                     'build_number' => 'رقم البناء',

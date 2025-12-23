@@ -308,32 +308,60 @@ class AuthController extends Controller
      */
     public function addPointsFromAd(Request $request)
     {
-        // $user = $request->user();
+        $user = $request->user();
 
-        // if (! $user) {
-        //     return response()->json(['error' => 'User not authenticated.'], 401);
-        // }
-        // \Log::info('[AuthController] addPointsFromAd called', ['user_id' => $user->id, 'current_points' => $user->points]);
+        if (! $user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
 
-        // // Read points_per_ads from settings, fallback to 1 if missing or invalid
-        // try {
-        //     $pointsSetting = \App\Models\Setting::where('key', 'points_per_ads')->first();
-        //     $add = 1;
-        //     if ($pointsSetting && is_numeric($pointsSetting->value)) {
-        //         $add = intval($pointsSetting->value);
-        //     }
-        // } catch (\Throwable $e) {
-        //     $add = 1;
-        // }
+        \Log::info('[AuthController] addPointsFromAd called', ['user_id' => $user->id, 'current_points' => $user->points]);
 
-        // // Increment user's points safely
-        // try {
-        //     $user->points = intval($user->points ?? 0) + $add;
-        //     $user->save();
-        // } catch (\Throwable $e) {
-        //     \Log::error('[AuthController] addPointsFromAd failed to save user points', ['error' => $e->getMessage(), 'user_id' => $user->id]);
-        //     return response()->json(['error' => 'Failed to add points'], 500);
-        // }
+        // Read limits and points from settings
+        $limit = 5;
+        $pointsToAdd = 1;
+        try {
+            $limitSetting = \App\Models\Setting::where('key', 'ads_per_user_per_day')->first();
+            if ($limitSetting && is_numeric($limitSetting->value)) {
+                $limit = max(0, intval($limitSetting->value));
+            }
+
+            $pointsSetting = \App\Models\Setting::where('key', 'points_per_ads')->first();
+            if ($pointsSetting && is_numeric($pointsSetting->value)) {
+                $pointsToAdd = max(0, intval($pointsSetting->value));
+            }
+        } catch (\Throwable $e) {
+            \Log::warning('[AuthController] failed reading ad settings', ['error' => $e->getMessage()]);
+        }
+
+        // If limit is zero, treat as disabled (no points awarded)
+        if ($limit <= 0) {
+            return response()->json(['points' => $user->points], 200);
+        }
+
+        $today = now()->toDateString();
+
+        try {
+            // Atomically increment or create the counter for today
+            $record = \App\Models\UserAdWatchCount::firstOrCreate(
+                ['user_id' => $user->id, 'watch_date' => $today],
+                ['count' => 0]
+            );
+
+            if ($record->count >= $limit) {
+                return response()->json(['error' => 'Daily ad limit reached', 'points' => $user->points], 429);
+            }
+
+            // increment and save within transaction
+            \DB::transaction(function () use ($record, $user, $pointsToAdd) {
+                $record->increment('count', 1);
+
+                $user->points = intval($user->points ?? 0) + $pointsToAdd;
+                $user->save();
+            });
+        } catch (\Throwable $e) {
+            \Log::error('[AuthController] addPointsFromAd failed', ['error' => $e->getMessage(), 'user_id' => $user->id]);
+            return response()->json(['error' => 'Failed to add points'], 500);
+        }
 
         return response()->json(['points' => $user->points]);
     }
