@@ -16,6 +16,17 @@
     </div>
   @endif
 
+  {{-- Validation errors (from controller redirect withErrors) --}}
+  @if ($errors->any())
+    <div class="mb-6 p-4 bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400 rounded-lg">
+      <ul class="mb-0">
+        @foreach ($errors->all() as $err)
+          <li>{{ $err }}</li>
+        @endforeach
+      </ul>
+    </div>
+  @endif
+
   <!-- AJAX flash messages (injected by JS) -->
   <div id="ajax-flash"></div>
 
@@ -144,6 +155,16 @@
             >
           </div>
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Maximum file size: 150MB. Supported format: .apk</p>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Server limits: upload_max_filesize = {{ ini_get('upload_max_filesize') }}, post_max_size = {{ ini_get('post_max_size') }}</p>
+          <div id="apk-upload-spinner" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
+            <div class="bg-white dark:bg-gray-800 rounded-lg p-6 flex items-center gap-4 shadow-lg">
+              <div class="loader-border w-8 h-8 rounded-full border-4 border-t-transparent animate-spin border-purple-600"></div>
+              <div>
+                <div class="font-medium text-gray-900 dark:text-white">Uploading APK...</div>
+                <div class="text-sm text-gray-600 dark:text-gray-400">This may take a while depending on your connection.</div>
+              </div>
+            </div>
+          </div>
         </div>
         <button
           type="submit"
@@ -231,6 +252,25 @@
       // Refresh every 30 seconds
       setInterval(loadApkData, 30000);
     });
+
+    // Show spinner overlay when form is submitted
+    (function(){
+      const form = document.querySelector('form[action="{{ route('admin.apk.store') }}"]');
+      const spinner = document.getElementById('apk-upload-spinner');
+      if (!form || !spinner) return;
+
+      form.addEventListener('submit', function(e){
+        // If no file selected, let validation run normally
+        const fileInput = form.querySelector('input[type="file"][name="apk_file"]');
+        if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
+
+        // Show spinner and allow submit to continue
+        spinner.classList.remove('hidden');
+
+        // Disable submit buttons to prevent double submit
+        form.querySelectorAll('button, input[type=submit]').forEach(el => el.disabled = true);
+      });
+    })();
 
     function loadApkData() {
       fetch('{{ route("admin.apk.stats") }}')

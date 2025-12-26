@@ -6,6 +6,7 @@ use Illuminate\Support\Facades\Broadcast;
 use Illuminate\Support\Facades\Event;
 use App\Events\TestBroadcast;
 use App\Http\Controllers\Admin\front\SettingsController;
+use App\Http\Controllers\Admin\front\ApkController;
 /*
 |--------------------------------------------------------------------------
 | Web Routes
