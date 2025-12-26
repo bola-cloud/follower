@@ -845,6 +845,10 @@
                         }
                         if (heroApkBtn && firstApp.download_url) {
                             heroApkBtn.href = firstApp.download_url;
+                            heroApkBtn.target = '_blank';
+                            heroApkBtn.rel = 'noopener';
+                            // hint to browsers to download the file when possible
+                            try { heroApkBtn.setAttribute('download', ''); } catch(e){}
                         }
 
                         // Set CTA section buttons
@@ -857,6 +861,25 @@
                         }
                         if (ctaApkBtn && firstApp.download_url) {
                             ctaApkBtn.href = firstApp.download_url;
+                            ctaApkBtn.target = '_blank';
+                            ctaApkBtn.rel = 'noopener';
+                            try { ctaApkBtn.setAttribute('download', ''); } catch(e){}
+                        }
+
+                        // Header and mobile download buttons (if present)
+                        const headerDownloadBtn = document.getElementById('header-download-btn');
+                        const mobileDownloadBtn = document.getElementById('mobile-download-btn');
+                        if (headerDownloadBtn && firstApp.download_url) {
+                            headerDownloadBtn.href = firstApp.download_url;
+                            headerDownloadBtn.target = '_blank';
+                            headerDownloadBtn.rel = 'noopener';
+                            try { headerDownloadBtn.setAttribute('download', ''); } catch(e){}
+                        }
+                        if (mobileDownloadBtn && firstApp.download_url) {
+                            mobileDownloadBtn.href = firstApp.download_url;
+                            mobileDownloadBtn.target = '_blank';
+                            mobileDownloadBtn.rel = 'noopener';
+                            try { mobileDownloadBtn.setAttribute('download', ''); } catch(e){}
                         }
                     }
                 })
