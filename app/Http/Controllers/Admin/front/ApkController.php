@@ -7,6 +7,7 @@ use App\Models\Apk;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Facades\DB;
 
 class ApkController extends Controller
 {
@@ -192,11 +193,14 @@ class ApkController extends Controller
 
         // Only allow this to be done by admin middleware (route group already protects it)
         try {
-            // Set all APKs to 'inactive' (or 'pending') first, then mark selected as 'live'
-            Apk::where('status', 'live')->update(['status' => 'inactive']);
+            DB::transaction(function () use ($apk) {
+                // Demote any currently live APKs to 'pending' (avoid invalid enum values)
+                Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
-            $apk->status = 'live';
-            $apk->save();
+                // Promote selected APK to live
+                $apk->status = 'live';
+                $apk->save();
+            });
 
             if ($request->wantsJson() || $request->ajax()) {
                 return response()->json(['message' => 'APK activated successfully', 'apk' => $apk], 200);

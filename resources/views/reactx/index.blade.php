@@ -30,6 +30,18 @@
   <!-- AJAX flash messages (injected by JS) -->
   <div id="ajax-flash"></div>
 
+  <style>
+    /* Use brand purple for active radio controls to match design */
+    input[type="radio"][name="active_apk"] {
+      accent-color: #8B5CF6; /* brand purple */
+      width: 18px;
+      height: 18px;
+      vertical-align: middle;
+    }
+    /* Slightly larger clickable label spacing */
+    label[for] { cursor: pointer; }
+  </style>
+
   <!-- Page Header -->
   <div class="mb-8">
     <h1 class="text-2xl sm:text-3xl font-bold text-gray-900 dark:text-white">APK & Downloads Dashboard</h1>
