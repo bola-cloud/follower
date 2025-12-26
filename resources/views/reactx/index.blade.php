@@ -319,6 +319,10 @@
             </td>
             <td class="px-6 py-4">
               <div class="flex items-center gap-2">
+                <label class="flex items-center gap-2">
+                  <input type="radio" name="active_apk" ${apk.status === 'live' ? 'checked' : ''} onchange="activateApk(${apk.id})">
+                  <span class="text-xs text-gray-500 dark:text-gray-400">Active</span>
+                </label>
                 <a href="${apk.download_url}" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Download">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -365,6 +369,33 @@
           showMessage('An error occurred while deleting the APK', 'error');
         });
       }
+    }
+
+    function activateApk(id) {
+      if (!confirm('Set this APK as active? This will deactivate other APKs.')) return;
+
+      fetch(`{{ url('front/admin/apk') }}/${id}/activate`, {
+        method: 'POST',
+        headers: {
+          'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]').getAttribute('content'),
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        },
+        body: JSON.stringify({})
+      })
+      .then(response => response.json().then(body => ({ ok: response.ok, status: response.status, body })))
+      .then(result => {
+        if (result.ok) {
+          showMessage(result.body.message || 'APK activated', 'success');
+          loadApkData();
+        } else {
+          showMessage(result.body.message || 'Failed to activate APK', 'error');
+        }
+      })
+      .catch(err => {
+        console.error('Activation error', err);
+        showMessage('An error occurred while activating APK', 'error');
+      });
     }
 
     function showMessage(message, type = 'success') {

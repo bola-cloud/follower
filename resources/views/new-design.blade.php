@@ -61,6 +61,13 @@
 </head>
 <body class="font-sans text-slate-800 antialiased bg-slate-50 overflow-x-hidden">
 
+    @php
+        // Server-side fallback: get latest APK so buttons work without JS
+        $__latestApk = \App\Models\Apk::orderBy('created_at', 'desc')->first();
+        $__latest_download = $__latestApk ? $__latestApk->download_url : '#';
+        $__latest_play = $__latestApk && $__latestApk->play_store_url ? $__latestApk->play_store_url : null;
+    @endphp
+
     <!-- Header -->
     <header class="fixed w-full top-0 z-50 transition-all duration-300" id="navbar">
         <div class="absolute inset-0 glass-effect shadow-sm opacity-95"></div>
@@ -89,7 +96,7 @@
 
                 <!-- CTA & Mobile Toggle -->
                 <div class="flex items-center gap-4">
-                    <a href="#download" id="header-download-btn" class="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-full font-medium transition-all hover:shadow-lg hover:scale-105 text-sm">
+                    <a href="{{ $__latest_download }}" id="header-download-btn" class="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-full font-medium transition-all hover:shadow-lg hover:scale-105 text-sm" @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download @endif>
                         Download App
                     </a>
                     <button id="mobile-menu-btn" class="md:hidden p-2 text-slate-600 focus:outline-none">
@@ -110,7 +117,7 @@
                 <a href="#blog" class="text-xl font-medium text-slate-800 mobile-link">Blog</a>
                 <a href="#safety" class="text-xl font-medium text-slate-800 mobile-link">Safety</a>
                 <a href="#faq" class="text-xl font-medium text-slate-800 mobile-link">FAQ</a>
-                <a href="#download" id="mobile-download-btn" class="mt-4 bg-gradient-to-r from-brand-purple to-brand-pink text-white px-8 py-3 rounded-full font-bold shadow-lg mobile-link">
+                <a href="{{ $__latest_download }}" id="mobile-download-btn" class="mt-4 bg-gradient-to-r from-brand-purple to-brand-pink text-white px-8 py-3 rounded-full font-bold shadow-lg mobile-link" @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download @endif>
                     Download App
                 </a>
             </nav>
@@ -146,7 +153,7 @@
 
                     <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start mb-6">
                         <!-- Google Play Button -->
-                        <a href="#" id="google-play-btn" class="flex items-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3.5 rounded-xl transition-all hover:shadow-xl hover:-translate-y-1 group">
+                        <a href="{{ $__latest_play ?? '#' }}" id="google-play-btn" class="flex items-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3.5 rounded-xl transition-all hover:shadow-xl hover:-translate-y-1 group" @if($__latest_play) target="_blank" rel="noopener" @endif>
                             <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
                                 <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm11.468 11.122L5.01 23.003c.21.09.445.09.656 0l11.86-6.794-2.449-3.273zm1.27-1.7l4.827-2.753a.993.993 0 0 1 1.023.036.998.998 0 0 1-.056 1.706l-4.815 2.758-1.196-1.598.217-.15zm-1.27-1.7L15.077 2.936l-10.067 10.067 10.067-3.467z"/>
                             </svg>
@@ -157,7 +164,7 @@
                         </a>
 
                         <!-- APK Button -->
-                        <a href="#" id="apk-download-btn-hero" class="flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-brand-purple/50 text-slate-700 px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:-translate-y-1 group">
+                        <a href="{{ $__latest_download }}" id="apk-download-btn-hero" class="flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-brand-purple/50 text-slate-700 px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:-translate-y-1 group" @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download @endif>
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6 group-hover:text-brand-purple transition-colors">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                             </svg>
@@ -723,7 +730,7 @@
 
                 <div class="flex flex-col sm:flex-row gap-4 justify-center relative z-10">
                     <!-- Google Play Button (White Variant) -->
-                    <a href="#" id="google-play-btn-cta" class="flex items-center gap-3 bg-white text-brand-purple px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:bg-gray-50 hover:-translate-y-1 group">
+                    <a href="{{ $__latest_play ?? '#' }}" id="google-play-btn-cta" class="flex items-center gap-3 bg-white text-brand-purple px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:bg-gray-50 hover:-translate-y-1 group" @if($__latest_play) target="_blank" rel="noopener" @endif>
                         <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
                             <path d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm11.468 11.122L5.01 23.003c.21.09.445.09.656 0l11.86-6.794-2.449-3.273zm1.27-1.7l4.827-2.753a.993.993 0 0 1 1.023.036.998.998 0 0 1-.056 1.706l-4.815 2.758-1.196-1.598.217-.15zm-1.27-1.7L15.077 2.936l-10.067 10.067 10.067-3.467z"/>
                         </svg>
@@ -734,7 +741,7 @@
                     </a>
 
                     <!-- APK Button (Outline Variant) -->
-                    <a href="#" id="apk-download-btn-cta" class="flex items-center justify-center gap-2 bg-transparent border-2 border-white text-white px-6 py-3.5 rounded-xl transition-all hover:bg-white/10 hover:-translate-y-1">
+                    <a href="{{ $__latest_download }}" id="apk-download-btn-cta" class="flex items-center justify-center gap-2 bg-transparent border-2 border-white text-white px-6 py-3.5 rounded-xl transition-all hover:bg-white/10 hover:-translate-y-1" @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download @endif>
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="w-6 h-6">
                             <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                         </svg>

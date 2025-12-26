@@ -72,6 +72,7 @@ Route::group([
             return view('reactx.index');
         })->name('reactx.dashboard');
         Route::post('/apk/upload', [ApkController::class, 'store'])->name('apk.store');
+        Route::post('/apk/{id}/activate', [ApkController::class, 'activate'])->name('apk.activate');
         Route::delete('/apk/{id}', [ApkController::class, 'destroy'])->name('apk.destroy');
         Route::get('/api/apk-stats', [ApkController::class, 'getStats'])->name('apk.stats');
 

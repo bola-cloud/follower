@@ -70,14 +70,14 @@ class ApkController extends Controller
             // Get file size in bytes
             $fileSize = Storage::disk('public')->size($filePath);
 
-            // Create APK record
+            // Create APK record. New uploads default to 'pending' so admin can choose active one.
             $apk = Apk::create([
                 'version' => $request->version,
                 'file_name' => $fileName,
                 'file_path' => $filePath,
                 'file_size' => $fileSize,
                 'play_store_url' => $request->play_url ?? null,
-                'status' => 'live',
+                'status' => 'pending',
                 'download_count' => 0,
             ]);
 
@@ -177,8 +177,37 @@ class ApkController extends Controller
      */
     public function getAllApks()
     {
-        $apks = Apk::orderBy('created_at', 'desc')->get();
+        // Return live APKs first so the frontend can pick the active APK as the primary download
+        $apks = Apk::orderByRaw("(status = 'live') DESC")->orderBy('created_at', 'desc')->get();
 
         return response()->json($apks);
+    }
+
+    /**
+     * Activate a single APK and deactivate others.
+     */
+    public function activate(Request $request, $id)
+    {
+        $apk = Apk::findOrFail($id);
+
+        // Only allow this to be done by admin middleware (route group already protects it)
+        try {
+            // Set all APKs to 'inactive' (or 'pending') first, then mark selected as 'live'
+            Apk::where('status', 'live')->update(['status' => 'inactive']);
+
+            $apk->status = 'live';
+            $apk->save();
+
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['message' => 'APK activated successfully', 'apk' => $apk], 200);
+            }
+
+            return redirect()->route('admin.reactx.dashboard')->with('success', 'APK activated successfully');
+        } catch (\Exception $e) {
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['message' => 'Failed to activate APK: ' . $e->getMessage()], 500);
+            }
+            return redirect()->route('admin.reactx.dashboard')->with('error', 'Failed to activate APK: ' . $e->getMessage());
+        }
     }
 }
