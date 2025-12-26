@@ -31,15 +31,39 @@
   <div id="ajax-flash"></div>
 
   <style>
-    /* Use brand purple for active radio controls to match design */
-    input[type="radio"][name="active_apk"] {
-      accent-color: #8B5CF6; /* brand purple */
-      width: 18px;
-      height: 18px;
+    /* Gradient switch to match Save & Upload button */
+    .apk-switch {
+      width: 46px;
+      height: 26px;
+      background: #e5e7eb; /* light gray default */
+      border-radius: 9999px;
+      position: relative;
+      display: inline-block;
+      cursor: pointer;
+      transition: box-shadow .15s ease, background .15s ease;
       vertical-align: middle;
     }
-    /* Slightly larger clickable label spacing */
-    label[for] { cursor: pointer; }
+    .apk-switch .knob {
+      position: absolute;
+      top: 3px;
+      left: 3px;
+      width: 20px;
+      height: 20px;
+      background: #fff;
+      border-radius: 50%;
+      box-shadow: 0 2px 6px rgba(16,24,40,0.12);
+      transition: transform .18s cubic-bezier(.2,.8,.2,1), background .12s linear;
+    }
+    .apk-switch.on {
+      background: linear-gradient(90deg, #8B5CF6 0%, #EC4899 100%);
+      box-shadow: 0 6px 18px rgba(139,92,246,0.18);
+    }
+    .apk-switch.on .knob {
+      transform: translateX(20px);
+    }
+    .apk-switch:focus { outline: none; }
+    .apk-switch[aria-disabled="true"] { opacity: .6; cursor: default; }
+    .apk-switch + .switch-label { margin-left: 8px; font-size: 12px; color: #6b7280; }
   </style>
 
   <!-- Page Header -->
@@ -331,10 +355,12 @@
             </td>
             <td class="px-6 py-4">
               <div class="flex items-center gap-2">
-                <label class="flex items-center gap-2">
-                  <input type="radio" name="active_apk" ${apk.status === 'live' ? 'checked' : ''} onchange="activateApk(${apk.id})">
-                  <span class="text-xs text-gray-500 dark:text-gray-400">Active</span>
-                </label>
+                <div class="flex items-center gap-2">
+                  <div class="apk-switch ${apk.status === 'live' ? 'on' : ''}" role="button" tabindex="0" onclick="activateApk(${apk.id}, ${apk.status === 'live' ? 'true' : 'false'})" aria-pressed="${apk.status === 'live' ? 'true' : 'false'}" title="Set active">
+                    <div class="knob"></div>
+                  </div>
+                  <span class="switch-label text-xs text-gray-500 dark:text-gray-400">Active</span>
+                </div>
                 <a href="${apk.download_url}" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Download">
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
@@ -383,7 +409,10 @@
       }
     }
 
-    function activateApk(id) {
+    function activateApk(id, isLive) {
+      // If already live, do nothing
+      if (isLive) return;
+
       if (!confirm('Set this APK as active? This will deactivate other APKs.')) return;
 
       fetch(`{{ url('front/admin/apk') }}/${id}/activate`, {
