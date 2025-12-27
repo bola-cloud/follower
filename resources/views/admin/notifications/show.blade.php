@@ -1,7 +1,7 @@
 @extends('layouts.admin')
 
 @section('content')
-<div class="container py-4">
+<div class="container py-4" dir="rtl">
     <div class="card">
         <div class="card-body">
             <h3 class="text-right">{{ $notification->title }}</h3>
