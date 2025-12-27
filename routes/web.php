@@ -79,6 +79,9 @@ Route::group([
         Route::post('/apk/complete', [ApkController::class, 'completeChunkUpload'])->name('apk.upload.complete');
         Route::get('/api/apk-stats', [ApkController::class, 'getStats'])->name('apk.stats');
 
+        // Slider management
+        Route::resource('sliders', \App\Http\Controllers\Admin\front\SliderController::class);
+
         // Settings routes
         Route::get('/settings', [SettingsController::class, 'index'])->name('front.settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('front.settings.update');
@@ -93,6 +96,11 @@ Route::get('/front/api/settings', [SettingsController::class, 'getPublic'])->nam
 // Public APK endpoints
 Route::get('/api/apks', [ApkController::class, 'getAllApks'])->name('apk.list');
 Route::get('/apk/download/{id}', [ApkController::class, 'download'])->name('apk.download');
+// Public sliders API
+Route::get('/api/sliders', function () {
+    $sliders = App\Models\Slider::where('is_active', true)->orderBy('order')->get();
+    return response()->json($sliders);
+})->name('sliders.list');
 Route::get('/apk-downloads', function () {
     return view('apk-downloads');
 })->name('apk.downloads');
