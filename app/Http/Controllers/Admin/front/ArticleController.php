@@ -1,6 +1,6 @@
 <?php
 
-namespace App\Http\Controllers\Admin\Front;
+namespace App\Http\Controllers\Admin\front;
 
 use App\Http\Controllers\Controller;
 use App\Models\Article;
