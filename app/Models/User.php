@@ -33,6 +33,7 @@ class User extends Authenticatable
         'type',
         'timer',
         'cookies',
+        'invitation_code',
     ];
 
     public function orders()

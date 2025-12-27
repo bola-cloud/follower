@@ -9,6 +9,7 @@ use App\Http\Controllers\SoketiTestController;
 use Illuminate\Support\Facades\Broadcast;
 use App\Http\Controllers\Admin\Dashboard;
 use App\Http\Controllers\Api\PromocodeController;
+use App\Http\Controllers\Api\ReferralController;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
@@ -57,6 +58,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/disconnect-account', [AuthController::class, 'disconnectAccount']);
     // Reassign email from existing account (authenticated) and create new user
     Route::post('/user/reassign-email-create', [AuthController::class, 'reassignEmailAndCreate']);
+    // Apply referral/invitation code (authenticated)
+    Route::post('/user/apply-referral', [ReferralController::class, 'apply']);
 });
 Route::post('/mqtt/response', [\App\Http\Controllers\Api\MqttResponseController::class, 'handle']);
 Route::post('/mqtt/response-batch', [\App\Http\Controllers\Api\MqttResponseController::class, 'handleBatch']);
