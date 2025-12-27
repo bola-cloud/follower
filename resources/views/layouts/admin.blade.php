@@ -156,15 +156,23 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
 
 
             <li class="{{ Route::currentRouteName() == 'admin.settings.index' ? 'active':'' }} nav-item">
-                <a href="{{route('admin.settings.index')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> اعدادات التطبيق </span></a>
+              <a href="{{route('admin.settings.index')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> اعدادات التطبيق </span></a>
             </li>
 
-            <li class="{{ Route::currentRouteName() == 'admin.sliders.index' ? 'active':'' }} nav-item"></li>
-                <a href="{{route('admin.sliders.index')}}"><i class="la la-image"></i><span class="menu-title" data-i18n=""> ادارة شريط التمرير </span></a>
+            <li class="nav-item {{ in_array(Route::currentRouteName(), ['admin.sliders.index','admin.sliders.create','admin.sliders.edit']) ? 'active' : '' }}">
+              <a href="#"><i class="la la-image"></i><span class="menu-title" data-i18n=""> ادارة شريط التمرير </span></a>
+              <ul class="menu-content">
+                <li class="{{ Route::currentRouteName() == 'admin.sliders.index' ? 'active':'' }}">
+                  <a class="menu-item" href="{{route('admin.sliders.index')}}" data-i18n=""> عرض الشرائح </a>
+                </li>
+                <li class="{{ Route::currentRouteName() == 'admin.sliders.create' ? 'active':'' }}">
+                  <a class="menu-item" href="{{route('admin.sliders.create')}}" data-i18n=""> اضافة شريحة </a>
+                </li>
+              </ul>
             </li>
 
             <li class="{{ Route::currentRouteName() == 'admin.reactx.dashboard' ? 'active':'' }} nav-item">
-                <a href="{{route('admin.reactx.dashboard')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> لوحة الواجهة </span></a>
+              <a href="{{route('admin.reactx.dashboard')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> لوحة الواجهة </span></a>
             </li>
 
         </ul>
