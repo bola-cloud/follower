@@ -39,15 +39,15 @@
         <svg class="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
         </svg>
-        <a href="{{ route('admin.articles.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors {{ $isArticles ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-sm shadow-purple-500/20' : $defaultLight }}">
-      <div class="flex items-center gap-2">
+      </button>
+      <a href="{{ route('admin.reactx.dashboard') }}" class="flex items-center gap-2">
         <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center">
           <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
             <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
           </svg>
         </div>
         <span class="text-xl font-bold bg-gradient-to-r from-purple-600 to-pink-600 bg-clip-text text-transparent">ReactX Admin</span>
-      </div>
+      </a>
     </div>
     <!-- Right: Theme Toggle + Admin -->
     <div class="flex items-center gap-4">
