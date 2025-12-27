@@ -19,46 +19,58 @@
         </div>
     @endif
 
-    <div class="card">
+    <div class="card shadow-sm">
+        <div class="card-header bg-white border-0">
+            <div class="d-flex justify-content-between align-items-center">
+                <div class="text-right">
+                    <h4 class="mb-0">تعديل الشريحة</h4>
+                    <small class="text-muted">تحديث بيانات الشريحة</small>
+                </div>
+            </div>
+        </div>
         <div class="card-body">
             <form action="{{ route('admin.sliders.update', $slider) }}" method="POST" enctype="multipart/form-data">
                 @csrf
                 @method('PUT')
 
-                <div class="form-group">
-                    <label>العنوان</label>
-                    <input type="text" name="title" class="form-control" value="{{ old('title', $slider->title) }}">
-                </div>
+                <div class="row justify-content-center">
+                    <div class="col-md-8">
+                        <div class="form-group text-right">
+                            <label for="title">العنوان</label>
+                            <input id="title" type="text" name="title" class="form-control" value="{{ old('title', $slider->title) }}">
+                        </div>
 
-                <div class="form-group">
-                    <label>الوصف</label>
-                    <textarea name="description" rows="3" class="form-control">{{ old('description', $slider->description) }}</textarea>
-                </div>
+                        <div class="form-group text-right">
+                            <label for="description">الوصف</label>
+                            <textarea id="description" name="description" rows="4" class="form-control">{{ old('description', $slider->description) }}</textarea>
+                        </div>
 
-                <div class="form-group">
-                    <label>الصورة</label>
-                    @if($slider->image)
-                        <div class="mb-2"><img src="{{ asset('storage/'.$slider->image) }}" class="img-thumbnail" style="height:120px;" alt="preview"></div>
-                    @endif
-                    <input type="file" name="image" accept="image/*" class="form-control-file">
-                </div>
+                        <div class="form-group text-right">
+                            <label for="image">الصورة</label>
+                            @if($slider->image)
+                                <div class="mb-2 text-right"><img src="{{ asset('storage/'.$slider->image) }}" class="img-thumbnail" style="height:140px;" alt="preview"></div>
+                            @endif
+                            <input id="image" type="file" name="image" accept="image/*" class="form-control-file">
+                        </div>
 
-                <div class="form-row">
-                    <div class="form-group col-md-2">
-                        <label>الترتيب</label>
-                        <input type="number" name="order" class="form-control" value="{{ old('order', $slider->order) }}">
-                    </div>
-                    <div class="form-group col-md-2 d-flex align-items-end">
-                        <div class="form-check">
-                            <input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActive" {{ $slider->is_active ? 'checked' : '' }}>
-                            <label class="form-check-label" for="isActive">نشط</label>
+                        <div class="form-row align-items-center">
+                            <div class="form-group col-md-3 text-right">
+                                <label for="order">الترتيب</label>
+                                <input id="order" type="number" name="order" class="form-control" value="{{ old('order', $slider->order) }}">
+                            </div>
+                            <div class="form-group col-md-3 text-right d-flex align-items-center">
+                                <div class="form-check mb-0">
+                                    <input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActive" {{ $slider->is_active ? 'checked' : '' }}>
+                                    <label class="form-check-label" for="isActive">نشط</label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 d-flex justify-content-end">
+                            <a href="{{ route('admin.sliders.index') }}" class="btn btn-light ml-2">إلغاء</a>
+                            <button class="btn btn-primary">تحديث</button>
                         </div>
                     </div>
-                </div>
-
-                <div class="mt-3">
-                    <button class="btn btn-primary">تحديث</button>
-                    <a href="{{ route('admin.sliders.index') }}" class="btn btn-secondary">إلغاء</a>
                 </div>
             </form>
         </div>

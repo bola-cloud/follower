@@ -67,6 +67,10 @@ Route::group([
     // Slider management
     Route::resource('sliders', \App\Http\Controllers\Admin\front\SliderController::class)->names('sliders');
 
+    // Notifications management
+    Route::resource('notifications', \App\Http\Controllers\Admin\front\NotificationController::class)->names('notifications');
+    Route::post('notifications/{notification}/resend', [\App\Http\Controllers\Admin\front\NotificationController::class, 'resend'])->name('notifications.resend');
+
     // APK Management
     // APK Management Routes (protected)
     Route::prefix('front/admin')->group(function () {
