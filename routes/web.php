@@ -65,7 +65,7 @@ Route::group([
     Route::delete('/admin/promocodes/bulk-delete', 'PromocodeAdminController@bulkDelete')->name('promocodes.bulkDelete');
     Route::post('/admin/orders/{order}/cancel', [\App\Http\Controllers\Admin\OrderController::class, 'cancel'])->name('orders.cancel');
     // Slider management
-    Route::resource('sliders', \App\Http\Controllers\Admin\front\SliderController::class);
+    Route::resource('sliders', \App\Http\Controllers\Admin\front\SliderController::class)->names('sliders');
 
     // APK Management
     // APK Management Routes (protected)
