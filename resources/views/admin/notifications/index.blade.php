@@ -1,7 +1,7 @@
 @extends('layouts.admin')
 
 @section('content')
-<div class="container py-4">
+<div class="container py-4" dir="rtl">
     <div class="d-flex justify-content-between align-items-center mb-3">
         <div>
             <h1 class="mb-0">الإشعارات</h1>
@@ -33,7 +33,7 @@
                         @foreach($notifications as $n)
                             <tr>
                                 <td>{{ $n->title }}</td>
-                                <td>{{ \\Illuminate\\Support\\Str::limit($n->body, 80) }}</td>
+                                <td>{{ \Illuminate\Support\Str::limit($n->body, 80) }}</td>
                                 <td>{{ $n->status }}</td>
                                 <td>{{ $n->sent_at ? $n->sent_at->format('Y-m-d H:i') : '-' }}</td>
                                 <td class="text-right">
