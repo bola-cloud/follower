@@ -67,16 +67,11 @@
         $__latest_download = $__latestApk ? $__latestApk->download_url : '#';
         $__latest_play = $__latestApk && $__latestApk->play_store_url ? $__latestApk->play_store_url : null;
 
-        // Server-side fetch blog articles via the public articles controller
+        // Server-side: fetch latest published articles directly from the model
         try {
-            $__articlesResponse = app()->call([\App\Http\Controllers\ArticlePublicController::class, 'index']);
-            if ($__articlesResponse instanceof \Illuminate\Http\JsonResponse) {
-                $__articles = $__articlesResponse->getData(true) ?? [];
-            } else {
-                $__articles = json_decode($__articlesResponse->getContent(), true) ?? [];
-            }
+            $__articles = \App\Models\Article::where('is_published', true)->latest()->take(3)->get();
         } catch (\Exception $e) {
-            $__articles = [];
+            $__articles = collect();
         }
     @endphp
 
