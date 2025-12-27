@@ -21,11 +21,15 @@
                     'points_per_ads' => 'النقاط لكل إعلان',
                     'ads_per_user_per_day' => 'الإعلانات المسموح بها لكل مستخدم يومياً',
                     'added_points' => 'النقاط المضافة عند التسجيل',
+                    'referral_points' => 'نقاط الإحالة',
                     'app_version' => 'إصدار التطبيق',
                     'build_number' => 'رقم البناء',
                     'download_link' => 'رابط التحميل',
                     'mandatory' => 'هل التحديث إلزامي؟',
                 ];
+
+                // keys that should render as numeric inputs
+                $numberKeys = ['points_per_follow','points_per_like','points_per_ads','ads_per_user_per_day','added_points','referral_points'];
             @endphp
 
             @foreach($settings as $key => $label)
@@ -40,14 +44,26 @@
                                     <option value="0" {{ setting($key) == '0' ? 'selected' : '' }}>لا</option>
                                 </select>
                             @else
-                                <input
-                                    type="text"
-                                    name="{{ $key }}"
-                                    id="{{ $key }}"
-                                    class="form-control"
-                                    value="{{ setting($key) }}"
-                                    required
-                                >
+                                @if(in_array($key, $numberKeys))
+                                    <input
+                                        type="number"
+                                        name="{{ $key }}"
+                                        id="{{ $key }}"
+                                        class="form-control"
+                                        value="{{ setting($key) }}"
+                                        step="1"
+                                        min="0"
+                                    >
+                                @else
+                                    <input
+                                        type="text"
+                                        name="{{ $key }}"
+                                        id="{{ $key }}"
+                                        class="form-control"
+                                        value="{{ setting($key) }}"
+                                        required
+                                    >
+                                @endif
                             @endif
                         </div>
                     </div>

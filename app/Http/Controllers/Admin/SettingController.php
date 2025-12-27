@@ -24,6 +24,7 @@ class SettingController extends Controller
             'points_per_ads' => 'required|integer',
             'points_per_follow' => 'required|integer',
             'points_per_like' => 'required|integer',
+            'referral_points' => 'required|integer',
             'ads_per_user_per_day' => 'required|integer',
             'app_version' => 'required|string',
             'download_link' => 'required|url',
