@@ -33,7 +33,7 @@
                         @foreach($notifications as $n)
                             <tr>
                                 <td>{{ $n->title }}</td>
-                                <td>{{ \Illuminate\\Support\\Str::limit($n->body, 80) }}</td>
+                                <td>{{ \\Illuminate\\Support\\Str::limit($n->body, 80) }}</td>
                                 <td>{{ $n->status }}</td>
                                 <td>{{ $n->sent_at ? $n->sent_at->format('Y-m-d H:i') : '-' }}</td>
                                 <td class="text-right">
