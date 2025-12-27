@@ -74,14 +74,16 @@ Route::group([
         Route::post('/apk/upload', [ApkController::class, 'store'])->name('apk.store');
         Route::post('/apk/{id}/activate', [ApkController::class, 'activate'])->name('apk.activate');
         Route::delete('/apk/{id}', [ApkController::class, 'destroy'])->name('apk.destroy');
+        Route::post('/apk/chunk', [ApkController::class, 'uploadChunk'])->name('apk.upload.chunk');
+        Route::post('/apk/complete', [ApkController::class, 'completeChunkUpload'])->name('apk.upload.complete');
         Route::get('/api/apk-stats', [ApkController::class, 'getStats'])->name('apk.stats');
 
         // Settings routes
         Route::get('/settings', [SettingsController::class, 'index'])->name('front.settings.index');
         Route::post('/settings', [SettingsController::class, 'update'])->name('front.settings.update');
     });
-
-
+    // Article management (admin)
+    Route::resource('articles', ArticleController::class)->names('articles');
 
 });
 
@@ -93,6 +95,8 @@ Route::get('/apk/download/{id}', [ApkController::class, 'download'])->name('apk.
 Route::get('/apk-downloads', function () {
     return view('apk-downloads');
 })->name('apk.downloads');
+// Public articles endpoint (used by landing page)
+Route::get('/api/articles', [ArticlePublicController::class, 'index'])->name('articles.public');
 
 Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController::class, 'activeUsers']);
 

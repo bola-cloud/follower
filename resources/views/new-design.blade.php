@@ -66,6 +66,18 @@
         $__latestApk = \App\Models\Apk::orderBy('created_at', 'desc')->first();
         $__latest_download = $__latestApk ? $__latestApk->download_url : '#';
         $__latest_play = $__latestApk && $__latestApk->play_store_url ? $__latestApk->play_store_url : null;
+
+        // Server-side fetch blog articles via the public articles controller
+        try {
+            $__articlesResponse = app()->call([\App\Http\Controllers\ArticlePublicController::class, 'index']);
+            if ($__articlesResponse instanceof \Illuminate\Http\JsonResponse) {
+                $__articles = $__articlesResponse->getData(true) ?? [];
+            } else {
+                $__articles = json_decode($__articlesResponse->getContent(), true) ?? [];
+            }
+        } catch (\Exception $e) {
+            $__articles = [];
+        }
     @endphp
 
     <!-- Header -->
@@ -488,44 +500,33 @@
             </div>
 
             <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
-                <!-- Article 1 -->
-                <a href="#" class="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300">
-                    <div class="h-48 bg-gray-200 relative overflow-hidden">
-                        <img src="/placeholder.svg?height=300&width=500&text=Instagram+Tips" alt="Blog Post" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500">
-                        <div class="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold text-brand-purple">Tips</div>
-                    </div>
-                    <div class="p-6">
-                        <div class="text-xs text-slate-500 mb-2">Nov 20, 2025</div>
-                        <h3 class="text-xl font-bold text-slate-900 mb-3 group-hover:text-brand-purple transition-colors">How to get your first 1,000 followers fast</h3>
-                        <p class="text-slate-600 text-sm line-clamp-2">Learn the proven strategies to kickstart your Instagram growth journey without spending a fortune.</p>
-                    </div>
-                </a>
+                @forelse($__articles as $article)
+                    @php
+                        if (is_object($article)) $article = (array) $article;
+                        $title = $article['title'] ?? ($article['name'] ?? 'Untitled');
+                        $slug = $article['slug'] ?? null;
+                        $link = $article['link'] ?? ($slug ? url('/blog/'.$slug) : ($article['url'] ?? '#'));
+                        $image = $article['image'] ?? $article['image_url'] ?? $article['featured_image'] ?? 'https://placehold.co/600x400/8b5cf6/ffffff?text=Article';
+                        $excerpt = $article['excerpt'] ?? $article['summary'] ?? ($article['body'] ?? '');
+                        $excerpt = \Illuminate\Support\Str::limit(strip_tags($excerpt), 140);
+                        $date = isset($article['published_at']) ? \Illuminate\Support\Carbon::parse($article['published_at'])->format('M d, Y') : (isset($article['created_at']) ? \Illuminate\Support\Carbon::parse($article['created_at'])->format('M d, Y') : null);
+                    @endphp
 
-                <!-- Article 2 -->
-                <a href="#" class="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300">
-                    <div class="h-48 bg-gray-200 relative overflow-hidden">
-                        <img src="/placeholder.svg?height=300&width=500&text=Best+Time" alt="Blog Post" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500">
-                        <div class="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold text-brand-pink">Strategy</div>
-                    </div>
-                    <div class="p-6">
-                        <div class="text-xs text-slate-500 mb-2">Nov 18, 2025</div>
-                        <h3 class="text-xl font-bold text-slate-900 mb-3 group-hover:text-brand-pink transition-colors">Best times to post on Instagram in 2025</h3>
-                        <p class="text-slate-600 text-sm line-clamp-2">Timing is everything. Discover when your audience is most active to maximize engagement.</p>
-                    </div>
-                </a>
-
-                <!-- Article 3 -->
-                <a href="#" class="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300">
-                    <div class="h-48 bg-gray-200 relative overflow-hidden">
-                        <img src="/placeholder.svg?height=300&width=500&text=Algorithm" alt="Blog Post" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500">
-                        <div class="absolute top-4 left-4 bg-white/90 backdrop-blur px-3 py-1 rounded-full text-xs font-bold text-brand-blue">Updates</div>
-                    </div>
-                    <div class="p-6">
-                        <div class="text-xs text-slate-500 mb-2">Nov 15, 2025</div>
-                        <h3 class="text-xl font-bold text-slate-900 mb-3 group-hover:text-brand-blue transition-colors">Understanding the new Instagram Algorithm</h3>
-                        <p class="text-slate-600 text-sm line-clamp-2">The algorithm has changed again. Here's what you need to know to stay ahead of the game.</p>
-                    </div>
-                </a>
+                    <a href="{{ $link }}" class="group bg-white rounded-2xl overflow-hidden shadow-sm hover:shadow-xl transition-all duration-300">
+                        <div class="h-48 bg-gray-200 relative overflow-hidden">
+                            <img src="{{ $image }}" alt="{{ $title }}" class="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500">
+                        </div>
+                        <div class="p-6">
+                            @if($date)
+                                <div class="text-xs text-slate-500 mb-2">{{ $date }}</div>
+                            @endif
+                            <h3 class="text-xl font-bold text-slate-900 mb-3 group-hover:text-brand-purple transition-colors">{{ $title }}</h3>
+                            <p class="text-slate-600 text-sm line-clamp-2">{{ $excerpt }}</p>
+                        </div>
+                    </a>
+                @empty
+                    <div class="col-span-3 text-center p-8 text-slate-500">No articles found.</div>
+                @endforelse
             </div>
         </div>
     </section>

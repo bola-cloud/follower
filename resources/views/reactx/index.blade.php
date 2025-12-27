@@ -300,13 +300,92 @@
         const fileInput = form.querySelector('input[type="file"][name="apk_file"]');
         if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
 
-        // Show spinner and allow submit to continue
+        const file = fileInput.files[0];
+
+        // If file exceeds client-side threshold (50MB), do chunked upload
+        const threshold = 50 * 1024 * 1024; // 50MB
+        if (file.size > threshold) {
+          e.preventDefault();
+          // Use chunked upload flow
+          spinner.classList.remove('hidden');
+          uploadFileInChunks(file, form);
+          return;
+        }
+
+        // Show spinner and allow submit to continue for small files
         spinner.classList.remove('hidden');
 
         // Disable submit buttons to prevent double submit
         form.querySelectorAll('button, input[type=submit]').forEach(el => el.disabled = true);
       });
     })();
+
+    // Chunked upload implementation
+    async function uploadFileInChunks(file, form) {
+      const chunkSize = 10 * 1024 * 1024; // 10MB
+      const totalChunks = Math.ceil(file.size / chunkSize);
+      const uploadId = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+      const origName = file.name;
+
+      const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
+
+      // send each chunk sequentially
+      for (let i = 0; i < totalChunks; i++) {
+        const start = i * chunkSize;
+        const end = Math.min(start + chunkSize, file.size);
+        const chunk = file.slice(start, end);
+
+        const fd = new FormData();
+        fd.append('upload_id', uploadId);
+        fd.append('chunk_index', i);
+        fd.append('chunk', chunk, `${uploadId}_${i}`);
+
+        try {
+          const res = await fetch("{{ route('admin.apk.upload.chunk') }}", {
+            method: 'POST',
+            headers: { 'X-CSRF-TOKEN': csrf },
+            body: fd
+          });
+
+          if (!res.ok) {
+            const body = await res.json().catch(() => ({}));
+            throw new Error(body.message || 'Chunk upload failed');
+          }
+        } catch (err) {
+          console.error('Chunk upload error', err);
+          spinner.classList.add('hidden');
+          showMessage('Chunk upload failed: ' + err.message, 'error');
+          return;
+        }
+      }
+
+      // Complete upload
+      try {
+        const completeRes = await fetch("{{ route('admin.apk.upload.complete') }}", {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-TOKEN': csrf },
+          body: JSON.stringify({
+            upload_id: uploadId,
+            total_chunks: totalChunks,
+            version: form.querySelector('input[name="version"]').value,
+            play_url: form.querySelector('input[name="play_url"]').value,
+            original_file_name: origName
+          })
+        });
+
+        const result = await completeRes.json();
+        if (!completeRes.ok) throw new Error(result.message || 'Complete failed');
+
+        showMessage('APK uploaded successfully', 'success');
+        // reload table and stats
+        loadApkData();
+        spinner.classList.add('hidden');
+      } catch (err) {
+        console.error('Complete upload error', err);
+        spinner.classList.add('hidden');
+        showMessage('Failed to finalize upload: ' + err.message, 'error');
+      }
+    }
 
     function loadApkData() {
       fetch('{{ route("admin.apk.stats") }}')

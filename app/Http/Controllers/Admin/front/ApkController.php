@@ -185,6 +185,107 @@ class ApkController extends Controller
     }
 
     /**
+     * Accept a single chunk for an ongoing upload.
+     * Expects: upload_id, chunk_index, chunk (file), total_chunks (optional), file_name (optional)
+     */
+    public function uploadChunk(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'upload_id' => 'required|string',
+            'chunk_index' => 'required|integer',
+            'chunk' => 'required|file',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $uploadId = $request->input('upload_id');
+        $index = (int) $request->input('chunk_index');
+
+        $file = $request->file('chunk');
+        $tmpDir = 'apk_uploads/tmp';
+        $tmpName = $uploadId . '_' . $index;
+
+        // Store chunk on local disk (storage/app)
+        Storage::disk('local')->putFileAs($tmpDir, $file, $tmpName);
+
+        return response()->json(['ok' => true, 'index' => $index], 200);
+    }
+
+    /**
+     * Complete chunked upload: assemble chunks and create APK record.
+     * Expects: upload_id, total_chunks, version, play_url (optional), original_file_name
+     */
+    public function completeChunkUpload(Request $request)
+    {
+        $validator = Validator::make($request->all(), [
+            'upload_id' => 'required|string',
+            'total_chunks' => 'required|integer|min:1',
+            'version' => 'required|string|unique:apks,version',
+            'original_file_name' => 'required|string',
+        ]);
+
+        if ($validator->fails()) {
+            return response()->json(['errors' => $validator->errors()], 422);
+        }
+
+        $uploadId = $request->input('upload_id');
+        $total = (int) $request->input('total_chunks');
+        $originalFileName = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', $request->input('original_file_name'));
+
+        $tmpDir = storage_path('app/apk_uploads/tmp');
+        $finalName = time() . '_' . $originalFileName;
+        $finalRelPath = 'apks/' . $finalName;
+
+        // Assemble chunks
+        try {
+            $finalPath = storage_path('app/public/' . $finalRelPath);
+            $out = fopen($finalPath, 'wb');
+            if ($out === false) {
+                throw new \Exception('Unable to open final file for writing');
+            }
+
+            for ($i = 0; $i < $total; $i++) {
+                $chunkPath = $tmpDir . DIRECTORY_SEPARATOR . $uploadId . '_' . $i;
+                if (!file_exists($chunkPath)) {
+                    fclose($out);
+                    throw new \Exception("Missing chunk {$i}");
+                }
+                $in = fopen($chunkPath, 'rb');
+                stream_copy_to_stream($in, $out);
+                fclose($in);
+            }
+
+            fclose($out);
+
+            // Get file size
+            $fileSize = filesize($finalPath);
+
+            // Move to public storage (already in storage/app/public)
+            $apk = Apk::create([
+                'version' => $request->input('version'),
+                'file_name' => $finalName,
+                'file_path' => $finalRelPath,
+                'file_size' => $fileSize,
+                'play_store_url' => $request->input('play_url') ?? null,
+                'status' => 'pending',
+                'download_count' => 0,
+            ]);
+
+            // Clean up tmp chunks
+            for ($i = 0; $i < $total; $i++) {
+                $chunkPath = $tmpDir . DIRECTORY_SEPARATOR . $uploadId . '_' . $i;
+                @unlink($chunkPath);
+            }
+
+            return response()->json(['ok' => true, 'apk' => $apk], 200);
+        } catch (\Exception $e) {
+            return response()->json(['message' => 'Failed to assemble upload: ' . $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Activate a single APK and deactivate others.
      */
     public function activate(Request $request, $id)
