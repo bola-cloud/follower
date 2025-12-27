@@ -4,8 +4,11 @@
 @section('title','Create Article')
 
 @section('content')
-  <div class="max-w-3xl">
-    <h1 class="text-2xl font-bold mb-4">Create Article</h1>
+  <div class="max-w-4xl">
+    <div class="mb-6">
+      <h1 class="text-3xl font-bold text-gray-900 dark:text-white mb-2">Create Article</h1>
+      <p class="text-gray-600 dark:text-gray-400">Create and publish site articles</p>
+    </div>
 
     @if($errors->any())
       <div class="mb-4 p-3 bg-red-100 text-red-800 rounded">
@@ -17,19 +20,19 @@
       </div>
     @endif
 
-    <form action="{{ route('admin.articles.store') }}" method="POST" enctype="multipart/form-data">
+    <form action="{{ route('admin.articles.store') }}" method="POST" enctype="multipart/form-data" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-6">
       @csrf
-      <div class="mb-4">
-        <label class="block text-sm font-medium mb-1">Title</label>
-        <input type="text" name="title" value="{{ old('title') }}" class="w-full px-4 py-2 rounded border" required>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Title</label>
+        <input type="text" name="title" value="{{ old('title') }}" class="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500" required>
       </div>
 
-      <div class="mb-4">
-        <label class="block text-sm font-medium mb-1">Feature Image</label>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Feature Image</label>
         <div>
-          <input id="image" type="file" name="image" accept="image/*" class="w-full px-3 py-2 rounded border">
+          <input id="image" type="file" name="image" accept="image/*" class="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
         </div>
-        <p class="text-xs text-gray-500 mt-2">Optional. Recommended size: 1200x630</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400 mt-2">Optional. Recommended size: 1200x630</p>
         <div id="image-preview" class="mt-3">
           @if(old('image'))
             <img src="{{ old('image') }}" class="h-32 rounded" alt="preview">
@@ -39,10 +42,10 @@
 
       {{-- Excerpt removed per request --}}
 
-      <div class="mb-4">
-        <label class="block text-sm font-medium mb-1">Content</label>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Content</label>
         <input type="hidden" name="content" id="content">
-        <div id="quill-editor" class="bg-white border rounded" style="min-height: 320px">{!! old('content') !!}</div>
+        <div id="quill-editor" class="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl" style="min-height: 320px">{!! old('content') !!}</div>
       </div>
 
       <div class="mb-4 flex items-center gap-3">
@@ -51,9 +54,9 @@
         </label>
       </div>
 
-      <div>
-        <button class="px-4 py-2 bg-primary-500 text-white rounded">Save Article</button>
-        <a href="{{ route('admin.articles.index') }}" class="ml-2 px-4 py-2 rounded bg-gray-100">Cancel</a>
+      <div class="flex gap-4 pt-4">
+        <button class="px-6 py-3 bg-gradient-to-r from-primary-500 to-pink-500 text-white font-semibold rounded-xl hover:shadow-lg transition-shadow">Save Article</button>
+        <a href="{{ route('admin.articles.index') }}" class="px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Cancel</a>
       </div>
     </form>
   </div>

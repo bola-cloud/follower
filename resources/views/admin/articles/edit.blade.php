@@ -16,13 +16,13 @@
       </div>
     @endif
 
-    <form action="{{ route('admin.articles.update', $article) }}" method="POST" enctype="multipart/form-data">
+    <form action="{{ route('admin.articles.update', $article) }}" method="POST" enctype="multipart/form-data" class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-200 dark:border-gray-700 p-8 space-y-6">
       @csrf
       @method('PUT')
 
-      <div class="mb-4">
-        <label class="block text-sm font-medium mb-1">Title</label>
-        <input type="text" name="title" value="{{ old('title', $article->title) }}" class="w-full px-4 py-2 rounded border" required>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Title</label>
+        <input type="text" name="title" value="{{ old('title', $article->title) }}" class="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-primary-500" required>
       </div>
 
       <div class="mb-4">
@@ -48,15 +48,15 @@
         @endif
 
         <div>
-          <input id="image" type="file" name="image" accept="image/*" class="w-full px-3 py-2 rounded border">
+          <input id="image" type="file" name="image" accept="image/*" class="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
         </div>
-        <p class="text-xs text-gray-500">Upload to replace existing image (optional)</p>
+        <p class="text-xs text-gray-500 dark:text-gray-400">Upload to replace existing image (optional)</p>
       </div>
 
-      <div class="mb-4">
-        <label class="block text-sm font-medium mb-1">Content</label>
+      <div>
+        <label class="block text-sm font-semibold text-gray-700 dark:text-gray-200 mb-2">Content</label>
         <input type="hidden" name="content" id="content">
-        <div id="quill-editor" class="bg-white border rounded" style="min-height: 320px">{!! old('content', $article->content) !!}</div>
+        <div id="quill-editor" class="bg-white dark:bg-gray-700 border border-gray-200 dark:border-gray-600 rounded-xl" style="min-height: 320px">{!! old('content', $article->content) !!}</div>
       </div>
 
       <div class="mb-4 flex items-center gap-3">
@@ -65,9 +65,9 @@
         </label>
       </div>
 
-      <div>
-        <button class="px-4 py-2 bg-primary-500 text-white rounded">Update Article</button>
-        <a href="{{ route('admin.articles.index') }}" class="ml-2 px-4 py-2 rounded bg-gray-100">Cancel</a>
+      <div class="flex gap-4 pt-4">
+        <button class="px-6 py-3 bg-gradient-to-r from-primary-500 to-pink-500 text-white font-semibold rounded-xl hover:shadow-lg transition-shadow">Update Article</button>
+        <a href="{{ route('admin.articles.index') }}" class="px-6 py-3 bg-gray-100 dark:bg-gray-700 text-gray-900 dark:text-white font-semibold rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors">Cancel</a>
       </div>
     </form>
   </div>
