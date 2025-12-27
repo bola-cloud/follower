@@ -160,7 +160,7 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
             </li>
 
             <li class="{{ Route::currentRouteName() == 'admin.sliders.index' ? 'active':'' }} nav-item"></li>
-                <a href="{{route('admin.sliders.index')}}"><i class="la la-image"></i><span class="menu-title" data-i18n=""> ادارة السلايدر </span></a>
+                <a href="{{route('admin.sliders.index')}}"><i class="la la-image"></i><span class="menu-title" data-i18n=""> ادارة شريط التمرير </span></a>
             </li>
 
             <li class="{{ Route::currentRouteName() == 'admin.reactx.dashboard' ? 'active':'' }} nav-item">
