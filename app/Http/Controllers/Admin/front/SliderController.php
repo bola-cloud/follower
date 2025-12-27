@@ -73,4 +73,26 @@ class SliderController extends Controller
         $slider->delete();
         return back()->with('success','Slider deleted');
     }
+
+    // Toggle active state (quick action)
+    public function toggle(Slider $slider)
+    {
+        $slider->is_active = !$slider->is_active;
+        $slider->save();
+        if (request()->wantsJson()) {
+            return response()->json(['status' => 'ok', 'is_active' => $slider->is_active]);
+        }
+        return back()->with('success', 'Slider updated');
+    }
+
+    // Quick update of order from index
+    public function updateOrder(Request $request, Slider $slider)
+    {
+        $data = $request->validate([
+            'order' => 'required|integer',
+        ]);
+        $slider->order = $data['order'];
+        $slider->save();
+        return back()->with('success', 'Order updated');
+    }
 }

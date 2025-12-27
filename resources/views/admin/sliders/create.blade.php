@@ -47,15 +47,15 @@
 
                         <div class="form-row align-items-center">
                             <div class="form-group col-md-3 text-right">
-                                <label for="order">الترتيب</label>
-                                <input id="order" type="number" name="order" class="form-control" value="{{ old('order', 0) }}">
-                            </div>
-                            <div class="form-group col-md-3 text-right d-flex align-items-center">
-                                <div class="form-check mb-0">
-                                    <input class="form-check-input" type="checkbox" name="is_active" value="1" id="isActive" checked>
-                                    <label class="form-check-label" for="isActive">نشط</label>
+                                    <label for="order">الترتيب</label>
+                                    <input id="order" type="number" name="order" class="form-control form-control-sm text-center" style="width:110px;" value="{{ old('order', 0) }}">
                                 </div>
-                            </div>
+                                <div class="form-group col-md-3 text-right d-flex align-items-center">
+                                    <div class="custom-control custom-switch mb-0">
+                                        <input type="checkbox" class="custom-control-input" id="isActive" name="is_active" value="1" checked>
+                                        <label class="custom-control-label" for="isActive">نشط</label>
+                                    </div>
+                                </div>
                         </div>
 
                         <div class="mt-4 d-flex justify-content-end">

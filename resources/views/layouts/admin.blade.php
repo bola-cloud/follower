@@ -171,6 +171,18 @@ data-open="click" data-menu="vertical-menu-modern" data-col="2-columns">
               </ul>
             </li>
 
+            <li class="nav-item {{ in_array(Route::currentRouteName(), ['admin.notifications.index','admin.notifications.create','admin.notifications.show']) ? 'active' : '' }}">
+              <a href="#"><i class="la la-bell"></i><span class="menu-title" data-i18n=""> ادارة الاشعارات </span></a>
+              <ul class="menu-content">
+                <li class="{{ Route::currentRouteName() == 'admin.notifications.index' ? 'active':'' }}">
+                  <a class="menu-item" href="{{route('admin.notifications.index')}}" data-i18n=""> سجل الاشعارات </a>
+                </li>
+                <li class="{{ Route::currentRouteName() == 'admin.notifications.create' ? 'active':'' }}">
+                  <a class="menu-item" href="{{route('admin.notifications.create')}}" data-i18n=""> اضافة اشعار </a>
+                </li>
+              </ul>
+            </li>
+
             <li class="{{ Route::currentRouteName() == 'admin.reactx.dashboard' ? 'active':'' }} nav-item">
               <a href="{{route('admin.reactx.dashboard')}}"><i class="la la-home"></i><span class="menu-title" data-i18n=""> لوحة الواجهة </span></a>
             </li>

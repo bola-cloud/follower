@@ -66,6 +66,9 @@ Route::group([
     Route::post('/admin/orders/{order}/cancel', [\App\Http\Controllers\Admin\OrderController::class, 'cancel'])->name('orders.cancel');
     // Slider management
     Route::resource('sliders', \App\Http\Controllers\Admin\front\SliderController::class)->names('sliders');
+    // Slider toggle and quick order update
+    Route::post('sliders/{slider}/toggle', [\App\Http\Controllers\Admin\front\SliderController::class, 'toggle'])->name('sliders.toggle');
+    Route::post('sliders/{slider}/order', [\App\Http\Controllers\Admin\front\SliderController::class, 'updateOrder'])->name('sliders.order');
 
     // Notifications management
     Route::resource('notifications', \App\Http\Controllers\Admin\front\NotificationController::class)->names('notifications');
