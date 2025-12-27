@@ -39,7 +39,7 @@
         <svg class="w-6 h-6 text-gray-600 dark:text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/>
         </svg>
-      </button>
+        <a href="{{ route('admin.articles.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors {{ $isArticles ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-sm shadow-purple-500/20' : $defaultLight }}">
       <div class="flex items-center gap-2">
         <div class="w-8 h-8 rounded-lg bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 flex items-center justify-center">
           <svg class="w-5 h-5 text-white" fill="currentColor" viewBox="0 0 24 24">
@@ -98,11 +98,10 @@
 
        <div class="mt-4">
         @php $isArticles = request()->routeIs('admin.articles.*'); @endphp
-        <a href="{{ route('admin.articles.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors {{ $isArticles ? $activeGradientClass : $defaultLight }}">
+        <a href="{{ route('admin.articles.index') }}" class="flex items-center gap-3 px-4 py-3 rounded-xl transition-colors {{ $isArticles ? 'bg-gradient-to-r from-purple-500 to-pink-500 text-white shadow-sm shadow-purple-500/20' : $defaultLight }}">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3M3 11h18M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
           Articles
         </a>
-        <a href="{{ route('admin.articles.create') }}" class="mt-2 block px-4 py-2 text-sm {{ $isArticles ? 'text-white' : 'text-gray-500 dark:text-gray-400' }} hover:text-gray-700 dark:hover:text-gray-200">+ New Article</a>
       </div>
 
       @php $isOrders = request()->routeIs('admin.orders.*') || request()->routeIs('admin.dashboard'); @endphp
