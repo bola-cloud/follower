@@ -1,4 +1,4 @@
-@extends('layouts.admin')
+@extends('layouts.reactx')
 
 @section('title','Create Slider')
 
