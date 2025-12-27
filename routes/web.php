@@ -64,7 +64,8 @@ Route::group([
     Route::resource('promocodes', 'PromocodeAdminController')->names('promocodes');
     Route::delete('/admin/promocodes/bulk-delete', 'PromocodeAdminController@bulkDelete')->name('promocodes.bulkDelete');
     Route::post('/admin/orders/{order}/cancel', [\App\Http\Controllers\Admin\OrderController::class, 'cancel'])->name('orders.cancel');
-
+    // Slider management
+    Route::resource('sliders', \App\Http\Controllers\Admin\front\SliderController::class);
 
     // APK Management
     // APK Management Routes (protected)
@@ -78,9 +79,6 @@ Route::group([
         Route::post('/apk/chunk', [ApkController::class, 'uploadChunk'])->name('apk.upload.chunk');
         Route::post('/apk/complete', [ApkController::class, 'completeChunkUpload'])->name('apk.upload.complete');
         Route::get('/api/apk-stats', [ApkController::class, 'getStats'])->name('apk.stats');
-
-        // Slider management
-        Route::resource('sliders', \App\Http\Controllers\Admin\front\SliderController::class);
 
         // Settings routes
         Route::get('/settings', [SettingsController::class, 'index'])->name('front.settings.index');

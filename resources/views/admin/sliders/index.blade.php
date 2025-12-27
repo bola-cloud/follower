@@ -1,4 +1,4 @@
-@extends('layouts.reactx')
+@extends('layouts.admin')
 
 @section('title','Sliders')
 
