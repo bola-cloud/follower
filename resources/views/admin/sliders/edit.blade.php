@@ -66,6 +66,18 @@
                                 </div>
                         </div>
 
+                        <div class="form-row mt-3">
+                            <div class="form-group col-md-6 text-right">
+                                <label for="start_at">تاريخ البدء</label>
+                                <input id="start_at" type="date" name="start_at" class="form-control" value="{{ old('start_at', $slider->start_at ? $slider->start_at->format('Y-m-d') : '') }}">
+                            </div>
+                            <div class="form-group col-md-6 text-right">
+                                <label for="end_at">تاريخ الانتهاء (شامل)</label>
+                                <input id="end_at" type="date" name="end_at" class="form-control" value="{{ old('end_at', $slider->end_at ? ($slider->end_at->subDay()->format('Y-m-d')) : '') }}">
+                                <small class="form-text text-muted">إدخال تاريخ فقط يعني أن الانتهاء سيكون عند بداية اليوم التالي</small>
+                            </div>
+                        </div>
+
                         <div class="mt-4 d-flex justify-content-end">
                             <a href="{{ route('admin.sliders.index') }}" class="btn btn-light ml-2">إلغاء</a>
                             <button class="btn btn-primary">تحديث</button>

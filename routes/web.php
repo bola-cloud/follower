@@ -101,11 +101,7 @@ Route::get('/front/api/settings', [SettingsController::class, 'getPublic'])->nam
 // Public APK endpoints
 Route::get('/api/apks', [ApkController::class, 'getAllApks'])->name('apk.list');
 Route::get('/apk/download/{id}', [ApkController::class, 'download'])->name('apk.download');
-// Public sliders API
-Route::get('/api/sliders', function () {
-    $sliders = App\Models\Slider::where('is_active', true)->orderBy('order')->get();
-    return response()->json($sliders);
-})->name('sliders.list');
+// (moved sliders API to routes/api.php)
 Route::get('/apk-downloads', function () {
     return view('apk-downloads');
 })->name('apk.downloads');

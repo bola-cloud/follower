@@ -26,6 +26,8 @@ class SliderController extends Controller
             'title' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'image' => 'nullable|image|max:5120',
+            'start_at' => 'nullable|date',
+            'end_at' => 'nullable|date',
             'order' => 'nullable|integer',
             'is_active' => 'nullable|boolean',
         ]);
@@ -34,6 +36,21 @@ class SliderController extends Controller
             $path = $request->file('image')->store('sliders', 'public');
             $data['image'] = $path;
         }
+        // normalize dates: admin enters dates (Y-m-d) — interpret start_at as start of day,
+        // and end_at as exclusive at next day's start (so selecting 2025-12-23 ends at 2025-12-24 00:00)
+        if (!empty($data['start_at'])) {
+            $data['start_at'] = \Illuminate\Support\Carbon::parse($data['start_at'])->startOfDay();
+        }
+        if (!empty($data['end_at'])) {
+            // if time component not provided, treat as date -> end at start of next day
+            $raw = $request->input('end_at');
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($raw))) {
+                $data['end_at'] = \Illuminate\Support\Carbon::parse($raw)->addDay()->startOfDay();
+            } else {
+                $data['end_at'] = \Illuminate\Support\Carbon::parse($data['end_at']);
+            }
+        }
+
         $data['is_active'] = isset($data['is_active']) ? (bool)$data['is_active'] : true;
         Slider::create($data);
         return redirect()->route('admin.sliders.index')->with('success','Slider created');
@@ -50,6 +67,8 @@ class SliderController extends Controller
             'title' => 'nullable|string|max:255',
             'description' => 'nullable|string',
             'image' => 'nullable|image|max:5120',
+            'start_at' => 'nullable|date',
+            'end_at' => 'nullable|date',
             'order' => 'nullable|integer',
             'is_active' => 'nullable|boolean',
         ]);
@@ -60,6 +79,18 @@ class SliderController extends Controller
             $path = $request->file('image')->store('sliders', 'public');
             $data['image'] = $path;
         }
+        if (!empty($data['start_at'])) {
+            $data['start_at'] = \Illuminate\Support\Carbon::parse($data['start_at'])->startOfDay();
+        }
+        if (!empty($data['end_at'])) {
+            $raw = $request->input('end_at');
+            if (preg_match('/^\d{4}-\d{2}-\d{2}$/', trim($raw))) {
+                $data['end_at'] = \Illuminate\Support\Carbon::parse($raw)->addDay()->startOfDay();
+            } else {
+                $data['end_at'] = \Illuminate\Support\Carbon::parse($data['end_at']);
+            }
+        }
+
         $data['is_active'] = isset($data['is_active']) ? (bool)$data['is_active'] : false;
         $slider->update($data);
         return redirect()->route('admin.sliders.index')->with('success','Slider updated');

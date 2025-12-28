@@ -45,6 +45,18 @@
                             </div>
                         </div>
 
+                        <div class="form-row">
+                            <div class="form-group col-md-6 text-right">
+                                <label for="start_at">تاريخ البدء</label>
+                                <input id="start_at" type="date" name="start_at" class="form-control" value="{{ old('start_at') }}">
+                            </div>
+                            <div class="form-group col-md-6 text-right">
+                                <label for="end_at">تاريخ الانتهاء (شامل)</label>
+                                <input id="end_at" type="date" name="end_at" class="form-control" value="{{ old('end_at') }}">
+                                <small class="form-text text-muted">إذا أدخلت تاريخًا (مثلاً 2025-12-23) فستنتهي الشريحة عند بداية 2025-12-24</small>
+                            </div>
+                        </div>
+
                         <div class="form-row align-items-center">
                             <div class="form-group col-md-3 text-right">
                                     <label for="order">الترتيب</label>

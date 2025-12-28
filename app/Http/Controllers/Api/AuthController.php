@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Validator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class AuthController extends Controller
 {
@@ -299,6 +300,33 @@ class AuthController extends Controller
                 ? Carbon::parse($user->timer)->timezone('Africa/Cairo')->format('Y-m-d H:i:s')
                 : null,
         ]);
+    }
+
+    /**
+     * Return or create a referral/invitation code for the authenticated user.
+     * GET /api/user/referral-code
+     */
+    public function referralCode(Request $request)
+    {
+        $user = $request->user();
+
+        if (! $user) {
+            return response()->json(['error' => 'User not authenticated.'], 401);
+        }
+
+        if (empty($user->invitation_code)) {
+            // generate a short unique uppercase code
+            do {
+                $code = strtoupper(Str::random(8));
+            } while (User::where('invitation_code', $code)->exists());
+
+            $user->invitation_code = $code;
+            $user->save();
+        } else {
+            $code = $user->invitation_code;
+        }
+
+        return response()->json(['code' => $code]);
     }
 
     /**

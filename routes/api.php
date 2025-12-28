@@ -31,6 +31,9 @@ Route::post('login', [AuthController::class, 'login']);
 Route::post('/trigger-test-order', [SoketiTestController::class, 'triggerTestOrder']);
 Route::post('/trigger-test-response', [SoketiTestController::class, 'triggerTestResponse']);
 
+// Public sliders API (returns active sliders filtered by start/end)
+Route::get('/sliders', [\App\Http\Controllers\Api\SliderController::class, 'index'])->name('api.sliders.index');
+
 Route::get('/orders/{order_id}/eligible-users', [OrderController::class, 'eligibleUsers']);
 
 Route::post('/orders/publish-announcement', [OrderController::class, 'publishAnnouncement']);
@@ -54,6 +57,8 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::post('/user/process-active-orders', [OrderController::class, 'processActiveUserOrders']);
     // Add points from viewing an ad
     Route::post('/addPointsFromAd', [AuthController::class, 'addPointsFromAd']);
+    // Get or create referral/invitation code for authenticated user
+    Route::get('/user/referral-code', [AuthController::class, 'referralCode']);
     // Disconnect Google/Instagram account
     Route::post('/user/disconnect-account', [AuthController::class, 'disconnectAccount']);
     // Reassign email from existing account (authenticated) and create new user
