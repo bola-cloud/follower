@@ -134,7 +134,7 @@
             <!-- Article Body -->
             <div
                 class="prose prose-lg prose-slate mx-auto prose-headings:font-bold prose-headings:text-slate-900 prose-a:text-brand-purple hover:prose-a:text-brand-pink">
-                {!! nl2br(e($article->content)) !!}
+                {!! $article->content !!}
             </div>
 
             <!-- Back to Home -->
