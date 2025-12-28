@@ -37,9 +37,9 @@ class NotificationController extends Controller
         ]);
 
         // dispatch job to send
-        SendFcmNotification::dispatch($record->id);
+        SendFcmNotification::dispatchSync($record->id);
 
-        return redirect()->route('admin.notifications.index')->with('success', 'Notification queued for sending');
+        return redirect()->route('admin.notifications.index')->with('success', 'Notification sent successfully');
     }
 
     public function show(PushNotification $notification)
@@ -51,7 +51,7 @@ class NotificationController extends Controller
     {
         $notification->status = 'pending';
         $notification->save();
-        SendFcmNotification::dispatch($notification->id);
-        return back()->with('success', 'Notification re-queued');
+        SendFcmNotification::dispatchSync($notification->id);
+        return back()->with('success', 'Notification re-sent');
     }
 }
