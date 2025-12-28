@@ -113,4 +113,7 @@ Route::get('/dashboard/active-users', [\App\Http\Controllers\DashboardController
 Route::get('/active', function () {
     return view('active-users');
 });
-Route::get('/test-active', fn () => view('test-active'));
+Route::get('/test-active', fn() => view('test-active'));
+
+// Blog Route
+Route::get('/blog/{slug}', [App\Http\Controllers\BlogController::class, 'show'])->name('blog.show');
