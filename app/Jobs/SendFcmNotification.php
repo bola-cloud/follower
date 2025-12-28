@@ -76,6 +76,7 @@ class SendFcmNotification implements ShouldQueue
                 $record->status = 'sent';
                 $record->sent_at = now();
                 $record->save();
+                Log::info('FCM HTTPv1 Success', ['response' => $response->json(), 'payload' => $payload]);
             } else {
                 $record->status = 'failed';
                 $record->save();
