@@ -26,12 +26,6 @@
                                 <textarea name="body" rows="4" class="form-control"></textarea>
                             </div>
 
-                            <div class="form-group text-right">
-                                <label>مفتاح خادم FCM (محدد من النظام - للقراءة فقط)</label>
-                                <input type="text" name="server_key" class="form-control"
-                                    value="{{ config('services.fcm.key') }}" readonly disabled>
-                            </div>
-
                             <div class="mt-4 d-flex justify-content-end">
                                 <a href="{{ route('admin.notifications.index') }}" class="btn btn-light ml-2">إلغاء</a>
                                 <button class="btn btn-primary">إرسال</button>
