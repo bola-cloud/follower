@@ -496,14 +496,28 @@
 
             <div class="grid md:grid-cols-3 gap-8 max-w-6xl mx-auto">
                 @forelse($__articles as $article)
-                    @php
+                        @php
                         if (is_object($article)) $article = (array) $article;
                         $title = $article['title'] ?? ($article['name'] ?? 'Untitled');
                         $slug = $article['slug'] ?? null;
                         $link = $article['link'] ?? ($slug ? url('/blog/'.$slug) : ($article['url'] ?? '#'));
-                        $image = $article['image'] ?? $article['image_url'] ?? $article['featured_image'] ?? 'https://placehold.co/600x400/8b5cf6/ffffff?text=Article';
-                        $excerpt = $article['excerpt'] ?? $article['summary'] ?? ($article['body'] ?? '');
+
+                        // Resolve image: prefer stored image field; if it's a local storage path, convert to public URL
+                        $rawImage = $article['image'] ?? $article['image_url'] ?? $article['featured_image'] ?? null;
+                        if ($rawImage) {
+                            if (preg_match('/^https?:\/\//', $rawImage)) {
+                                $image = $rawImage;
+                            } else {
+                                $image = asset('storage/' . ltrim($rawImage, '/'));
+                            }
+                        } else {
+                            $image = 'https://placehold.co/600x400/8b5cf6/ffffff?text=Article';
+                        }
+
+                        // Excerpt: support 'content' field used by Article model
+                        $excerpt = $article['excerpt'] ?? $article['summary'] ?? ($article['content'] ?? ($article['body'] ?? ''));
                         $excerpt = \Illuminate\Support\Str::limit(strip_tags($excerpt), 140);
+
                         $date = isset($article['published_at']) ? \Illuminate\Support\Carbon::parse($article['published_at'])->format('M d, Y') : (isset($article['created_at']) ? \Illuminate\Support\Carbon::parse($article['created_at'])->format('M d, Y') : null);
                     @endphp
 
