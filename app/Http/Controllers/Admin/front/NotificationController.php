@@ -26,12 +26,7 @@ class NotificationController extends Controller
         $request->validate([
             'title' => 'required|string|max:255',
             'body' => 'nullable|string',
-            'server_key' => 'nullable|string',
         ]);
-
-        if ($request->filled('server_key')) {
-            DB::table('settings')->updateOrInsert(['key' => 'fcm_server_key'], ['value' => $request->input('server_key')]);
-        }
 
         $record = PushNotification::create([
             'admin_user_id' => auth()->id(),

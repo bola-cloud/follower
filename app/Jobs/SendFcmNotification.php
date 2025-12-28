@@ -26,10 +26,11 @@ class SendFcmNotification implements ShouldQueue
     public function handle()
     {
         $record = PushNotification::find($this->notificationId);
-        if (!$record) return;
+        if (!$record)
+            return;
 
-        // Read server key from settings table
-        $serverKey = function_exists('setting') ? setting('fcm_server_key') : null;
+        // Read server key from config
+        $serverKey = config('services.fcm.key');
         if (!$serverKey) {
             $record->status = 'failed';
             $record->save();
@@ -48,7 +49,7 @@ class SendFcmNotification implements ShouldQueue
 
         try {
             $res = Http::withHeaders([
-                'Authorization' => 'key='.$serverKey,
+                'Authorization' => 'key=' . $serverKey,
                 'Content-Type' => 'application/json',
             ])->post('https://fcm.googleapis.com/fcm/send', $payload);
 
