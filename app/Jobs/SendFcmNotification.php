@@ -45,7 +45,7 @@ class SendFcmNotification implements ShouldQueue
             // Generate Access Token
             $scopes = ['https://www.googleapis.com/auth/firebase.messaging'];
             $credentials = new ServiceAccountCredentials($scopes, $credentialsPath);
-            $token = $credentials->fetchAuthToken(Http::class);
+            $token = $credentials->fetchAuthToken();
 
             if (!isset($token['access_token'])) {
                 throw new \Exception("Failed to generate Firebase access token.");
