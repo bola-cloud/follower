@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ $article->title }} - ReactX</title>
+    <title>{{ $article->title }} - Egfollow</title>
     <meta name="description" content="{{ Str::limit(strip_tags($article->content), 160) }}">
 
     <!-- Open Graph / Facebook -->
@@ -77,7 +77,7 @@
                         </svg>
                     </span>
                     <span
-                        class="bg-clip-text text-transparent bg-gradient-to-r from-brand-purple to-brand-pink app-name">ReactX</span>
+                        class="bg-clip-text text-transparent bg-gradient-to-r from-brand-purple to-brand-pink app-name">Egfollow</span>
                 </a>
 
                 <!-- Nav -->
