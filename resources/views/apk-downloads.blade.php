@@ -1,22 +1,25 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Download - ReactX App</title>
+    <title>Download - Egfollow App</title>
     <script src="https://cdn.tailwindcss.com"></script>
 </head>
+
 <body class="bg-gradient-to-br from-slate-900 via-purple-900 to-slate-900 min-h-screen">
     <!-- Header -->
     <nav class="bg-white/10 backdrop-blur-md border-b border-white/10 sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex items-center justify-between">
             <div class="flex items-center gap-2">
-                <div class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
+                <div
+                    class="w-10 h-10 rounded-lg bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center">
                     <svg class="w-6 h-6 text-white" fill="currentColor" viewBox="0 0 24 24">
-                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/>
+                        <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
                     </svg>
                 </div>
-                <span class="text-2xl font-bold text-white">ReactX App</span>
+                <span class="text-2xl font-bold text-white">Egfollow App</span>
             </div>
             <div class="text-white/70 text-sm">Download v<span id="latest-version">1.0</span></div>
         </div>
@@ -26,7 +29,7 @@
     <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <!-- Hero Section -->
         <div class="text-center mb-16">
-            <h1 class="text-5xl sm:text-6xl font-bold text-white mb-6">Download ReactX App</h1>
+            <h1 class="text-5xl sm:text-6xl font-bold text-white mb-6">Download Egfollow App</h1>
             <p class="text-xl text-white/70 mb-8">Get the latest version of our mobile application</p>
             <div id="stats-container" class="grid grid-cols-3 gap-6 mb-12 max-w-md mx-auto">
                 <div class="bg-white/10 backdrop-blur-md rounded-xl p-4 border border-white/10">
@@ -49,8 +52,11 @@
             <div class="col-span-full text-center py-12">
                 <div class="inline-block">
                     <svg class="w-12 h-12 text-white/40 animate-spin" fill="none" viewBox="0 0 24 24">
-                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4">
+                        </circle>
+                        <path class="opacity-75" fill="currentColor"
+                            d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z">
+                        </path>
                     </svg>
                 </div>
                 <p class="text-white/60 mt-4">Loading APKs...</p>
@@ -59,21 +65,33 @@
 
         <!-- Info Section -->
         <div class="bg-white/5 backdrop-blur-md rounded-2xl border border-white/10 p-8 mb-12">
-            <h2 class="text-2xl font-bold text-white mb-6">About ReactX</h2>
+            <h2 class="text-2xl font-bold text-white mb-6">About Egfollow</h2>
             <div class="grid grid-cols-1 md:grid-cols-2 gap-8">
                 <div>
                     <h3 class="text-lg font-semibold text-purple-400 mb-3">Features</h3>
                     <ul class="space-y-2 text-white/70">
                         <li class="flex items-center gap-2">
-                            <svg class="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                            <svg class="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd" />
+                            </svg>
                             Fast and responsive
                         </li>
                         <li class="flex items-center gap-2">
-                            <svg class="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                            <svg class="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd" />
+                            </svg>
                             Modern design
                         </li>
                         <li class="flex items-center gap-2">
-                            <svg class="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/></svg>
+                            <svg class="w-5 h-5 text-green-400" fill="currentColor" viewBox="0 0 20 20">
+                                <path fill-rule="evenodd"
+                                    d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                                    clip-rule="evenodd" />
+                            </svg>
                             Secure
                         </li>
                     </ul>
@@ -93,12 +111,12 @@
     <!-- Footer -->
     <footer class="border-t border-white/10 bg-white/5 backdrop-blur-md py-8">
         <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 text-center text-white/60 text-sm">
-            <p>&copy; 2025 ReactX. All rights reserved.</p>
+            <p>&copy; 2025 Egfollow. All rights reserved.</p>
         </div>
     </footer>
 
     <script>
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', function () {
             loadApks();
         });
 
@@ -122,7 +140,7 @@
             const totalDownloads = apks.reduce((sum, apk) => sum + apk.download_count, 0);
             document.getElementById('stat-downloads').textContent = totalDownloads.toLocaleString();
             document.getElementById('stat-versions').textContent = apks.length;
-            document.getElementById('stat-users').textContent = (totalDownloads * 0.85).toLocaleString(undefined, {maximumFractionDigits: 0});
+            document.getElementById('stat-users').textContent = (totalDownloads * 0.85).toLocaleString(undefined, { maximumFractionDigits: 0 });
 
             if (liveApks.length === 0) {
                 grid.innerHTML = '<div class="col-span-full text-center py-12 text-white/60">No APK versions available for download.</div>';
@@ -179,4 +197,5 @@
         }
     </script>
 </body>
+
 </html>
