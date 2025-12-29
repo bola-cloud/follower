@@ -95,7 +95,7 @@ class ApkController extends Controller
      */
     public function downloadLatest()
     {
-        $apk = Apk::where('is_active', true)->orderBy('created_at', 'desc')->first();
+        $apk = Apk::where('status', 'live')->orderBy('created_at', 'desc')->first();
 
         if (!$apk) {
             // Fallback to any APK if no active one found, or 404
