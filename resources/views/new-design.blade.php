@@ -4,16 +4,15 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EG Follow</title>
-    <meta name="description"
-        content="Get instant Instagram reacts and followers with Egfollow. Safe, secure, and free exchange platform for social media growth.">
+    <title>Download Official EGFollow APK | Free Instagram Followers</title>
+    <meta name="description" content="EGFollow is an application to increase your Instagram followers for free.">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://egfollow.app/">
     <meta property="og:title" content="Egfollow - Boost Your Instagram Reacts & Followers">
     <meta property="og:description"
-        content="Get instant Instagram reacts and followers with Egfollow. Safe, secure, and free exchange platform for social media growth.">
+        content="Download Official EGFollow APK for Android (Latest Version).">
     <meta property="og:image" content="https://placehold.co/1200x630/8b5cf6/white?text=Egfollow+Preview">
 
     <!-- Tailwind CSS -->

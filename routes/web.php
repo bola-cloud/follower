@@ -100,6 +100,7 @@ Route::get('/front/api/settings', [SettingsController::class, 'getPublic'])->nam
 // Public settings endpoint
 // Public APK endpoints
 Route::get('/api/apks', [ApkController::class, 'getAllApks'])->name('apk.list');
+Route::get('/download-latest', [ApkController::class, 'downloadLatest'])->name('apk.download.latest'); // Direct download link
 Route::get('/apk/download/{id}', [ApkController::class, 'download'])->name('apk.download');
 // (moved sliders API to routes/api.php)
 Route::get('/apk-downloads', function () {

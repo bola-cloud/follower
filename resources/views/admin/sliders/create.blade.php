@@ -29,8 +29,9 @@
 
                             <!-- Title & Order Row -->
                             <div class="form-row">
-                                <div class="form-group col-md-8 text-right">
-                                    <label for="title" class="font-weight-bold text-dark">العنوان <span
+                                <div class="form-group col-md-8 text-right" style="text-align: right;">
+                                    <label for="title" class="font-weight-bold text-dark"
+                                        style="display: block; text-align: right;">العنوان <span
                                             class="text-danger">*</span></label>
                                     <div class="input-group">
                                         <div class="input-group-prepend">
@@ -41,8 +42,9 @@
                                             placeholder="أدخل عنوان الشريحة" value="{{ old('title') }}" required>
                                     </div>
                                 </div>
-                                <div class="form-group col-md-4 text-right">
-                                    <label for="order" class="font-weight-bold text-dark">الترتيب</label>
+                                <div class="form-group col-md-4 text-right" style="text-align: right;">
+                                    <label for="order" class="font-weight-bold text-dark"
+                                        style="display: block; text-align: right;">الترتيب</label>
                                     <div class="input-group">
                                         <div class="input-group-prepend">
                                             <span class="input-group-text bg-light border-right-0"><i
@@ -55,8 +57,9 @@
                             </div>
 
                             <!-- Description -->
-                            <div class="form-group text-right">
-                                <label for="description" class="font-weight-bold text-dark">الوصف</label>
+                            <div class="form-group text-right" style="text-align: right;">
+                                <label for="description" class="font-weight-bold text-dark"
+                                    style="display: block; text-align: right;">الوصف</label>
                                 <div class="input-group">
                                     <div class="input-group-prepend">
                                         <span class="input-group-text bg-light border-right-0"><i
@@ -70,8 +73,9 @@
 
                             <!-- Dates Row -->
                             <div class="form-row bg-light p-3 rounded mb-3 border">
-                                <div class="form-group col-md-6 text-right">
-                                    <label for="start_at" class="font-weight-bold">تاريخ البدء</label>
+                                <div class="form-group col-md-6 text-right" style="text-align: right;">
+                                    <label for="start_at" class="font-weight-bold"
+                                        style="display: block; text-align: right;">تاريخ البدء</label>
                                     <div class="input-group">
                                         <div class="input-group-prepend">
                                             <span class="input-group-text border-right-0"><i
@@ -81,8 +85,9 @@
                                             value="{{ old('start_at') }}">
                                     </div>
                                 </div>
-                                <div class="form-group col-md-6 text-right">
-                                    <label for="end_at" class="font-weight-bold">تاريخ الانتهاء</label>
+                                <div class="form-group col-md-6 text-right" style="text-align: right;">
+                                    <label for="end_at" class="font-weight-bold"
+                                        style="display: block; text-align: right;">تاريخ الانتهاء</label>
                                     <div class="input-group">
                                         <div class="input-group-prepend">
                                             <span class="input-group-text border-right-0"><i
@@ -91,14 +96,16 @@
                                         <input id="end_at" type="date" name="end_at" class="form-control border-left-0"
                                             value="{{ old('end_at') }}">
                                     </div>
-                                    <small class="form-text text-muted mt-2"><i class="la la-info-circle"></i> إذا اخترت
+                                    <small class="form-text text-muted mt-2" style="display: block; text-align: right;"><i
+                                            class="la la-info-circle"></i> إذا اخترت
                                         تاريخاً، ستنتهي الشريحة عند بداية اليوم التالي له.</small>
                                 </div>
                             </div>
 
                             <!-- Image Upload (Styled) -->
-                            <div class="form-group text-right">
-                                <label for="image" class="font-weight-bold text-dark">صورة الشريحة <span
+                            <div class="form-group text-right" style="text-align: right;">
+                                <label for="image" class="font-weight-bold text-dark"
+                                    style="display: block; text-align: right;">صورة الشريحة <span
                                         class="text-danger">*</span></label>
                                 <div class="custom-file">
                                     <!-- Using simple styling for file input as custom-file can be tricky without JS -->
@@ -110,12 +117,13 @@
                                             class="form-control-file mt-2"
                                             style="position: absolute; top:0; left:0; width:100%; height:100%; opacity:0; cursor:pointer;">
                                     </div>
-                                    <small class="text-muted">يقبل الصور فقط (JPG, PNG, GIF)</small>
+                                    <small class="text-muted" style="display: block; text-align: right;">يقبل الصور فقط
+                                        (JPG, PNG, GIF)</small>
                                 </div>
                             </div>
 
                             <!-- Active Switch -->
-                            <div class="form-group mt-4 text-right">
+                            <div class="form-group mt-4 text-right" style="text-align: right;">
                                 <div class="custom-control custom-switch custom-switch-lg pl-0">
                                     <input type="checkbox" class="custom-control-input" id="isActive" name="is_active"
                                         value="1" checked>

@@ -16,8 +16,9 @@
                             @csrf
 
                             <!-- Title Field -->
-                            <div class="form-group text-right">
-                                <label for="title" class="font-weight-bold text-dark">عنوان الإشعار <span
+                            <div class="form-group text-right" style="text-align: right;">
+                                <label for="title" class="font-weight-bold text-dark"
+                                    style="display: block; text-align: right;">عنوان الإشعار <span
                                         class="text-danger">*</span></label>
                                 <div class="input-group">
                                     <div class="input-group-prepend">
@@ -30,8 +31,9 @@
                             </div>
 
                             <!-- Body Field -->
-                            <div class="form-group text-right">
-                                <label for="body" class="font-weight-bold text-dark">نص الإشعار</label>
+                            <div class="form-group text-right" style="text-align: right;">
+                                <label for="body" class="font-weight-bold text-dark"
+                                    style="display: block; text-align: right;">نص الإشعار</label>
                                 <div class="input-group">
                                     <div class="input-group-prepend">
                                         <span class="input-group-text bg-light border-right-0"><i
