@@ -62,6 +62,9 @@ class SendFcmNotification implements ShouldQueue
                         'title' => $record->title,
                         'body' => $record->body,
                     ],
+                    'android' => [
+                        'priority' => 'high',
+                    ],
                     'data' => $record->data ?? new \stdClass(),
                 ]
             ];
