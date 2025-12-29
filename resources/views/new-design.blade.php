@@ -4,17 +4,17 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>ReactX - Boost Your Instagram Reacts & Followers</title>
+    <title>EG Follow</title>
     <meta name="description"
-        content="Get instant Instagram reacts and followers with ReactX. Safe, secure, and free exchange platform for social media growth.">
+        content="Get instant Instagram reacts and followers with Egfollow. Safe, secure, and free exchange platform for social media growth.">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://reactx.app/">
-    <meta property="og:title" content="ReactX - Boost Your Instagram Reacts & Followers">
+    <meta property="og:url" content="https://egfollow.app/">
+    <meta property="og:title" content="Egfollow - Boost Your Instagram Reacts & Followers">
     <meta property="og:description"
-        content="Get instant Instagram reacts and followers with ReactX. Safe, secure, and free exchange platform for social media growth.">
-    <meta property="og:image" content="https://placehold.co/1200x630/8b5cf6/white?text=ReactX+Preview">
+        content="Get instant Instagram reacts and followers with Egfollow. Safe, secure, and free exchange platform for social media growth.">
+    <meta property="og:image" content="https://placehold.co/1200x630/8b5cf6/white?text=Egfollow+Preview">
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -98,7 +98,7 @@
                         </svg>
                     </span>
                     <span
-                        class="bg-clip-text text-transparent bg-gradient-to-r from-brand-purple to-brand-pink app-name">ReactX</span>
+                        class="bg-clip-text text-transparent bg-gradient-to-r from-brand-purple to-brand-pink app-name">Egfollow</span>
                 </a>
 
                 <!-- Desktop Nav -->
@@ -250,7 +250,7 @@
                             <!-- App Header -->
                             <div
                                 class="h-24 bg-gradient-to-r from-brand-purple to-brand-pink p-6 pt-10 text-white flex justify-between items-center">
-                                <span class="font-bold">ReactX</span>
+                                <span class="font-bold">Egfollow</span>
                                 <div class="w-8 h-8 bg-white/20 rounded-full"></div>
                             </div>
 
@@ -344,7 +344,7 @@
     <section id="features" class="py-20 bg-white">
         <div class="container mx-auto px-4">
             <div class="text-center mb-16 max-w-2xl mx-auto">
-                <h2 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Why Choose ReactX?</h2>
+                <h2 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Why Choose Egfollow?</h2>
                 <p class="text-slate-600">We provide the safest and fastest way to grow your social media presence with
                     real engagement.</p>
             </div>
@@ -657,7 +657,8 @@
                             @endif
                             <h3
                                 class="text-xl font-bold text-slate-900 mb-3 group-hover:text-brand-purple transition-colors">
-                                {{ $title }}</h3>
+                                {{ $title }}
+                            </h3>
                             <p class="text-slate-600 text-sm line-clamp-2">{{ $excerpt }}</p>
                         </div>
                     </a>
@@ -685,7 +686,8 @@
                 <div class="lg:w-1/2">
                     <h2 class="text-3xl md:text-4xl font-bold text-slate-900 mb-6">Safe, Secure & Transparent</h2>
                     <p class="text-slate-600 text-lg mb-8">
-                        We built ReactX with your privacy in mind. Unlike other services, we never store sensitive data
+                        We built Egfollow with your privacy in mind. Unlike other services, we never store sensitive
+                        data
                         or ask for your private credentials.
                     </p>
 
@@ -776,7 +778,8 @@
                             <div class="text-yellow-400 text-sm">★★★★★</div>
                         </div>
                     </div>
-                    <p class="text-slate-600 italic">"I was skeptical at first, but ReactX really works! My posts get so
+                    <p class="text-slate-600 italic">"I was skeptical at first, but Egfollow really works! My posts get
+                        so
                         much more visibility now thanks to the initial boost."</p>
                 </div>
 
@@ -818,7 +821,7 @@
         <div class="container mx-auto px-4 max-w-3xl">
             <div class="text-center mb-16">
                 <h2 class="text-3xl md:text-4xl font-bold text-slate-900 mb-4">Frequently Asked Questions</h2>
-                <p class="text-slate-600">Everything you need to know about ReactX.</p>
+                <p class="text-slate-600">Everything you need to know about Egfollow.</p>
             </div>
 
             <div class="space-y-4">
@@ -865,7 +868,8 @@
                         </svg>
                     </button>
                     <div class="faq-content hidden bg-slate-50 px-6 py-4 text-slate-600 border-t border-slate-100">
-                        Yes, ReactX is free to download and use. You can earn credits by engaging with others, or choose
+                        Yes, Egfollow is free to download and use. You can earn credits by engaging with others, or
+                        choose
                         to purchase credits for faster growth.
                     </div>
                 </div>
@@ -962,7 +966,7 @@
                                 d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                         </svg>
                     </span>
-                    <span class="app-name">ReactX</span>
+                    <span class="app-name">Egfollow</span>
                 </a>
                 <div class="flex gap-6 text-sm text-slate-400">
                     <a href="#" class="hover:text-white transition-colors">Privacy Policy</a>
@@ -971,7 +975,7 @@
                 </div>
             </div>
             <div class="border-t border-slate-800 pt-8 text-center text-sm text-slate-500">
-                <p>&copy; 2025 <span class="app-name">ReactX</span>. All rights reserved.</p>
+                <p>&copy; 2025 <span class="app-name">Egfollow</span>. All rights reserved.</p>
                 <p class="mt-2 text-xs">Not affiliated with Instagram or Meta Platforms, Inc.</p>
             </div>
         </div>
