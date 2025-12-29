@@ -6,13 +6,62 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Download Official EGFollow APK | Free Instagram Followers</title>
     <meta name="description" content="EGFollow is an application to increase your Instagram followers for free.">
+    <link rel="icon" href="{{ asset('logo.jpeg') }}" type="image/jpeg">
+
+    <link rel="canonical" href="{{ url()->current() }}">
+    <meta name="keywords" content="instagram followers, free instagram likes, boost instagram, egfollow, social media growth, get followers app">
+    <meta name="author" content="Egfollow">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="website">
-    <meta property="og:url" content="https://egfollow.app/">
+    <meta property="og:url" content="{{ url()->current() }}">
     <meta property="og:title" content="Egfollow - Boost Your Instagram Reacts & Followers">
     <meta property="og:description" content="Download Official EGFollow APK for Android (Latest Version).">
-    <meta property="og:image" content="https://placehold.co/1200x630/8b5cf6/white?text=Egfollow+Preview">
+    <meta property="og:image" content="{{ asset('logo.jpeg') }}">
+    <meta property="og:site_name" content="Egfollow">
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="{{ url()->current() }}">
+    <meta name="twitter:title" content="Egfollow - Boost Your Instagram Reacts & Followers">
+    <meta name="twitter:description" content="Download Official EGFollow APK for Android (Latest Version).">
+    <meta name="twitter:image" content="{{ asset('logo.jpeg') }}">
+
+    <!-- Schema.org JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "WebSite",
+      "name": "Egfollow",
+      "url": "{{ url('/') }}",
+      "description": "EGFollow is an application to increase your Instagram followers for free.",
+      "image": "{{ asset('logo.jpeg') }}",
+      "potentialAction": {
+        "@type": "SearchAction",
+        "target": "{{ url('/') }}/search?q={search_term_string}",
+        "query-input": "required name=search_term_string"
+      }
+    }
+    </script>
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "Egfollow",
+      "operatingSystem": "Android",
+      "applicationCategory": "SocialNetworkingApplication",
+      "offers": {
+        "@type": "Offer",
+        "price": "0",
+        "priceCurrency": "USD"
+      },
+      "aggregateRating": {
+        "@type": "AggregateRating",
+        "ratingValue": "4.8",
+        "ratingCount": "50000"
+      }
+    }
+    </script>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>

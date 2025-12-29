@@ -6,16 +6,66 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ $article->title }} - Egfollow</title>
     <meta name="description" content="{{ Str::limit(strip_tags($article->content), 160) }}">
+    <link rel="icon" href="{{ asset('logo.jpeg') }}" type="image/jpeg">
+
+    <link rel="canonical" href="{{ url()->current() }}">
+    <meta name="keywords" content="instagram, growth, followers, likes, guide, tutorial, {{ $article->title }}">
+    <meta name="author" content="Egfollow">
 
     <!-- Open Graph / Facebook -->
     <meta property="og:type" content="article">
     <meta property="og:url" content="{{ url()->current() }}">
     <meta property="og:title" content="{{ $article->title }}">
     <meta property="og:description" content="{{ Str::limit(strip_tags($article->content), 160) }}">
+    <meta property="og:site_name" content="Egfollow">
+    <meta property="article:published_time" content="{{ $article->created_at->toIso8601String() }}">
     @if($article->image)
-        <meta property="og:image"
-            content="{{ preg_match('/^https?:\/\//', $article->image) ? $article->image : asset('storage/' . ltrim($article->image, '/')) }}">
+        <meta property="og:image" content="{{ preg_match('/^https?:\/\//', $article->image) ? $article->image : asset('storage/' . ltrim($article->image, '/')) }}">
+    @else
+        <meta property="og:image" content="{{ asset('logo.jpeg') }}">
     @endif
+
+    <!-- Twitter -->
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:url" content="{{ url()->current() }}">
+    <meta name="twitter:title" content="{{ $article->title }}">
+    <meta name="twitter:description" content="{{ Str::limit(strip_tags($article->content), 160) }}">
+    @if($article->image)
+        <meta name="twitter:image" content="{{ preg_match('/^https?:\/\//', $article->image) ? $article->image : asset('storage/' . ltrim($article->image, '/')) }}">
+    @else
+        <meta name="twitter:image" content="{{ asset('logo.jpeg') }}">
+    @endif
+
+    <!-- Schema.org JSON-LD -->
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "BlogPosting",
+      "headline": "{{ $article->title }}",
+      "image": [
+        @if($article->image)
+        "{{ preg_match('/^https?:\/\//', $article->image) ? $article->image : asset('storage/' . ltrim($article->image, '/')) }}"
+        @else
+        "{{ asset('logo.jpeg') }}"
+        @endif
+       ],
+      "datePublished": "{{ $article->created_at->toIso8601String() }}",
+      "dateModified": "{{ $article->updated_at->toIso8601String() }}",
+      "author": {
+        "@type": "Organization",
+        "name": "Egfollow"
+      },
+      "publisher": {
+        "@type": "Organization",
+        "name": "Egfollow",
+        "logo": {
+          "@type": "ImageObject",
+          "url": "{{ asset('logo.jpeg') }}"
+        }
+      },
+      "description": "{{ Str::limit(strip_tags($article->content), 160) }}"
+    }
+    </script>
 
     <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>

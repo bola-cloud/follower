@@ -64,6 +64,13 @@ class SendFcmNotification implements ShouldQueue
                     ],
                     'android' => [
                         'priority' => 'high',
+                        'notification' => [
+                            'channel_id' => 'high_importance_channel',
+                            'default_sound' => true,
+                            'default_vibrate_timings' => true,
+                            'default_light_settings' => true,
+                            'visibility' => 'PUBLIC',
+                        ],
                     ],
                     'data' => $record->data ?? new \stdClass(),
                 ]
