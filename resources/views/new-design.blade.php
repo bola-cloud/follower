@@ -645,11 +645,11 @@
                             @if($date)
                                 <div class="text-xs text-slate-500 mb-2">{{ $date }}</div>
                             @endif
-                            <h3
-                                class="text-xl font-bold text-slate-900 mb-3 group-hover:text-brand-purple transition-colors">
+                            <h3 class="text-xl font-bold text-slate-900 mb-3 group-hover:text-brand-purple transition-colors"
+                                dir="auto">
                                 {{ $title }}
                             </h3>
-                            <p class="text-slate-600 text-sm line-clamp-2">{{ $excerpt }}</p>
+                            <p class="text-slate-600 text-sm line-clamp-2" dir="auto">{{ $excerpt }}</p>
                         </div>
                     </a>
                 @empty
