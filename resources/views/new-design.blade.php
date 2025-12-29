@@ -718,7 +718,7 @@
                         <div
                             class="absolute inset-0 bg-gradient-to-r from-brand-purple to-brand-pink blur-3xl opacity-20 rounded-full">
                         </div>
-                        <img src="/placeholder.svg?height=400&width=500" alt="Security Illustration"
+                        <img src="{{ asset('logo.jpeg') }}" alt="Security Illustration"
                             class="relative z-10 rounded-3xl shadow-2xl border border-slate-100 bg-white/50 backdrop-blur-sm p-2">
                     </div>
                 </div>
