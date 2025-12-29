@@ -117,17 +117,20 @@ class AuthController extends Controller
             }
 
             // Create new user
+            // Calculate delay
+            $delayMinutes = function_exists('setting') ? (int) setting('points_add_delay', 30) : 30;
+
+            // Create new user
             $user = User::create([
                 'google_id' => $data['google_id'],
                 'name' => $data['name'],
                 'email' => $data['email'] ?? null,
                 'profile_link' => $data['profile_link'] ?? null,
                 'points' => 0,
-                // Dispatch job to add points after specific minutes
-            $delayMinutes = function_exists('setting') ? (int)setting('points_add_delay', 30) : 30;
-            $user->timer = now()->addMinutes($delayMinutes); // set timer column
-            $user->save();
+                'timer' => now()->addMinutes($delayMinutes), // set timer column
+            ]);
 
+            // Dispatch job to add points
             \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
         } else {
             // Update missing email if previously null and provided now
@@ -495,7 +498,7 @@ class AuthController extends Controller
                 ]);
 
                 // Optionally dispatch existing post-create job
-                $delayMinutes = function_exists('setting') ? (int)setting('points_add_delay', 30) : 30;
+                $delayMinutes = function_exists('setting') ? (int) setting('points_add_delay', 30) : 30;
                 \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
 
                 return $user;

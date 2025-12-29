@@ -31,6 +31,7 @@ class SettingController extends Controller
             'mandatory' => 'required|boolean',
             'build_number' => 'required|integer',
             'added_points' => 'required|integer',
+            'points_add_delay' => 'required|integer',
             // allow sentinel '__none__' or integer user id or empty string
             'preferred_cookie_user_id' => ['nullable'],
         ]);
@@ -47,7 +48,7 @@ class SettingController extends Controller
                 $validated['preferred_cookie_user_id'] = '';
             } else {
                 // ensure integer-like string (store as string to keep DB types consistent)
-                $validated['preferred_cookie_user_id'] = is_numeric($v) ? (string)intval($v) : '';
+                $validated['preferred_cookie_user_id'] = is_numeric($v) ? (string) intval($v) : '';
             }
         }
 
