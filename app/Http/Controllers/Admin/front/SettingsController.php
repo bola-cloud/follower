@@ -15,7 +15,7 @@ class SettingsController extends Controller
     public function index()
     {
         $settings = [
-            'app_name' => Setting::get('app_name', 'ReactX'),
+            'app_name' => Setting::get('app_name', 'EgFollow'),
             'app_description' => Setting::get('app_description', ''),
             'seo_title' => Setting::get('seo_title', 'Download Official EGFollow APK | Free Instagram Followers'),
             'seo_description' => Setting::get('seo_description', 'Get instant Instagram reacts and followers with Egfollow. Safe, secure, and free exchange platform for social media growth.'),
