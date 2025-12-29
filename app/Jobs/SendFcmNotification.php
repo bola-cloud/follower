@@ -57,7 +57,7 @@ class SendFcmNotification implements ShouldQueue
             // HTTP v1 Payload
             $payload = [
                 'message' => [
-                    'topic' => 'all-users', // Ensure logic matches topic vs token
+                    'topic' => 'all_users', // Ensure logic matches topic vs token
                     'notification' => [
                         'title' => $record->title,
                         'body' => $record->body,
