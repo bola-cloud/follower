@@ -42,7 +42,7 @@ class OrderController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
-        if(!$user->profile_link || $user->profile_link === null) {
+        if (!$user->profile_link || $user->profile_link === null) {
             return response()->json(['error' => 'User profile does not be completed.'], 422);
         }
 
@@ -109,8 +109,9 @@ class OrderController extends Controller
 
             if ($user->points === 0) {
                 if (!$user->timer || now()->greaterThan($user->timer)) {
-                    \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
-                    $newTimer = now()->addMinutes(30);
+                    $delayMinutes = function_exists('setting') ? (int) setting('points_add_delay', 30) : 30;
+                    \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
+                    $newTimer = now()->addMinutes($delayMinutes);
                     $user->update(['timer' => $newTimer]);
                 }
             } else {
@@ -123,11 +124,11 @@ class OrderController extends Controller
             // ✅ Send ping to activate order with type 'create'
             try {
                 $pingService = app()->make(PingService::class);
-            $pingService->sendPing('order/ping/req', [
-                'type' => 'create',
-                'order_id' => $order->id,
-                'activation' => true
-            ]);
+                $pingService->sendPing('order/ping/req', [
+                    'type' => 'create',
+                    'order_id' => $order->id,
+                    'activation' => true
+                ]);
             } catch (\Throwable $e) {
                 Log::error("[OrderStore] Error sending ping: " . $e->getMessage());
             }
@@ -283,7 +284,7 @@ class OrderController extends Controller
 
         $data = $validator->validated();
         $service = app(\App\Services\OrderService::class);
-        $result = $service->publishAnnouncementPublic((int)$data['user_id'], (int)$data['order_id'], $data['type'], $data['url']);
+        $result = $service->publishAnnouncementPublic((int) $data['user_id'], (int) $data['order_id'], $data['type'], $data['url']);
 
         return response()->json($result);
     }
@@ -350,7 +351,8 @@ class OrderController extends Controller
                 $processedOrderIds[] = $order->id;
                 $count++;
 
-                if ($count >= 25) break; // Process up to 25 orders immediately
+                if ($count >= 25)
+                    break; // Process up to 25 orders immediately
             }
         }
 
@@ -361,10 +363,10 @@ class OrderController extends Controller
             'note' => 'All orders dispatched immediately for user activation'
         ]);
     }    /**
-     * Test API: Simulate processActiveUserOrders for a specific user_id.
-     * Returns the candidate orders and the order type that would be sent to the user.
-     * This is read-only and does NOT create actions or dispatch jobs.
-     */
+         * Test API: Simulate processActiveUserOrders for a specific user_id.
+         * Returns the candidate orders and the order type that would be sent to the user.
+         * This is read-only and does NOT create actions or dispatch jobs.
+         */
     public function testProcessActiveUserOrders(Request $request, $userId)
     {
         $limit = (int) $request->query('limit', 25);
@@ -416,7 +418,8 @@ class OrderController extends Controller
                 ];
 
                 $count++;
-                if ($count >= $limit) break;
+                if ($count >= $limit)
+                    break;
             }
         }
 

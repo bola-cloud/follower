@@ -123,11 +123,12 @@ class AuthController extends Controller
                 'email' => $data['email'] ?? null,
                 'profile_link' => $data['profile_link'] ?? null,
                 'points' => 0,
-                'timer' => now()->addMinutes(30), // set timer column
-            ]);
+                // Dispatch job to add points after specific minutes
+            $delayMinutes = function_exists('setting') ? (int)setting('points_add_delay', 30) : 30;
+            $user->timer = now()->addMinutes($delayMinutes); // set timer column
+            $user->save();
 
-            // Dispatch job to add points after 30 minutes
-            \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
+            \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
         } else {
             // Update missing email if previously null and provided now
             if (empty($user->email) && !empty($data['email'])) {
@@ -205,7 +206,7 @@ class AuthController extends Controller
     public function updateProfileLinkV2(Request $request)
     {
         $user = $request->user();
-        if (! $user) {
+        if (!$user) {
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
@@ -294,11 +295,20 @@ class AuthController extends Controller
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
+        $timerSeconds = 0;
+        if ($user->timer) {
+            $timerDate = Carbon::parse($user->timer);
+            if ($timerDate->isFuture()) {
+                $timerSeconds = now()->diffInSeconds($timerDate);
+            }
+        }
+
         return response()->json([
             'points' => $user->points,
             'timer' => $user->timer
                 ? Carbon::parse($user->timer)->timezone('Africa/Cairo')->format('Y-m-d H:i:s')
                 : null,
+            'timer_remaining_seconds' => $timerSeconds,
         ]);
     }
 
@@ -310,7 +320,7 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        if (! $user) {
+        if (!$user) {
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
@@ -338,7 +348,7 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        if (! $user) {
+        if (!$user) {
             return response()->json(['error' => 'User not authenticated.'], 401);
         }
 
@@ -420,13 +430,13 @@ class AuthController extends Controller
      * ensure this behavior is acceptable (this endpoint is destructive for the
      * previous account's email field). Wraps actions in a DB transaction.
      *
-    * Expected payload: { name, password, profile_link, phone? }
+     * Expected payload: { name, password, profile_link, phone? }
      */
     public function reassignEmailAndCreate(Request $request)
     {
         // Require authenticated user (old account)
         $authUser = $request->user();
-        if (! $authUser) {
+        if (!$authUser) {
             return response()->json(['message' => 'User not authenticated', 'status' => false], 401);
         }
 
@@ -485,7 +495,8 @@ class AuthController extends Controller
                 ]);
 
                 // Optionally dispatch existing post-create job
-                \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes(30));
+                $delayMinutes = function_exists('setting') ? (int)setting('points_add_delay', 30) : 30;
+                \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
 
                 return $user;
             });
@@ -507,7 +518,7 @@ class AuthController extends Controller
     {
         $user = $request->user();
 
-        if (! $user) {
+        if (!$user) {
             return response()->json([
                 'message' => 'User not authenticated',
                 'status' => false,
