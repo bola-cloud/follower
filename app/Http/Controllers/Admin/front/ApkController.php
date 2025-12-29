@@ -34,7 +34,7 @@ class ApkController extends Controller
         }
 
         // Check the uploaded file is present and valid. If PHP limits are exceeded, the file may be missing.
-        if (! $request->hasFile('apk_file') || ! $request->file('apk_file')->isValid()) {
+        if (!$request->hasFile('apk_file') || !$request->file('apk_file')->isValid()) {
             $msg = 'APK file is missing or invalid. Check PHP `upload_max_filesize` and `post_max_size` settings.';
             if ($request->wantsJson() || $request->ajax()) {
                 return response()->json(['message' => $msg], 422);
@@ -54,7 +54,7 @@ class ApkController extends Controller
             'application/x-zip-compressed'
         ];
 
-        if ($ext !== 'apk' && ! in_array($mime, $allowedMimes, true)) {
+        if ($ext !== 'apk' && !in_array($mime, $allowedMimes, true)) {
             $msg = 'The apk file must be a valid APK file.';
             if ($request->wantsJson() || $request->ajax()) {
                 return response()->json(['message' => $msg, 'detected_ext' => $ext, 'detected_mime' => $mime], 422);
@@ -115,8 +115,12 @@ class ApkController extends Controller
             abort(404, 'File not found');
         }
 
-        // Return file for download
-        return response()->download($filePath, $apk->file_name);
+        // Return file for download with explicit headers to prevent .zip renaming
+        $headers = [
+            'Content-Type' => 'application/vnd.android.package-archive',
+        ];
+
+        return response()->download($filePath, $apk->file_name, $headers);
 
         // $apk = Apk::findOrFail($id);
 
