@@ -68,14 +68,7 @@
             <div class="flex justify-between items-center">
                 <!-- Logo -->
                 <a href="{{ url('/') }}" class="text-2xl font-bold tracking-tight flex items-center gap-2">
-                    <span
-                        class="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-purple to-brand-pink flex items-center justify-center text-white logo-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
-                            stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                        </svg>
-                    </span>
+                    <img src="{{ asset('logo.jpeg') }}" class="w-8 h-8 rounded-lg object-contain" alt="Egfollow Logo">
                     <span
                         class="bg-clip-text text-transparent bg-gradient-to-r from-brand-purple to-brand-pink app-name">Egfollow</span>
                 </a>
@@ -109,7 +102,7 @@
                     class="inline-block px-4 py-1.5 rounded-full bg-brand-purple/10 text-brand-purple font-medium text-sm mb-6">
                     Blog Post
                 </div>
-                <h1 class="text-4xl md:text-5xl font-bold text-slate-900 mb-6 leading-tight">
+                <h1 class="text-4xl md:text-5xl font-bold text-slate-900 mb-6 leading-tight" dir="auto">
                     {{ $article->title }}
                 </h1>
                 <div class="flex items-center justify-center gap-4 text-slate-500 text-sm">
@@ -132,8 +125,8 @@
             @endif
 
             <!-- Article Body -->
-            <div
-                class="prose prose-lg prose-slate mx-auto prose-headings:font-bold prose-headings:text-slate-900 prose-a:text-brand-purple hover:prose-a:text-brand-pink">
+            <div class="prose prose-lg prose-slate mx-auto prose-headings:font-bold prose-headings:text-slate-900 prose-a:text-brand-purple hover:prose-a:text-brand-pink"
+                dir="auto">
                 {!! $article->content !!}
             </div>
 
@@ -155,7 +148,7 @@
     <footer class="bg-slate-900 text-white py-12 border-t border-slate-800">
         <div class="container mx-auto px-4">
             <div class="text-center text-sm text-slate-500">
-                <p>&copy; {{ date('Y') }} <span class="app-name">ReactX</span>. All rights reserved.</p>
+                <p>&copy; {{ date('Y') }} <span class="app-name">Egfollow</span>. All rights reserved.</p>
             </div>
         </div>
     </footer>

@@ -11,8 +11,7 @@
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://egfollow.app/">
     <meta property="og:title" content="Egfollow - Boost Your Instagram Reacts & Followers">
-    <meta property="og:description"
-        content="Download Official EGFollow APK for Android (Latest Version).">
+    <meta property="og:description" content="Download Official EGFollow APK for Android (Latest Version).">
     <meta property="og:image" content="https://placehold.co/1200x630/8b5cf6/white?text=Egfollow+Preview">
 
     <!-- Tailwind CSS -->
@@ -87,15 +86,7 @@
             <div class="flex justify-between items-center">
                 <!-- Logo -->
                 <a href="#" class="text-2xl font-bold tracking-tight flex items-center gap-2">
-                    <img class="app-logo w-8 h-8 rounded-lg object-cover hidden" alt="App Logo">
-                    <span
-                        class="w-8 h-8 rounded-lg bg-gradient-to-tr from-brand-purple to-brand-pink flex items-center justify-center text-white logo-icon">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2.5"
-                            stroke="currentColor" class="w-5 h-5">
-                            <path stroke-linecap="round" stroke-linejoin="round"
-                                d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-                        </svg>
-                    </span>
+                    <img src="{{ asset('logo.jpeg') }}" class="w-8 h-8 rounded-lg object-contain" alt="Egfollow Logo">
                     <span
                         class="bg-clip-text text-transparent bg-gradient-to-r from-brand-purple to-brand-pink app-name">Egfollow</span>
                 </a>

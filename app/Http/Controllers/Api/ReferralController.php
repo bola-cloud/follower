@@ -42,7 +42,8 @@ class ReferralController extends Controller
                     'code_used' => $code,
                 ]);
 
-                $user->increment('points', $pointsToAdd);
+                // Award points to the referrer (code owner) NOT the applicant
+                $referrer->increment('points', $pointsToAdd);
             });
         } catch (\Throwable $e) {
             return response()->json(['error' => 'Failed to apply referral code'], 500);
