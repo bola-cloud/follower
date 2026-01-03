@@ -34,6 +34,7 @@ class User extends Authenticatable
         'timer',
         'cookies',
         'invitation_code',
+        'registration_points_awarded',
     ];
 
     public function orders()
@@ -68,7 +69,8 @@ class User extends Authenticatable
      */
     protected $casts = [
         'email_verified_at' => 'datetime',
-        'timer' => 'datetime', // ✅ This is required!
+        'timer' => 'datetime',
+        'registration_points_awarded' => 'boolean',
         // store cookies as JSON decoded to array when reading
         'cookies' => 'array',
     ];

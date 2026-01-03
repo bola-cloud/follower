@@ -128,6 +128,7 @@ class AuthController extends Controller
                 'profile_link' => $data['profile_link'] ?? null,
                 'points' => 0,
                 'timer' => now()->addMinutes($delayMinutes), // set timer column
+                'registration_points_awarded' => false,
             ]);
 
             // Dispatch job to add points

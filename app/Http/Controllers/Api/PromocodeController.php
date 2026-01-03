@@ -25,17 +25,28 @@ class PromocodeController extends Controller
             return response()->json(['error' => 'Promocode expired.'], 410);
         }
 
-        if ($promocode->used_by) {
+        if ($promocode->max_uses > 0 && $promocode->uses_count >= $promocode->max_uses) {
+            return response()->json(['error' => 'Promocode usage limit reached.'], 410);
+        }
+
+        // Check if user already used this code
+        if ($promocode->users()->where('user_id', $user->id)->exists()) {
+            return response()->json(['error' => 'You have already used this promocode.'], 409);
+        }
+
+        // Backward compatibility: if old system marked it used
+        if ($promocode->used_by && $promocode->max_uses == 1) {
             return response()->json(['error' => 'Promocode already used.'], 409);
         }
 
         // Redeem points
         $user->increment('points', $promocode->points);
 
-        $promocode->update([
-            'activated_at' => now(),
-            'used_by' => $user->id,
-        ]);
+        $promocode->increment('uses_count');
+        $promocode->users()->attach($user->id, ['used_at' => now()]);
+
+        // Keep 'used_by' null for multi-use, or set it if it's the first user? 
+        // Better to rely on pivot. We only update `used_by` if specific legacy behavior needed, but let's ignore it for new codes.
 
         return response()->json([
             'message' => 'Promocode redeemed successfully.',
