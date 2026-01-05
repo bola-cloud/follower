@@ -132,7 +132,7 @@ class AuthController extends Controller
             ]);
 
             // Dispatch job to add points
-            \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
+            \App\Jobs\AddPointsToUser::dispatch($user->id)->onQueue('high')->delay(now()->addMinutes($delayMinutes));
         } else {
             // Update missing email if previously null and provided now
             if (empty($user->email) && !empty($data['email'])) {
@@ -279,7 +279,7 @@ class AuthController extends Controller
                     'cookies' => null,
                 ]);
 
-                \App\Jobs\AddPointsToUser::dispatch($new->id)->delay(now()->addMinutes(30));
+                \App\Jobs\AddPointsToUser::dispatch($new->id)->onQueue('high')->delay(now()->addMinutes(30));
                 return $new;
             });
         } catch (\Throwable $e) {
@@ -500,7 +500,7 @@ class AuthController extends Controller
 
                 // Optionally dispatch existing post-create job
                 $delayMinutes = function_exists('setting') ? (int) setting('points_add_delay', 30) : 30;
-                \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
+                \App\Jobs\AddPointsToUser::dispatch($user->id)->onQueue('high')->delay(now()->addMinutes($delayMinutes));
 
                 return $user;
             });
