@@ -64,7 +64,7 @@ return [
 
         'redis' => [
             'driver' => 'redis',
-            'connection' => env('REDIS_CONNECTION', 'default'), // or 'default'
+            'connection' => env('REDIS_CONNECTION', 'queue'), // Use 'queue' connection (DB 2)
             'queue' => env('REDIS_QUEUE', 'default'),           // 👈 REQUIRED
             'retry_after' => (int) env('QUEUE_RETRY_AFTER', 90),
             'block_for' => null,
