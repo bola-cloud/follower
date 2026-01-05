@@ -46,12 +46,15 @@ class AddPointsToUser implements ShouldQueue
             // 2. Strict Timer Check (Fix "Added directly" issue)
             // If the user has a timer set in the future, we must wait.
             // Even if the queue runs this job now, we push it back.
-            if ($user->timer && now()->lt($user->timer)) {
+            // We use timestamps to be timezone-agnostic (absolute time comparison).
+            if ($user->timer && now()->timestamp < $user->timer->timestamp) {
                 // Calculate seconds remaining
-                $seconds = now()->diffInSeconds($user->timer) + 5; // +5s buffer
+                $seconds = $user->timer->timestamp - now()->timestamp + 5; // +5s buffer
                 \Log::info("AddPointsToUser: Too early, releasing back to queue.", [
                     'user_id' => $user->id,
-                    'wait_seconds' => $seconds
+                    'wait_seconds' => $seconds,
+                    'timer_ts' => $user->timer->timestamp,
+                    'now_ts' => now()->timestamp
                 ]);
 
                 // Release the job back to the queue to run after $seconds
