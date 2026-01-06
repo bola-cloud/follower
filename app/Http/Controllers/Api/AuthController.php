@@ -117,8 +117,8 @@ class AuthController extends Controller
             }
 
             // Create new user
-            // Calculate delay
-            $delayMinutes = function_exists('setting') ? (int) setting('points_add_delay', 30) : 30;
+            // Calculate default points
+            $defaultPoints = function_exists('setting') ? (int) setting('registration_points', 50) : 50;
 
             // Create new user
             $user = User::create([
@@ -126,13 +126,13 @@ class AuthController extends Controller
                 'name' => $data['name'],
                 'email' => $data['email'] ?? null,
                 'profile_link' => $data['profile_link'] ?? null,
-                'points' => 0,
-                'timer' => now()->addMinutes($delayMinutes), // set timer column
-                'registration_points_awarded' => false,
+                'points' => $defaultPoints, // ✅ Add points immediately
+                'timer' => null, // No timer needed for immediate points
+                'registration_points_awarded' => true, // Mark as awarded
             ]);
 
-            // Dispatch job to add points
-            \App\Jobs\AddPointsToUser::dispatch($user->id)->onQueue('high')->delay(now()->addMinutes($delayMinutes));
+            // Dispatch job to add points - REMOVED for immediate addition
+            // \App\Jobs\AddPointsToUser::dispatch($user->id)->onQueue('high')->delay(now()->addMinutes($delayMinutes));
         } else {
             // Update missing email if previously null and provided now
             if (empty($user->email) && !empty($data['email'])) {

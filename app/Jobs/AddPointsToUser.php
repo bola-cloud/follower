@@ -37,13 +37,14 @@ class AddPointsToUser implements ShouldQueue
                 return;
             }
 
-            // 1. Idempotency Check
-            if ($user->registration_points_awarded) {
-                \Log::info("AddPointsToUser: Points already awarded, skipping.", ['user_id' => $user->id]);
+            // 1. Check if user already has points (Refill logic)
+            // If the user managed to get points from somewhere else while waiting, we abort.
+            if ($user->points > 0) {
+                \Log::info("AddPointsToUser: User already has points ({$user->points}), skipping refill.", ['user_id' => $user->id]);
                 return;
             }
 
-            // 2. Strict Timer Check (Fix "Added directly" issue)
+            // 2. Strict Timer Check
             // If the user has a timer set in the future, we must wait.
             // Even if the queue runs this job now, we push it back.
             // We use timestamps to be timezone-agnostic (absolute time comparison).
@@ -64,6 +65,7 @@ class AddPointsToUser implements ShouldQueue
 
             // 3. Add Points
             try {
+                // Use 'points_add_delay' value or 'added_points' setting? Assuming 'added_points'
                 $addedPoints = setting('added_points', 50);
             } catch (\Throwable $e) {
                 \Log::warning('AddPointsToUser: Failed to fetch setting, using fallback', ['error' => $e->getMessage()]);
@@ -74,11 +76,13 @@ class AddPointsToUser implements ShouldQueue
                 // Lock row to prevent race conditions
                 $user = User::where('id', $user->id)->lockForUpdate()->first();
 
-                if ($user->registration_points_awarded)
-                    return; // Double check inside lock
+                // Double check inside lock
+                if ($user->points > 0)
+                    return;
 
                 $user->increment('points', $addedPoints);
-                $user->registration_points_awarded = true;
+                // We do NOT toggle registration_points_awarded anymore as this is a refill job
+                // $user->registration_points_awarded = true; 
                 $user->save();
             });
 
