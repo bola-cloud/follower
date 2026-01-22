@@ -12,6 +12,8 @@ use Carbon\Carbon;
 
 class ResumeOrderService
 {
+    private $matchingOrderIdsCache = [];
+
     /**
      * Normalize URL for comparison: remove query params, fragments, protocol, www, trailing slashes
      * This ensures URLs like:
@@ -96,12 +98,12 @@ class ResumeOrderService
         // Add a final safety check to prevent exceeding total_count (count done + recent pending only)
         $currentActionCount = DB::table('actions')
             ->where('order_id', $order->id)
-            ->where(function($query) {
+            ->where(function ($query) {
                 $query->where('status', 'done')
-                      ->orWhere(function($subQuery) {
-                          $subQuery->where('status', 'pending')
-                                   ->where('created_at', '>=', now()->subMinutes(15));
-                      });
+                    ->orWhere(function ($subQuery) {
+                        $subQuery->where('status', 'pending')
+                            ->where('created_at', '>=', now()->subMinutes(15));
+                    });
             })
             ->count();
 
@@ -148,18 +150,18 @@ class ResumeOrderService
             // Create action using high-performance batch system
             $result = $this->batchInsertPendingAction($order, [$user->id]);
 
-                if ($result['inserted'] > 0) {
-                    // ✅ NO PUBLISHING HERE: Order announcements will be sent by ProcessPingResponseBatchJob
-                    // after devices respond to ping requests. This prevents duplicate publishing.
-                    Log::info('[ResumeOrderService] Action inserted, batch job will handle announcement', [
-                        'order_id' => $order->id,
-                        'user_id' => $user->id,
-                        'note' => 'Announcement will be sent after ping response processed'
-                    ]);
-                    return ['message' => 'User processed successfully. Announcement will be sent via batch job.'];
-                } else {
-                    return ['message' => 'Action already exists or was handled concurrently.'];
-                }
+            if ($result['inserted'] > 0) {
+                // ✅ NO PUBLISHING HERE: Order announcements will be sent by ProcessPingResponseBatchJob
+                // after devices respond to ping requests. This prevents duplicate publishing.
+                Log::info('[ResumeOrderService] Action inserted, batch job will handle announcement', [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'note' => 'Announcement will be sent after ping response processed'
+                ]);
+                return ['message' => 'User processed successfully. Announcement will be sent via batch job.'];
+            } else {
+                return ['message' => 'Action already exists or was handled concurrently.'];
+            }
 
         } catch (\Illuminate\Database\QueryException $e) {
             // Duplicate entry error code from MySQL is 1062 (SQLSTATE 23000)
@@ -276,11 +278,20 @@ class ResumeOrderService
         $likeBinding = "%/{$targetId}%";
 
         // Step 1: Get matching order IDs using hash (fast, uses index)
-        $matchingOrderIds = DB::table('orders')
-            ->where('target_url_hash', $order->target_url_hash)
-            ->where('id', '!=', $order->id)
-            ->pluck('id')
-            ->toArray();
+        // CHECK CACHE FIRST
+        $hashKey = $order->target_url_hash ?? md5($order->target_url); // Fallback if column null
+        if (isset($this->matchingOrderIdsCache[$hashKey])) {
+            $matchingOrderIds = $this->matchingOrderIdsCache[$hashKey];
+        } else {
+            $matchingOrderIds = DB::table('orders')
+                ->where('target_url_hash', $order->target_url_hash)
+                ->where('id', '!=', $order->id)
+                ->pluck('id')
+                ->toArray();
+
+            // Cache the result
+            $this->matchingOrderIdsCache[$hashKey] = $matchingOrderIds;
+        }
 
         // If no hash matches, fall back to LIKE pattern (slower but catches hash collisions)
         if (empty($matchingOrderIds)) {
@@ -317,7 +328,7 @@ class ResumeOrderService
                     'order_id' => $order->id,
                     'normalized_target' => $normalizedTarget,
                     'users_with_same_link_count' => count($excludedUserIds),
-                    'sample_users' => $sampleActions->map(function($item) {
+                    'sample_users' => $sampleActions->map(function ($item) {
                         return [
                             'user_id' => $item->user_id,
                             'other_order_id' => $item->other_order_id,
@@ -668,9 +679,9 @@ class ResumeOrderService
     {
         Log::info('[ResumeOrderService] publishOrderAnnouncement start', [
             'order_id' => $orderId ?? null,
-            'user_id'  => $userId ?? null,
-            'type'     => $type ?? null,
-            'url'      => $url ?? null
+            'user_id' => $userId ?? null,
+            'type' => $type ?? null,
+            'url' => $url ?? null
         ]);
 
         // Skip paused orders
@@ -703,14 +714,14 @@ class ResumeOrderService
         }
 
         $payloadArray = [
-            'user_id'  => $userId,
-            'url'      => $url,
+            'user_id' => $userId,
+            'url' => $url,
             'order_id' => $orderId,
-            'type'     => $type,
-            'mediaId'  => $mediaId,
-            'userPk'   => $userPkVal,
+            'type' => $type,
+            'mediaId' => $mediaId,
+            'userPk' => $userPkVal,
         ];
-    Log::error('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
+        Log::error('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
 
         // 1) Fast path: enqueue to Redis worker
         $enqueued = false;
@@ -734,11 +745,11 @@ class ResumeOrderService
 
         // 3) Non-blocking background fallback (best effort)
         try {
-            $json       = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
-            $escaped    = escapeshellarg($json);
-            $nodeBin    = env('NODE_BIN', 'node');
+            $json = json_encode($payloadArray, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+            $escaped = escapeshellarg($json);
+            $nodeBin = env('NODE_BIN', 'node');
             $scriptPath = base_path('node_scripts/mqtt_order_publisher.cjs');
-            $bgCommand  = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escaped . " > /dev/null 2>&1 &";
+            $bgCommand = escapeshellcmd($nodeBin) . " " . $scriptPath . " " . $escaped . " > /dev/null 2>&1 &";
             @exec($bgCommand);
             Log::warning('[ResumeOrderService] background publisher launched (fallback)', ['order_id' => $orderId, 'user_id' => $userId]);
         } catch (\Throwable $e) {
@@ -792,7 +803,10 @@ class ResumeOrderService
             $elapsed = microtime(true) - $start;
             if ($elapsed >= $timeoutSec) {
                 // Timeout reached: terminate process
-                try { proc_terminate($process); } catch (\Throwable $e) {}
+                try {
+                    proc_terminate($process);
+                } catch (\Throwable $e) {
+                }
                 $output .= "\n[timeout] process killed after {$timeoutMs}ms";
                 break;
             }
@@ -882,7 +896,7 @@ class ResumeOrderService
     {
         Log::error('[ResumeOrderService] publishToMqtt start', [
             'topic' => $topic ?? null,
-            'data_sample' => is_array($data) ? array_slice($data,0,5) : null
+            'data_sample' => is_array($data) ? array_slice($data, 0, 5) : null
         ]);
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1";
