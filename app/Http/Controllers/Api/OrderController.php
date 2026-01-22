@@ -110,7 +110,7 @@ class OrderController extends Controller
             if ($user->points === 0) {
                 if (!$user->timer || now()->greaterThan($user->timer)) {
                     $delayMinutes = function_exists('setting') ? (int) setting('points_add_delay', 30) : 30;
-                    \App\Jobs\AddPointsToUser::dispatch($user->id)->delay(now()->addMinutes($delayMinutes));
+                    \App\Jobs\AddPointsToUser::dispatch($user->id)->onQueue('high')->delay(now()->addMinutes($delayMinutes));
                     $newTimer = now()->addMinutes($delayMinutes);
                     $user->update(['timer' => $newTimer]);
                 }

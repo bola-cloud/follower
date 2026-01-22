@@ -86,9 +86,9 @@ Route::get('/device-activation-count', function (Request $request) {
         $redis = \Illuminate\Support\Facades\Redis::connection('queue');
         try {
             $redisConfig = config('database.redis.queue');
-            Log::info('[API] redis.queue.config', $redisConfig);
+            // Log::info('[API] redis.queue.config', $redisConfig);
         } catch (\Throwable $e) {
-            Log::warning('[API] failed to read redis.queue.config', ['error' => $e->getMessage()]);
+            // Log::warning('[API] failed to read redis.queue.config', ['error' => $e->getMessage()]);
         }
 
         if ($shouldReset) {
@@ -99,7 +99,7 @@ Route::get('/device-activation-count', function (Request $request) {
         }
 
         $count = $redis->scard('device_activations_set');
-        Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
+        // Log::info('[API] device-activation-count called', ['connection' => 'queue', 'count' => $count]);
         return response()->json(['count' => $count]);
     } catch (\Throwable $e) {
         // Fallback to cache
