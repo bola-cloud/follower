@@ -209,13 +209,13 @@ class OrderController extends Controller
             // ✅ Send ping to activate order with type 'resume'
             try {
                 $pingService = app()->make(PingService::class);
-                Log::debug('[OrderController] Sending resume ping', ['order_id' => $order->id, 'user_id' => $user->id]);
+                // Log::debug('[OrderController] Sending resume ping', ['order_id' => $order->id, 'user_id' => $user->id]);
                 $pingService->sendPing('order/ping/req', [
                     'type' => 'resume',
                     'order_id' => $order->id,
                     'activation' => true
                 ]);
-                Log::debug('[OrderController] Resume ping sent', ['order_id' => $order->id, 'user_id' => $user->id]);
+                // Log::debug('[OrderController] Resume ping sent', ['order_id' => $order->id, 'user_id' => $user->id]);
             } catch (\Throwable $e) {
                 Log::error("[OrderComplete] Error sending ping: " . $e->getMessage());
             }
