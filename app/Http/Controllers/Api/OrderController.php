@@ -88,6 +88,9 @@ class OrderController extends Controller
             // Deduct user points
             $user->decrement('points', $cost);
 
+            // Refresh model to get the updated points from DB (since decrement() doesn't update the instance)
+            $user->refresh();
+
             // Create the order
             $order = Order::create([
                 'type' => $data['type'],
