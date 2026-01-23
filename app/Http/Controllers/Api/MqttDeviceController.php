@@ -90,10 +90,10 @@ class MqttDeviceController extends Controller
         $deviceIds = array_unique(array_map(function($a){ return $a['device_id']; }, $validated['activations']));
 
         try {
-            Log::info('[MqttDeviceController] handleBatch() received batch', ['incoming' => count($validated['activations']), 'unique' => count($deviceIds)]);
+            // Log::info('[MqttDeviceController] handleBatch() received batch', ['incoming' => count($validated['activations']), 'unique' => count($deviceIds)]);
             try {
                 $redisConfig = config('database.redis.queue');
-                Log::info('[MqttDeviceController] redis.queue.config', $redisConfig);
+                // Log::info('[MqttDeviceController] redis.queue.config', $redisConfig);
             } catch (\Throwable $e) {
                 Log::warning('[MqttDeviceController] failed to read redis.queue.config', ['error' => $e->getMessage()]);
             }
@@ -118,7 +118,7 @@ class MqttDeviceController extends Controller
             $count = 0;
             try { $count = $redis->scard($setKey); } catch (\Throwable $__e) { $count = 0; }
 
-            Log::info('[MqttDeviceController] handleBatch() stored batch', ['set' => $setKey, 'incoming' => count($validated['activations']), 'unique_attempted' => count($deviceIds), 'added_new' => $added, 'expire' => $expireResult, 'count' => $count]);
+            // Log::info('[MqttDeviceController] handleBatch() stored batch', ['set' => $setKey, 'incoming' => count($validated['activations']), 'unique_attempted' => count($deviceIds), 'added_new' => $added, 'expire' => $expireResult, 'count' => $count]);
 
             return response()->json(['message' => 'Batch stored', 'count' => $count]);
         } catch (\Throwable $e) {

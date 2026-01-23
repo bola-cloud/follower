@@ -257,22 +257,22 @@ class MqttResponseController extends Controller
         $batchId = $validated['batch_id'] ?? 'order_res_batch_' . time();
         $totalActions = count($actions);
 
-        \Log::info("[MQTT_API_BATCH] Order response batch received", [
-            'batch_id' => $batchId,
-            'total_actions' => $totalActions
-        ]);
+        // \Log::info("[MQTT_API_BATCH] Order response batch received", [
+        //     'batch_id' => $batchId,
+        //     'total_actions' => $totalActions
+        // ]);
 
         // Filter out 'busy' status and group remaining by status
         $groupedByStatus = $this->groupActionsByStatus($actions);
         $skippedCount = $groupedByStatus['skipped'] ?? 0;
         unset($groupedByStatus['skipped']);
 
-        \Log::info("[MQTT_API_BATCH] Actions grouped by status", [
-            'batch_id' => $batchId,
-            'done_count' => count($groupedByStatus['done'] ?? []),
-            'external_count' => count($groupedByStatus['external'] ?? []),
-            'skipped_busy_count' => $skippedCount
-        ]);
+        // \Log::info("[MQTT_API_BATCH] Actions grouped by status", [
+        //     'batch_id' => $batchId,
+        //     'done_count' => count($groupedByStatus['done'] ?? []),
+        //     'external_count' => count($groupedByStatus['external'] ?? []),
+        //     'skipped_busy_count' => $skippedCount
+        // ]);
 
         // For very large batches (>500 actions), split into smaller sub-batches to prevent queue overload
         // This ensures Redis queue doesn't get overwhelmed and jobs are distributed evenly
@@ -291,13 +291,13 @@ class MqttResponseController extends Controller
             if ($totalResponses > $subBatchSize) {
                 $chunks = array_chunk($responses, $subBatchSize);
 
-                \Log::info("[MQTT_API_BATCH] Splitting large status group into sub-batches", [
-                    'batch_id' => $batchId,
-                    'status' => $status,
-                    'total_responses' => $totalResponses,
-                    'sub_batch_count' => count($chunks),
-                    'sub_batch_size' => $subBatchSize
-                ]);
+                // \Log::info("[MQTT_API_BATCH] Splitting large status group into sub-batches", [
+                //     'batch_id' => $batchId,
+                //     'status' => $status,
+                //     'total_responses' => $totalResponses,
+                //     'sub_batch_count' => count($chunks),
+                //     'sub_batch_size' => $subBatchSize
+                // ]);
 
                 foreach ($chunks as $chunkIndex => $chunk) {
                     $jobBatchId = $batchId . '_' . $status . '_' . ($chunkIndex + 1);
@@ -325,12 +325,12 @@ class MqttResponseController extends Controller
                 $jobsDispatched++;
             }
 
-            \Log::info("[MQTT_API_BATCH] Background job(s) dispatched for status group", [
-                'batch_id' => $batchId,
-                'status' => $status,
-                'response_count' => $totalResponses,
-                'jobs_dispatched' => $jobsDispatched
-            ]);
+            // \Log::info("[MQTT_API_BATCH] Background job(s) dispatched for status group", [
+            //     'batch_id' => $batchId,
+            //     'status' => $status,
+            //     'response_count' => $totalResponses,
+            //     'jobs_dispatched' => $jobsDispatched
+            // ]);
         }
 
         $duration = round((microtime(true) - $startTime) * 1000, 2);
