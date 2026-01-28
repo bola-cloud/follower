@@ -712,14 +712,15 @@ class ResumeOrderService
 
             // Inject comment if applicable
             $comment = null;
-            if ($type === 'comment') {
-                $action = DB::table('actions')
+            if ($type === 'comment' && $userId) {
+                // Fetch comment from action data
+                $actionData = DB::table('actions')
                     ->where('order_id', $orderId)
                     ->where('user_id', $userId)
-                    ->select('data')
-                    ->first();
-                if ($action && $action->data) {
-                    $decoded = json_decode($action->data, true);
+                    ->value('data');
+
+                if ($actionData) {
+                    $decoded = json_decode($actionData, true);
                     $comment = $decoded['comment'] ?? null;
                 }
             }

@@ -412,7 +412,9 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                                 'order_id' => $order->id,
                                 'normalized_target' => $normalizedTarget,
                                 'matching_count' => $matchingOrders->count(),
-                                'matching_sample' => $matchingOrders->take(10)->map(function ($r) { return ['id' => $r->id, 'url' => $r->target_url, 'hash' => $r->target_url_hash]; })->toArray()
+                                'matching_sample' => $matchingOrders->take(10)->map(function ($r) {
+                                    return ['id' => $r->id, 'url' => $r->target_url, 'hash' => $r->target_url_hash];
+                                })->toArray()
                             ]);
 
                             $matchingOrderIds = $matchingOrders->pluck('id')->toArray();
@@ -501,14 +503,26 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     'userPk' => $order->userPk ?? null,
                 ];
 
+                // Inject comment if applicable (for 'comment' type)
+                if ($order->type === 'comment') {
+                    // We need to fetch the comment for each specific user later, 
+                    // as the comment is specific to the assigned action. 
+                    // However, here we are building a BASE payload. 
+                    // The actual comment needs to be injected per-user in the loop below.
+                    // So we leave payloadBase as is here, and modify the loop.
+                }
+
                 // Add existing pending users first (respecting per-user and global caps)
                 $assigned = 0;
                 foreach ($pendingUsers as $uid) {
-                    if ($assigned >= $available) break;
-                    if ($totalPublishes + $totalReserved >= $maxTotal) break;
+                    if ($assigned >= $available)
+                        break;
+                    if ($totalPublishes + $totalReserved >= $maxTotal)
+                        break;
                     $uid = (int) $uid;
                     $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                    if ($uc >= $perUserLimit) continue;
+                    if ($uc >= $perUserLimit)
+                        continue;
 
                     // avoid enqueueing the same (order,user) pair twice in one run
                     $pairKey = $order->id . ':' . $uid;
@@ -516,7 +530,22 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                         continue;
                     }
 
-                    $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
+                    $userPayload = $payloadBase;
+                    if ($order->type === 'comment') {
+                        $actionData = DB::table('actions')
+                            ->where('order_id', $order->id)
+                            ->where('user_id', $uid)
+                            ->value('data');
+
+                        if ($actionData) {
+                            $decoded = json_decode($actionData, true);
+                            if (isset($decoded['comment'])) {
+                                $userPayload['comment'] = $decoded['comment'];
+                            }
+                        }
+                    }
+
+                    $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $userPayload];
                     $seenPublish[$pairKey] = true;
                     $userCounts[$uid] = $uc + 1;
                     $assigned++;
@@ -819,11 +848,14 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     // Add existing pending users first (respecting per-user and global caps)
                     $assigned = 0;
                     foreach ($pendingUsers as $uid) {
-                        if ($assigned >= $available) break;
-                        if ($totalPublishes + $totalReserved >= $maxTotal) break;
+                        if ($assigned >= $available)
+                            break;
+                        if ($totalPublishes + $totalReserved >= $maxTotal)
+                            break;
                         $uid = (int) $uid;
                         $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                        if ($uc >= $perUserLimit) continue;
+                        if ($uc >= $perUserLimit)
+                            continue;
 
                         // avoid enqueueing the same (order,user) pair twice in one run
                         $pairKey = $order->id . ':' . $uid;
@@ -831,7 +863,22 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                             continue;
                         }
 
-                        $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $payloadBase];
+                        $userPayload = $payloadBase;
+                        if ($order->type === 'comment') {
+                            $actionData = DB::table('actions')
+                                ->where('order_id', $order->id)
+                                ->where('user_id', $uid)
+                                ->value('data');
+
+                            if ($actionData) {
+                                $decoded = json_decode($actionData, true);
+                                if (isset($decoded['comment'])) {
+                                    $userPayload['comment'] = $decoded['comment'];
+                                }
+                            }
+                        }
+
+                        $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $userPayload];
                         $seenPublish[$pairKey] = true;
                         $userCounts[$uid] = $uc + 1;
                         $assigned++;
@@ -923,28 +970,34 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         // to be completed then loop on other uncompleted orders".
         // All eligibility checks are performed by batchCheckEligibility() which is
         // the single authoritative source - we trust its eligible sets completely.
-    // By default allow claiming new eligible users so orders can be
-    // completed using both existing pending actions and newly-claimed
-    // eligible users. Operators can still disable this behavior by
-    // setting RESUME_CLAIM_NEW=false in the environment if desired.
-    $claimNew = filter_var(env('RESUME_CLAIM_NEW', true), FILTER_VALIDATE_BOOLEAN);
+        // By default allow claiming new eligible users so orders can be
+        // completed using both existing pending actions and newly-claimed
+        // eligible users. Operators can still disable this behavior by
+        // setting RESUME_CLAIM_NEW=false in the environment if desired.
+        $claimNew = filter_var(env('RESUME_CLAIM_NEW', true), FILTER_VALIDATE_BOOLEAN);
         if ($claimNew && !empty($ordersMeta)) {
             foreach ($orders as $order) {
                 $oid = $order->id;
-                if (!isset($ordersMeta[$oid])) continue;
+                if (!isset($ordersMeta[$oid]))
+                    continue;
                 // If nothing to fill, skip
-                if ($ordersMeta[$oid]['remaining'] <= 0) continue;
+                if ($ordersMeta[$oid]['remaining'] <= 0)
+                    continue;
 
                 foreach ($activeUsers as $uid) {
-                    if ($ordersMeta[$oid]['remaining'] <= 0) break;
-                    if ($totalReserved >= $maxTotal) break 2; // global reservation cap
+                    if ($ordersMeta[$oid]['remaining'] <= 0)
+                        break;
+                    if ($totalReserved >= $maxTotal)
+                        break 2; // global reservation cap
 
                     $uid = (int) $uid;
                     $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                    if ($uc >= $perUserLimit) continue;
+                    if ($uc >= $perUserLimit)
+                        continue;
 
                     // Skip if user already has action
-                    if (isset($ordersMeta[$oid]['alreadyActioned'][$uid])) continue;
+                    if (isset($ordersMeta[$oid]['alreadyActioned'][$uid]))
+                        continue;
 
                     // ✅ CRITICAL FIX: Check if user is in the eligible set from batchCheckEligibility
                     // The eligible set already excludes:
@@ -952,7 +1005,8 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     // - Users with done/external on OTHER orders with same target URL
                     // - Users whose profile_link matches the target
                     // This is the authoritative source - if user is not in eligibleSet, skip them
-                    if (!isset($ordersMeta[$oid]['eligibleSet'][$uid])) continue;
+                    if (!isset($ordersMeta[$oid]['eligibleSet'][$uid]))
+                        continue;
 
                     // 🔥 CRITICAL DUPLICATE PREVENTION: Check if this user was already assigned
                     // to ANY order with the same normalized target in THIS RUN.
@@ -967,7 +1021,8 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     }
 
                     // Avoid adding the same uid twice
-                    if (in_array($uid, $ordersMeta[$oid]['toClaim'], true)) continue;
+                    if (in_array($uid, $ordersMeta[$oid]['toClaim'], true))
+                        continue;
 
                     // Reserve a slot for this user on this order
                     $ordersMeta[$oid]['toClaim'][] = $uid;
@@ -988,7 +1043,8 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         foreach ($ordersMeta as $oid => $meta) {
             $order = $meta['order'];
             $toClaim = $meta['toClaim'];
-            if (empty($toClaim)) continue;
+            if (empty($toClaim))
+                continue;
 
             $ordersSummary[$oid]['claim_attempted'] = count($toClaim);
             try {
@@ -1016,46 +1072,63 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
 
             // Determine which of the attempted users now have actions (pending/done/external)
-                $existingUserIds = DB::table('actions')
+            $existingUserIds = DB::table('actions')
                 ->where('order_id', $order->id)
                 ->whereIn('user_id', $toClaim)
                 ->whereIn('status', ['pending', 'done', 'external'])
                 ->pluck('user_id')
                 ->toArray();
 
-                // Post-insert diagnostic for problematic normalized target: dump actions rows for claimed users
-                if (isset($normalizedOrderTarget) && $normalizedOrderTarget === 'instagram.com/reel/drqcdg0ddzs') {
-                    try {
-                        $actionsRows = DB::table('actions')
-                            ->where('order_id', $order->id)
-                            ->whereIn('user_id', $toClaim)
-                            ->select('user_id', 'status', 'created_at', 'updated_at')
-                            ->get();
+            // Post-insert diagnostic for problematic normalized target: dump actions rows for claimed users
+            if (isset($normalizedOrderTarget) && $normalizedOrderTarget === 'instagram.com/reel/drqcdg0ddzs') {
+                try {
+                    $actionsRows = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->whereIn('user_id', $toClaim)
+                        ->select('user_id', 'status', 'created_at', 'updated_at')
+                        ->get();
 
-                        Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: post-insert actions snapshot', [
-                            'order_id' => $order->id,
-                            'normalized_target' => $normalizedOrderTarget,
-                            'actions_count' => $actionsRows->count(),
-                            'actions_sample' => $actionsRows->toArray()
-                        ]);
-                    } catch (\Throwable $e) {
-                        Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: failed to read post-insert actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
-                    }
+                    Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: post-insert actions snapshot', [
+                        'order_id' => $order->id,
+                        'normalized_target' => $normalizedOrderTarget,
+                        'actions_count' => $actionsRows->count(),
+                        'actions_sample' => $actionsRows->toArray()
+                    ]);
+                } catch (\Throwable $e) {
+                    Log::warning('[InsertAndPublishForActiveDashboardUsers] DEBUG: failed to read post-insert actions', ['order_id' => $order->id, 'error' => $e->getMessage()]);
                 }
+            }
 
             // Add claimed ones to the global publish list (respecting per-user and global caps)
             foreach ($existingUserIds as $uid) {
-                if ($totalPublishes >= $maxTotal) break;
+                if ($totalPublishes >= $maxTotal)
+                    break;
                 $uid = (int) $uid;
                 $uc = isset($userCounts[$uid]) ? $userCounts[$uid] : 0;
-                if ($uc >= $perUserLimit) continue;
+                if ($uc >= $perUserLimit)
+                    continue;
                 // avoid enqueueing duplicates if this (order,user) was already added
                 $pairKey = $order->id . ':' . $uid;
                 if (isset($seenPublish[$pairKey])) {
                     continue;
                 }
 
-                $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $meta['payloadBase']];
+                $userPayload = $meta['payloadBase'];
+                if ($order->type === 'comment') {
+                    $actionData = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->where('user_id', $uid)
+                        ->value('data');
+
+                    if ($actionData) {
+                        $decoded = json_decode($actionData, true);
+                        if (isset($decoded['comment'])) {
+                            $userPayload['comment'] = $decoded['comment'];
+                        }
+                    }
+                }
+
+                $publishList[] = ['user_id' => $uid, 'order_id' => $order->id, 'payload' => $userPayload];
                 $seenPublish[$pairKey] = true;
                 $ordersSummary[$oid]['claimed_added']++;
                 $totalPublishes++;
@@ -1069,11 +1142,11 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
         }
 
-    // After collecting everything across orders, ensure totalPublishes matches
-    // the publishList length (this keeps accounting accurate) and push
-    // publishes in up to $maxBatches batches
-    $totalPublishes = count($publishList);
-    Log::info('[InsertAndPublishForActiveDashboardUsers] total publishes collected', ['total' => $totalPublishes]);
+        // After collecting everything across orders, ensure totalPublishes matches
+        // the publishList length (this keeps accounting accurate) and push
+        // publishes in up to $maxBatches batches
+        $totalPublishes = count($publishList);
+        Log::info('[InsertAndPublishForActiveDashboardUsers] total publishes collected', ['total' => $totalPublishes]);
 
         // Final dedupe: ensure we never enqueue the same URL to the same user
         // more than once (canonicalize URL by trimming trailing slash).
@@ -1108,13 +1181,13 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             $batches = array_chunk($publishList, $batchSize);
 
             foreach ($batches as $batchIndex => $batch) {
-                    try {
-                        $queueLen = (int) $redis->llen($queueKey);
-                    } catch (\Throwable $e) {
-                        $queueLen = 0;
-                    }
+                try {
+                    $queueLen = (int) $redis->llen($queueKey);
+                } catch (\Throwable $e) {
+                    $queueLen = 0;
+                }
 
-                    Log::info('[InsertAndPublishForActiveDashboardUsers] preparing to push batch', ['batch' => $batchIndex + 1, 'batch_count' => count($batch), 'queue_len' => $queueLen]);
+                Log::info('[InsertAndPublishForActiveDashboardUsers] preparing to push batch', ['batch' => $batchIndex + 1, 'batch_count' => count($batch), 'queue_len' => $queueLen]);
 
                 if ($queueLen > $highWatermark) {
                     Log::warning('[InsertAndPublishForActiveDashboardUsers] queue is above high watermark before batch push - releasing', ['len' => $queueLen]);
@@ -1180,7 +1253,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             'total_publishes_enqueued' => $publishedEnqueued,
         ]);
 
-    // Emit a compact, easily searchable report line for downstream log parsing
+        // Emit a compact, easily searchable report line for downstream log parsing
         // Use a distinctive flag so operators can grep the logs quickly.
         try {
             $reportFlag = '[ORDERS_RESUME_REPORT]';
