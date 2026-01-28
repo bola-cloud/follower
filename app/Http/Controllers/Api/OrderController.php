@@ -22,12 +22,13 @@ class OrderController extends Controller
     {
         // Validate input
         $validator = Validator::make($request->all(), [
-            'type' => 'required|in:follow,like',
+            'type' => 'required|in:follow,like,comment',
             'total_count' => 'required|integer|min:1',
             'target_url' => 'required',
             'cost' => 'nullable|integer|min:0',
             'mediaId' => 'nullable|string',
             'userPk' => 'nullable|string',
+            'comments' => 'required_if:type,comment|array',
         ]);
 
         if ($validator->fails()) {
@@ -80,6 +81,11 @@ class OrderController extends Controller
                 $cost = 0;
             }
 
+            // check if type is comment, user must be admin
+            if ($data['type'] === 'comment' && $user->type !== 'admin') {
+                return response()->json(['error' => 'Unauthorized action.'], 403);
+            }
+
             // Check if user has enough points before proceeding
             if ($user->points < $cost) {
                 return response()->json(['error' => 'Insufficient points.'], 403);
@@ -98,6 +104,7 @@ class OrderController extends Controller
                 'done_count' => 0,
                 'cost' => $cost,
                 'status' => 'active',
+                'data' => ($data['type'] === 'comment' && !empty($data['comments'])) ? ['comments' => $data['comments']] : null,
                 'target_url' => $targetUrl, // ✅ only the ID (e.g. DLsNPlfu1V6)
                 'target_url_hash' => $targetUrlHash,
                 'user_id' => $user->id,

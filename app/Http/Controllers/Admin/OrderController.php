@@ -33,9 +33,9 @@ class OrderController extends Controller
             $search = $request->input('search');
             $query->where(function ($q) use ($search) {
                 $q->where('target_url', 'like', "%{$search}%")
-                  ->orWhereHas('user', function ($userQ) use ($search) {
-                      $userQ->where('name', 'like', "%{$search}%");
-                  });
+                    ->orWhereHas('user', function ($userQ) use ($search) {
+                        $userQ->where('name', 'like', "%{$search}%");
+                    });
             });
         }
 
@@ -61,10 +61,11 @@ class OrderController extends Controller
     public function store(Request $request)
     {
         $validator = Validator::make($request->all(), [
-            'type' => 'required|in:follow,like',
+            'type' => 'required|in:follow,like,comment',
             'total_count' => 'required|integer|min:1',
             'target_url' => 'required',
             'cost' => 'nullable|integer|min:0',
+            'comments' => 'nullable', // Can be string (textarea) or array
         ]);
 
         if ($validator->fails()) {
@@ -89,7 +90,7 @@ class OrderController extends Controller
             $preferredCookie = function_exists('setting') ? setting('preferred_cookie_user_id', '') : '';
             if ($preferredCookie !== '__none__') {
                 $resolver = app()->make(InstagramLookupService::class);
-                Log::info('[Admin.OrderController] calling InstagramLookupService::resolve', ['target' => $targetUrl, 'type' => $data['type'] ?? 'like'] );
+                Log::info('[Admin.OrderController] calling InstagramLookupService::resolve', ['target' => $targetUrl, 'type' => $data['type'] ?? 'like']);
                 $resolved = $resolver->resolve($targetUrl, $data['type'] ?? 'like', 5);
                 Log::info('[Admin.OrderController] InstagramLookupService::resolve returned', ['resolved' => $resolved]);
                 if ($resolved) {
@@ -136,6 +137,9 @@ class OrderController extends Controller
                 'user_id' => $user->id,
                 'mediaId' => $data['mediaId'] ?? null,
                 'userPk' => $data['userPk'] ?? null,
+                'data' => ($data['type'] === 'comment' && !empty($data['comments']))
+                    ? ['comments' => is_string($data['comments']) ? array_values(array_filter(array_map('trim', explode("\n", $data['comments'])))) : $data['comments']]
+                    : null,
             ]);
 
             if (!$order) {

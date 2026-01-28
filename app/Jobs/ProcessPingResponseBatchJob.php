@@ -158,72 +158,72 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             $totalProcessed = 0;
             $totalPublished = 0;
 
-                foreach ($chunks as $chunkIndex => $chunkUserIds) {
-                    try {
-                        if ($availableSlots <= 0) {
-                            // no slots left
-                            break;
-                        }
-
-                        // Trim chunk to availableSlots as a first guard
-                        $toAttempt = $chunkUserIds;
-                        if (count($toAttempt) > $availableSlots) {
-                            $toAttempt = array_slice($toAttempt, 0, $availableSlots);
-                        }
-
-                        // Insert pending actions (INSERT IGNORE). This is the authoritative step that creates/claims slots.
-                        $inserted = $this->insertPendingActionsChunk($order, $toAttempt);
-                        $totalProcessed += $inserted;
-
-                        // Determine which user_ids actually have actions now (pending/done/external)
-                        $existingUserIds = DB::table('actions')
-                            ->where('order_id', $order->id)
-                            ->whereIn('user_id', $toAttempt)
-                            ->whereIn('status', ['pending', 'done', 'external'])
-                            ->pluck('user_id')
-                            ->toArray();
-
-                        if (empty($existingUserIds)) {
-                            // nothing to publish for this chunk
-                            continue;
-                        }
-
-                        // Publish only for user ids that now have actions
-                        $published = $this->publishOrderAnnouncementsChunk($order, $existingUserIds);
-                        $totalPublished += $published;
-
-                        // Recompute capacity after inserting this chunk to stay accurate under concurrent load
-                        $doneCount = DB::table('actions')
-                            ->where('order_id', $order->id)
-                            ->where('status', 'done')
-                            ->count();
-
-                        $pendingCount = DB::table('actions')
-                            ->where('order_id', $order->id)
-                            ->where('status', 'pending')
-                            ->where('created_at', '>=', now()->subMinutes(15))
-                            ->count();
-
-                        $remaining = $order->total_count - $doneCount;
-                        $availableSlots = max(0, $order->total_count - $doneCount - $pendingCount);
-
-                        // Small delay between chunks to control publish rate
-                        if ($chunkIndex < count($chunks) - 1) {
-                            $delayMs = (int) env('PING_BATCH_CHUNK_DELAY_MS', 50);
-                            if ($delayMs > 0) {
-                                usleep($delayMs * 1000);
-                            }
-                        }
-
-                    } catch (\Throwable $e) {
-                        Log::error('[ProcessPingResponseBatchJob] chunk processing failed', [
-                            'batch_id' => $this->batchId,
-                            'order_id' => $this->orderId,
-                            'chunk_index' => $chunkIndex,
-                            'error' => $e->getMessage()
-                        ]);
+            foreach ($chunks as $chunkIndex => $chunkUserIds) {
+                try {
+                    if ($availableSlots <= 0) {
+                        // no slots left
+                        break;
                     }
+
+                    // Trim chunk to availableSlots as a first guard
+                    $toAttempt = $chunkUserIds;
+                    if (count($toAttempt) > $availableSlots) {
+                        $toAttempt = array_slice($toAttempt, 0, $availableSlots);
+                    }
+
+                    // Insert pending actions (INSERT IGNORE). This is the authoritative step that creates/claims slots.
+                    $inserted = $this->insertPendingActionsChunk($order, $toAttempt);
+                    $totalProcessed += $inserted;
+
+                    // Determine which user_ids actually have actions now (pending/done/external) and get their data
+                    $existingActions = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->whereIn('user_id', $toAttempt)
+                        ->whereIn('status', ['pending', 'done', 'external'])
+                        ->select('user_id', 'data')
+                        ->get();
+
+                    if ($existingActions->isEmpty()) {
+                        // nothing to publish for this chunk
+                        continue;
+                    }
+
+                    // Publish only for user ids that now have actions
+                    $published = $this->publishOrderAnnouncementsChunk($order, $existingActions);
+                    $totalPublished += $published;
+
+                    // Recompute capacity after inserting this chunk to stay accurate under concurrent load
+                    $doneCount = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->where('status', 'done')
+                        ->count();
+
+                    $pendingCount = DB::table('actions')
+                        ->where('order_id', $order->id)
+                        ->where('status', 'pending')
+                        ->where('created_at', '>=', now()->subMinutes(15))
+                        ->count();
+
+                    $remaining = $order->total_count - $doneCount;
+                    $availableSlots = max(0, $order->total_count - $doneCount - $pendingCount);
+
+                    // Small delay between chunks to control publish rate
+                    if ($chunkIndex < count($chunks) - 1) {
+                        $delayMs = (int) env('PING_BATCH_CHUNK_DELAY_MS', 50);
+                        if ($delayMs > 0) {
+                            usleep($delayMs * 1000);
+                        }
+                    }
+
+                } catch (\Throwable $e) {
+                    Log::error('[ProcessPingResponseBatchJob] chunk processing failed', [
+                        'batch_id' => $this->batchId,
+                        'order_id' => $this->orderId,
+                        'chunk_index' => $chunkIndex,
+                        'error' => $e->getMessage()
+                    ]);
                 }
+            }
 
             $duration = round((microtime(true) - $startTime) * 1000, 2);
 
@@ -268,9 +268,11 @@ class ProcessPingResponseBatchJob implements ShouldQueue
             }
 
             // Also treat common DB/Redis exception classes as transient
-            if ($e instanceof \Illuminate\Database\QueryException || $e instanceof \PDOException ||
+            if (
+                $e instanceof \Illuminate\Database\QueryException || $e instanceof \PDOException ||
                 (class_exists('\Illuminate\Redis\Connections\Connection') && $e instanceof \Illuminate\Redis\Connections\Connection) ||
-                (class_exists('\RedisException') && $e instanceof \RedisException)) {
+                (class_exists('\RedisException') && $e instanceof \RedisException)
+            ) {
                 $isTransient = true;
             }
 
@@ -317,21 +319,35 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
         $batchData = [];
         $now = now();
+        $comments = [];
+        if ($order->type === 'comment' && !empty($order->data['comments'])) {
+            $comments = $order->data['comments'];
+        }
+        $commentCount = count($comments);
+        $ci = 0;
 
         foreach ($userIds as $userId) {
-            $batchData[] = [
+            $row = [
                 'order_id' => $order->id,
                 'user_id' => $userId,
                 'type' => $order->type,
                 'status' => 'pending',
                 'created_at' => $now,
                 'updated_at' => $now,
+                'data' => null,
             ];
+
+            if ($commentCount > 0) {
+                $selected = $comments[$ci % $commentCount];
+                $row['data'] = json_encode(['comment' => $selected]);
+                $ci++;
+            }
+            $batchData[] = $row;
         }
 
         try {
             // Use INSERT IGNORE to handle race conditions
-            $placeholders = implode(',', array_fill(0, count($batchData), '(?, ?, ?, ?, ?, ?)'));
+            $placeholders = implode(',', array_fill(0, count($batchData), '(?, ?, ?, ?, ?, ?, ?)'));
             $values = [];
             foreach ($batchData as $row) {
                 $values[] = $row['order_id'];
@@ -340,9 +356,10 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                 $values[] = $row['status'];
                 $values[] = $row['created_at'];
                 $values[] = $row['updated_at'];
+                $values[] = $row['data'];
             }
 
-            $sql = "INSERT IGNORE INTO actions (order_id, user_id, type, status, created_at, updated_at) VALUES {$placeholders}";
+            $sql = "INSERT IGNORE INTO actions (order_id, user_id, type, status, created_at, updated_at, data) VALUES {$placeholders}";
             $affected = DB::affectingStatement($sql, $values);
 
             return $affected;
@@ -380,11 +397,27 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
             // Build all jobs
             $jobs = [];
-            foreach ($userIds as $userId) {
+            foreach ($userIds as $actionRow) {
+                if (is_object($actionRow)) {
+                    $userId = $actionRow->user_id;
+                    $actionData = $actionRow->data ? json_decode($actionRow->data, true) : [];
+                } else {
+                    // Fallback if array of IDs passed (legacy support if needed)
+                    $userId = $actionRow;
+                    $actionData = [];
+                }
+
                 $topic = "orders/{$userId}";
+
+                // Clone payload and inject comment if present
+                $userPayload = $payload;
+                if (!empty($actionData['comment'])) {
+                    $userPayload['comment'] = $actionData['comment'];
+                }
+
                 $jobs[] = json_encode([
                     'topic' => $topic,
-                    'payload' => $payload,
+                    'payload' => $userPayload,
                     'qos' => 0,
                     'retain' => false,
                     'meta' => ['enqueued_at' => time(), 'batch_id' => $this->batchId]

@@ -709,6 +709,20 @@ class ResumeOrderService
                 $mediaId = $o->mediaId ?? null;
                 $userPkVal = $o->userPk ?? null;
             }
+
+            // Inject comment if applicable
+            $comment = null;
+            if ($type === 'comment') {
+                $action = DB::table('actions')
+                    ->where('order_id', $orderId)
+                    ->where('user_id', $userId)
+                    ->select('data')
+                    ->first();
+                if ($action && $action->data) {
+                    $decoded = json_decode($action->data, true);
+                    $comment = $decoded['comment'] ?? null;
+                }
+            }
         } catch (\Throwable $e) {
             // ignore lookup error and continue with nulls
         }
@@ -721,6 +735,10 @@ class ResumeOrderService
             'mediaId' => $mediaId,
             'userPk' => $userPkVal,
         ];
+
+        if ($comment) {
+            $payloadArray['comment'] = $comment;
+        }
         Log::error('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
 
         // 1) Fast path: enqueue to Redis worker

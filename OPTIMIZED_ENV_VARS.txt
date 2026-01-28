@@ -1,0 +1,94 @@
+# --- Core Drivers ---
+CACHE_DRIVER=redis
+FILESYSTEM_DISK=local
+SESSION_DRIVER=database
+SESSION_LIFETIME=120
+
+# --- Redis (authoritative) ---
+# Use DB 2 for publish/queues, DB 1 for cache, DB 0 for default
+REDIS_URL=redis://127.0.0.1:6379/2
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+REDIS_PASSWORD=null
+# Standardize on DB 2 for queues matching your node scripts
+REDIS_DB=2
+REDIS_CACHE_DB=1
+REDIS_QUEUE_DB=2
+REDIS_MQTT_DB=2
+
+# Laravel Redis driver / queue
+REDIS_CLIENT=predis
+QUEUE_CONNECTION=redis
+REDIS_CONNECTION=default
+REDIS_QUEUE=default
+
+# --- MQTT / Publisher queue ---
+MQTT_PUBLISH_MODE=queue
+MQTT_USE_QUEUE=true
+MQTT_PUBLISH_QUEUE=egf_mqtt_publish_queue
+MQTT_QUEUE_KEY=mqtt:publish
+PUBLISH_QUEUE_KEY=mqtt:publish
+MQTT_PUBLISH_QUEUE_KEY=egf:mqtt:publish
+
+# MQTT broker
+MQTT_BROKER=mqtt://109.199.112.65:1883
+MQTT_PUBLISH_TIMEOUT_MS=20000
+MQTT_HTTP_TIMEOUT=20000
+# Keep in-flight lower to prevent node process memory bloat
+MQTT_MAX_INFLIGHT=50
+MQTT_PUBLISH_MAX_INFLIGHT=100
+MQTT_PUBLISH_BATCH=100
+MQTT_PUBLISH_QOS=1
+MQTT_PUBLISH_RETAIN=false
+
+# --- Queue Tuning & Workers ---
+QUEUE_RETRY_AFTER=60
+QUEUE_BLOCK_FOR=5
+# Reduce max jobs per worker restart to clear memory leaks faster
+QUEUE_MAX_JOBS=200
+QUEUE_MAX_TIME=300
+WORKER_MEMORY_LIMIT=128
+QUEUE_MEMORY_LIMIT=128
+ACTION_QUEUE_WORKERS=2
+
+# --- Coordinator / Scheduler ---
+COORDINATOR_QUEUE=publish-coordinator
+COORDINATOR_INTERVAL_HOURS=1
+# Increase wait time to let busy devices respond
+ACTIVATION_WAIT_SECONDS=10
+DEVICE_ACTIVATIONS_KEY=device_activations_set
+
+# --- Batch Limits (OPTIMIZED FOR STABILITY) ---
+# Reduced limits to prevent system "heaviness"
+TOTAL_PUBLISH_LIMIT=1500
+PER_USER_ORDER_LIMIT=30
+MAX_PUBLISH_BATCHES=3
+PUBLISH_QUEUE_SOFT_LIMIT=20000
+PUBLISH_QUEUE_HIGH_WATERMARK=50000
+
+# --- Chunking Strategy ---
+# Smaller chunks = more database queries but MUCH LESS blocking/locking
+PING_BATCH_PROCESS_CHUNK_SIZE=200
+PING_BATCH_CHUNK_DELAY_MS=50
+PUBLISH_PARTIAL_BATCH_MAX=200
+
+# --- Batch Insertion Tuning ---
+# 500 is the sweet spot for MySQL insertion without locking gaps
+BATCH_ACTION_CHUNK_SIZE=500
+BATCH_DB_TX_CHUNK_SIZE=200
+BATCH_INSERT_MAX_ATTEMPTS=5
+BATCH_INSERT_BASE_BACKOFF_MS=200
+BATCH_ACTION_MAX_PER_MIN=5000
+BATCH_ACTION_FAST_MODE=false
+
+# --- Order Resume Batching ---
+ORDER_RES_BATCH_ENABLED=true
+ORDER_RES_BATCH_SIZE=500
+ORDER_RES_BATCH_TIMEOUT=200
+ORDER_RES_BATCH_MAX_SIZE=1000
+DRAIN_BATCH_SIZE=500
+
+# --- Performance Flags ---
+HIGH_PERFORMANCE_ENABLED=true
+LOAD_TEST_ENABLED=false
+RESUME_CLAIM_NEW=true

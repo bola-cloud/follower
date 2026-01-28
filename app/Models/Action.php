@@ -10,7 +10,16 @@ class Action extends Model
     use HasFactory;
 
     protected $fillable = [
-        'order_id', 'user_id', 'type', 'status', 'performed_at'
+        'order_id',
+        'user_id',
+        'type',
+        'status',
+        'performed_at',
+        'data'
+    ];
+
+    protected $casts = [
+        'data' => 'array',
     ];
 
     // Relationship: An action belongs to an order

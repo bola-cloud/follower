@@ -20,6 +20,11 @@ class Order extends Model
         'user_id',
         'mediaId',
         'userPk',
+        'data', // ✅ Added data column
+    ];
+
+    protected $casts = [
+        'data' => 'array',
     ];
 
     public function user()
