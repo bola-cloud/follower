@@ -46,26 +46,18 @@
             <div class="mb-3" id="comments-field" style="display: none;">
                 <label class="form-label">التعليقات</label>
                 <div id="comments-container">
+                    <!-- Fields will be generated dynamically -->
                     @if(old('comments') && is_array(old('comments')))
                         @foreach(old('comments') as $comment)
                             <div class="input-group mb-2 comment-input-group">
-                                <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..."
-                                    value="{{ $comment }}" required>
-                                <button type="button" class="btn btn-danger remove-comment-btn"
-                                    onclick="removeCommentField(this)">حذف</button>
+                                <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..." value="{{ $comment }}" required>
                             </div>
                         @endforeach
-                    @else
-                        <div class="input-group mb-2 comment-input-group">
-                            <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..."
-                                required>
-                        </div>
                     @endif
                 </div>
-                <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="addCommentField()">+ إضافة تعليق
-                    آخر</button>
-                <div class="form-text">إذا كان عدد التعليقات أقل من العدد الإجمالي للطلب، سيتم تدوير التعليقات (Round-Robin)
-                    على المستخدمين.</div>
+                <!-- Manual buttons removed as requested -->
+                
+                <div class="form-text">سيتم تدوير التعليقات (Round-Robin) إذا لم يتم ملء جميع الحقول أو إذا كان العدد كبيرًا جدًا.</div>
                 @error('comments')
                     <div class="text-danger mt-1">{{ $message }}</div>
                 @enderror
@@ -79,39 +71,55 @@
                     var type = document.getElementById('type').value;
                     var commentsField = document.getElementById('comments-field');
                     var inputs = commentsField.querySelectorAll('input');
-
+                    
                     if (type === 'comment') {
                         commentsField.style.display = 'block';
                         inputs.forEach(input => input.disabled = false);
+                        syncCommentFields(); // Sync on toggle
                     } else {
                         commentsField.style.display = 'none';
                         inputs.forEach(input => input.disabled = true);
                     }
                 }
 
-                function addCommentField() {
+                function syncCommentFields() {
+                    var totalCountInput = document.getElementById('total_count');
+                    var count = parseInt(totalCountInput.value) || 0;
                     var container = document.getElementById('comments-container');
-                    var div = document.createElement('div');
-                    div.className = 'input-group mb-2 comment-input-group';
-                    div.innerHTML = `
-                            <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..." required>
-                            <button type="button" class="btn btn-danger remove-comment-btn" onclick="removeCommentField(this)">حذف</button>
-                        `;
-                    container.appendChild(div);
-                }
+                    var currentFields = container.getElementsByClassName('comment-input-group');
+                    var currentCount = currentFields.length;
+                    
+                    // Safety cap to prevent browser crash
+                    if (count > 100) {
+                        // Optional: You might want to warn the user or cap it
+                        // For now accepting exactly what user asked
+                    }
 
-                function removeCommentField(btn) {
-                    var container = document.getElementById('comments-container');
-                    if (container.getElementsByClassName('comment-input-group').length > 1) {
-                        btn.closest('.comment-input-group').remove();
-                    } else {
-                        alert('يجب أن يكون هناك تعليق واحد على الأقل.');
+                    if (count > currentCount) {
+                        // Add fields
+                        for (var i = 0; i < (count - currentCount); i++) {
+                            var div = document.createElement('div');
+                            div.className = 'input-group mb-2 comment-input-group';
+                            div.innerHTML = `<input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..." required>`;
+                            container.appendChild(div);
+                        }
+                    } else if (count < currentCount) {
+                        // Remove fields from the bottom
+                        for (var i = 0; i < (currentCount - count); i++) {
+                            container.removeChild(currentFields[currentFields.length - 1]);
+                        }
                     }
                 }
 
-                // Run on load in case of old input
                 document.addEventListener('DOMContentLoaded', function () {
                     toggleCommentsField();
+                    
+                    // Listen for changes on total_count
+                    document.getElementById('total_count').addEventListener('input', function() {
+                        if (document.getElementById('type').value === 'comment') {
+                            syncCommentFields();
+                        }
+                    });
                 });
             </script>
 

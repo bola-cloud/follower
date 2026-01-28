@@ -94,7 +94,7 @@ class OrderController extends Controller
                 $resolved = $resolver->resolve($targetUrl, $data['type'] ?? 'like', 5);
                 Log::info('[Admin.OrderController] InstagramLookupService::resolve returned', ['resolved' => $resolved]);
                 if ($resolved) {
-                    if (($data['type'] ?? 'like') === 'like') {
+                    if (in_array(($data['type'] ?? 'like'), ['like', 'comment'])) {
                         $data['mediaId'] = $data['mediaId'] ?? $resolved;
                     } else {
                         $data['userPk'] = $data['userPk'] ?? $resolved;
