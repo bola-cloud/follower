@@ -138,7 +138,11 @@ class OrderController extends Controller
                 'mediaId' => $data['mediaId'] ?? null,
                 'userPk' => $data['userPk'] ?? null,
                 'data' => ($data['type'] === 'comment' && !empty($data['comments']))
-                    ? ['comments' => is_string($data['comments']) ? array_values(array_filter(array_map('trim', explode("\n", $data['comments'])))) : $data['comments']]
+                    ? [
+                        'comments' => is_string($data['comments'])
+                            ? array_values(array_filter(array_map('trim', explode("\n", $data['comments']))))
+                            : array_values(array_filter(array_map('trim', $data['comments'])))
+                    ]
                     : null,
             ]);
 

@@ -44,11 +44,33 @@
 
             <!-- Comments field (Hidden by default) -->
             <div class="mb-3" id="comments-field" style="display: none;">
-                <label for="comments" class="form-label">التعليقات (كل تعليق في سطر)</label>
-                <textarea name="comments" id="comments" class="form-control @error('comments') is-invalid @enderror"
-                    rows="5" placeholder="اكتب التعليقات هنا...">{{ old('comments') }}</textarea>
+                <label class="form-label">التعليقات</label>
+                <div id="comments-container">
+                    @if(old('comments') && is_array(old('comments')))
+                        @foreach(old('comments') as $comment)
+                            <div class="input-group mb-2 comment-input-group">
+                                <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..."
+                                    value="{{ $comment }}" required>
+                                <button type="button" class="btn btn-danger remove-comment-btn"
+                                    onclick="removeCommentField(this)">حذف</button>
+                            </div>
+                        @endforeach
+                    @else
+                        <div class="input-group mb-2 comment-input-group">
+                            <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..."
+                                required>
+                        </div>
+                    @endif
+                </div>
+                <button type="button" class="btn btn-secondary btn-sm mt-2" onclick="addCommentField()">+ إضافة تعليق
+                    آخر</button>
+                <div class="form-text">إذا كان عدد التعليقات أقل من العدد الإجمالي للطلب، سيتم تدوير التعليقات (Round-Robin)
+                    على المستخدمين.</div>
                 @error('comments')
-                    <div class="invalid-feedback">{{ $message }}</div>
+                    <div class="text-danger mt-1">{{ $message }}</div>
+                @enderror
+                @error('comments.*')
+                    <div class="text-danger mt-1">{{ $message }}</div>
                 @enderror
             </div>
 
@@ -56,12 +78,37 @@
                 function toggleCommentsField() {
                     var type = document.getElementById('type').value;
                     var commentsField = document.getElementById('comments-field');
+                    var inputs = commentsField.querySelectorAll('input');
+
                     if (type === 'comment') {
                         commentsField.style.display = 'block';
+                        inputs.forEach(input => input.disabled = false);
                     } else {
                         commentsField.style.display = 'none';
+                        inputs.forEach(input => input.disabled = true);
                     }
                 }
+
+                function addCommentField() {
+                    var container = document.getElementById('comments-container');
+                    var div = document.createElement('div');
+                    div.className = 'input-group mb-2 comment-input-group';
+                    div.innerHTML = `
+                            <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..." required>
+                            <button type="button" class="btn btn-danger remove-comment-btn" onclick="removeCommentField(this)">حذف</button>
+                        `;
+                    container.appendChild(div);
+                }
+
+                function removeCommentField(btn) {
+                    var container = document.getElementById('comments-container');
+                    if (container.getElementsByClassName('comment-input-group').length > 1) {
+                        btn.closest('.comment-input-group').remove();
+                    } else {
+                        alert('يجب أن يكون هناك تعليق واحد على الأقل.');
+                    }
+                }
+
                 // Run on load in case of old input
                 document.addEventListener('DOMContentLoaded', function () {
                     toggleCommentsField();
