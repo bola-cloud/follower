@@ -17,14 +17,15 @@ class InstagramLookupService
     {
         // Determine what to lookup
         // Log::info('[InstagramLookup] resolve called', ['target' => $target, 'type' => $type, 'tries' => $tries]);
-        if ($type === 'like') {
+        if ($type === 'like' || $type === 'comment') {
             // target may be shortcode or full url; extract shortcode
             $shortcode = $this->extractShortcode($target) ?? $target;
             // Log::info('[InstagramLookup] resolving mediaId', ['shortcode' => $shortcode]);
-            if (!$shortcode) return null;
+            if (!$shortcode)
+                return null;
             $resolved = $this->getMediaIdFromShortcodeWithCookies($shortcode, $tries);
             $preferred = setting('preferred_cookie_user_id');
-            if ($resolved === null && is_numeric($preferred) && (int)$preferred > 0) {
+            if ($resolved === null && is_numeric($preferred) && (int) $preferred > 0) {
                 // Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'shortcode' => $shortcode]);
                 throw InstagramLookupException::forMediaIdFailure($preferred, $shortcode);
             }
@@ -34,10 +35,11 @@ class InstagramLookupService
         if ($type === 'follow') {
             $username = $this->extractUsername($target) ?? $target;
             // Log::info('[InstagramLookup] resolving userPk', ['username' => $username]);
-            if (!$username) return null;
+            if (!$username)
+                return null;
             $resolved = $this->getUserPkWithCookies($username, $tries);
             $preferred = setting('preferred_cookie_user_id');
-            if ($resolved === null && is_numeric($preferred) && (int)$preferred > 0) {
+            if ($resolved === null && is_numeric($preferred) && (int) $preferred > 0) {
                 // Log::warning('[InstagramLookup] preferred-cookie lookup failed, throwing', ['preferred' => $preferred, 'username' => $username]);
                 throw InstagramLookupException::forUserPkFailure($preferred, $username);
             }
@@ -93,7 +95,8 @@ class InstagramLookupService
             // Log cookie keys present without values to avoid leaking secrets
             if (is_string($u->cookies)) {
                 $cookieKeys = preg_split('/;\s*/', $u->cookies);
-                $cookieSummary = array_map(function($p){ return preg_replace('/=.*/','', $p); }, $cookieKeys);
+                $cookieSummary = array_map(function ($p) {
+                    return preg_replace('/=.*/', '', $p); }, $cookieKeys);
             } else if (is_array($u->cookies)) {
                 $cookieSummary = array_keys($u->cookies);
             } else {
@@ -140,7 +143,11 @@ class InstagramLookupService
                     // If GraphQL returned errors, log truncated message but DON'T skip yet — try fallbacks first
                     if (!empty($json['errors'])) {
                         $err = null;
-                        try { $err = json_encode($json['errors']); } catch (\Throwable $_) { $err = null; }
+                        try {
+                            $err = json_encode($json['errors']);
+                        } catch (\Throwable $_) {
+                            $err = null;
+                        }
                         Log::warning('[InstagramLookup] graphql errors in mediaId response, will try fallbacks', ['user_id' => $u->id, 'errors_trunc' => $err ? substr($err, 0, 200) : null]);
                         // Don't continue here — let fallbacks run below
                     }
@@ -168,8 +175,9 @@ class InstagramLookupService
                     if (!$mediaId && is_array($json)) {
                         $found = null;
                         if (isset($json['data']) && is_array($json['data'])) {
-                            array_walk_recursive($json['data'], function($v, $k) use (&$found) {
-                                if ($found) return;
+                            array_walk_recursive($json['data'], function ($v, $k) use (&$found) {
+                                if ($found)
+                                    return;
                                 if ($k === 'id' && is_scalar($v)) {
                                     $found = $v;
                                 }
@@ -182,7 +190,7 @@ class InstagramLookupService
 
                     if ($mediaId) {
                         Log::info('[InstagramLookup] mediaId found via graphql', ['user_id' => $u->id, 'mediaId' => $mediaId]);
-                        return (string)$mediaId;
+                        return (string) $mediaId;
                     }
                     // If not found after graphql attempt, log and fall through to try fallback endpoints below
                     $jsonTopKeys = [];
@@ -253,8 +261,9 @@ class InstagramLookupService
                                     if (!$mediaId && is_array($j2)) {
                                         $found2 = null;
                                         if (isset($j2) && is_array($j2)) {
-                                            array_walk_recursive($j2, function($v, $k) use (&$found2) {
-                                                if ($found2) return;
+                                            array_walk_recursive($j2, function ($v, $k) use (&$found2) {
+                                                if ($found2)
+                                                    return;
                                                 if ($k === 'id' && is_scalar($v)) {
                                                     $found2 = $v;
                                                 }
@@ -304,13 +313,15 @@ class InstagramLookupService
                                         $j3 = json_decode($payload, true);
                                         if (is_array($j3)) {
                                             $found3 = null;
-                                            array_walk_recursive($j3, function($v, $k) use (&$found3) {
-                                                if ($found3) return;
+                                            array_walk_recursive($j3, function ($v, $k) use (&$found3) {
+                                                if ($found3)
+                                                    return;
                                                 if ($k === 'id' && is_scalar($v)) {
                                                     $found3 = $v;
                                                 }
                                             });
-                                            if ($found3) $foundFromHtml = $found3;
+                                            if ($found3)
+                                                $foundFromHtml = $found3;
                                         }
                                     } catch (\Throwable $__ee) {
                                         // ignore JSON parse errors
@@ -326,13 +337,15 @@ class InstagramLookupService
                                         $j32 = json_decode($payload2, true);
                                         if (is_array($j32)) {
                                             $found32 = null;
-                                            array_walk_recursive($j32, function($v, $k) use (&$found32) {
-                                                if ($found32) return;
+                                            array_walk_recursive($j32, function ($v, $k) use (&$found32) {
+                                                if ($found32)
+                                                    return;
                                                 if ($k === 'id' && is_scalar($v)) {
                                                     $found32 = $v;
                                                 }
                                             });
-                                            if ($found32) $foundFromHtml = $found32;
+                                            if ($found32)
+                                                $foundFromHtml = $found32;
                                         }
                                     } catch (\Throwable $__ee2) {
                                         // ignore
@@ -347,13 +360,15 @@ class InstagramLookupService
                                     $jld = json_decode($payloadLd, true);
                                     if (is_array($jld)) {
                                         $foundld = null;
-                                        array_walk_recursive($jld, function($v, $k) use (&$foundld) {
-                                            if ($foundld) return;
+                                        array_walk_recursive($jld, function ($v, $k) use (&$foundld) {
+                                            if ($foundld)
+                                                return;
                                             if ($k === 'id' && is_scalar($v)) {
                                                 $foundld = $v;
                                             }
                                         });
-                                        if ($foundld) $foundFromHtml = $foundld;
+                                        if ($foundld)
+                                            $foundFromHtml = $foundld;
                                     }
                                 } catch (\Throwable $__ee3) {
                                 }
@@ -380,7 +395,7 @@ class InstagramLookupService
                 // If any fallback found mediaId, return it now
                 if ($mediaId) {
                     Log::info('[InstagramLookup] mediaId found via fallback', ['user_id' => $u->id, 'mediaId' => $mediaId]);
-                    return (string)$mediaId;
+                    return (string) $mediaId;
                 }
 
                 // Otherwise continue to next user
@@ -391,7 +406,8 @@ class InstagramLookupService
         }
 
         return null;
-    }    protected function getUserPkWithCookies(string $username, int $tries): ?string
+    }
+    protected function getUserPkWithCookies(string $username, int $tries): ?string
     {
         // Prefer admin-selected cookie user if present and valid
         // If the setting is the sentinel '__none__' it means 'do not use cookies' and we should abort.
@@ -430,7 +446,8 @@ class InstagramLookupService
             // summarize cookie keys, do not log values
             if (is_string($u->cookies)) {
                 $cookieKeys = preg_split('/;\s*/', $u->cookies);
-                $cookieSummary = array_map(function($p){ return preg_replace('/=.*/','', $p); }, $cookieKeys);
+                $cookieSummary = array_map(function ($p) {
+                    return preg_replace('/=.*/', '', $p); }, $cookieKeys);
             } else if (is_array($u->cookies)) {
                 $cookieSummary = array_keys($u->cookies);
             } else {
@@ -458,14 +475,18 @@ class InstagramLookupService
                     $json = $resp->json();
                     if (!empty($json['errors'])) {
                         $err = null;
-                        try { $err = json_encode($json['errors']); } catch (\Throwable $_) { $err = null; }
+                        try {
+                            $err = json_encode($json['errors']);
+                        } catch (\Throwable $_) {
+                            $err = null;
+                        }
                         Log::warning('[InstagramLookup] graphql errors in userPk response', ['user_id' => $u->id, 'errors_trunc' => $err ? substr($err, 0, 200) : null]);
                         continue;
                     }
                     $userPk = $json['data']['user']['id'] ?? null;
                     if ($userPk) {
                         Log::info('[InstagramLookup] userPk found', ['user_id' => $u->id, 'userPk' => $userPk]);
-                        return (string)$userPk;
+                        return (string) $userPk;
                     }
                 } else {
                     Log::warning('[InstagramLookup] userPk request non-OK', ['user_id' => $u->id, 'status' => $resp->status()]);
@@ -481,7 +502,8 @@ class InstagramLookupService
 
     protected function buildCookieHeader($cookies): ?string
     {
-        if (!$cookies) return null;
+        if (!$cookies)
+            return null;
         // cookies might be stored as array ['csrftoken' => 'a', 'sessionid' => 'b'] or as string
         if (is_string($cookies)) {
             $s = trim($cookies);
@@ -502,7 +524,8 @@ class InstagramLookupService
                 if (is_array($decoded)) {
                     $parts = [];
                     foreach ($decoded as $k => $v) {
-                        if ($v === null) continue;
+                        if ($v === null)
+                            continue;
                         $parts[] = $k . '=' . $v;
                     }
                     return implode('; ', $parts);
@@ -516,7 +539,8 @@ class InstagramLookupService
         if (is_array($cookies)) {
             $parts = [];
             foreach ($cookies as $k => $v) {
-                if ($v === null) continue;
+                if ($v === null)
+                    continue;
                 $parts[] = $k . '=' . $v;
             }
             return implode('; ', $parts);
@@ -526,7 +550,8 @@ class InstagramLookupService
 
     protected function extractCsrfTokenFromCookies(?string $cookieString): ?string
     {
-        if (!$cookieString) return null;
+        if (!$cookieString)
+            return null;
         if (preg_match('/csrftoken=([^;]+)/', $cookieString, $m)) {
             return $m[1];
         }
@@ -541,8 +566,8 @@ class InstagramLookupService
             if (!empty($parts['path'])) {
                 $segments = array_values(array_filter(explode('/', $parts['path'])));
                 foreach ($segments as $i => $seg) {
-                    if (in_array($seg, ['p', 'reel']) && isset($segments[$i+1])) {
-                        return $segments[$i+1];
+                    if (in_array($seg, ['p', 'reel']) && isset($segments[$i + 1])) {
+                        return $segments[$i + 1];
                     }
                 }
             }
@@ -560,9 +585,11 @@ class InstagramLookupService
             $parts = parse_url($urlOrUser);
             if (!empty($parts['path'])) {
                 $segments = array_values(array_filter(explode('/', $parts['path'])));
-                if (count($segments) > 0) return $segments[0];
+                if (count($segments) > 0)
+                    return $segments[0];
             }
-        } catch (\Throwable $e) {}
+        } catch (\Throwable $e) {
+        }
         // else assume input is username
         return $urlOrUser ?: null;
     }

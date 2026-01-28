@@ -181,9 +181,10 @@ class ProcessPingResponseBatchJob implements ShouldQueue
                         ->whereIn('user_id', $toAttempt)
                         ->whereIn('status', ['pending', 'done', 'external'])
                         ->select('user_id', 'data')
-                        ->get();
+                        ->get()
+                        ->toArray();
 
-                    if ($existingActions->isEmpty()) {
+                    if (empty($existingActions)) {
                         // nothing to publish for this chunk
                         continue;
                     }
