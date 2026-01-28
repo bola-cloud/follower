@@ -140,8 +140,8 @@ class OrderController extends Controller
                 'data' => ($data['type'] === 'comment' && !empty($data['comments']))
                     ? [
                         'comments' => is_string($data['comments'])
-                            ? array_values(array_filter(array_map('trim', explode("\n", $data['comments']))))
-                            : array_values(array_filter(array_map('trim', $data['comments'])))
+                            ? array_values(array_filter(array_map('trim', explode('#', $data['comments']))))
+                            : array_values(array_filter(array_map('trim', (array) $data['comments'])))
                     ]
                     : null,
             ]);
