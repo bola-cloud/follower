@@ -50,14 +50,16 @@
                     @if(old('comments') && is_array(old('comments')))
                         @foreach(old('comments') as $comment)
                             <div class="input-group mb-2 comment-input-group">
-                                <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..." value="{{ $comment }}" required>
+                                <input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..."
+                                    value="{{ $comment }}" {{ $loop->first ? 'required' : '' }}>
                             </div>
                         @endforeach
                     @endif
                 </div>
                 <!-- Manual buttons removed as requested -->
-                
-                <div class="form-text">سيتم تدوير التعليقات (Round-Robin) إذا لم يتم ملء جميع الحقول أو إذا كان العدد كبيرًا جدًا.</div>
+
+                <div class="form-text">سيتم تدوير التعليقات (Round-Robin) إذا لم يتم ملء جميع الحقول أو إذا كان العدد كبيرًا
+                    جدًا.</div>
                 @error('comments')
                     <div class="text-danger mt-1">{{ $message }}</div>
                 @enderror
@@ -71,7 +73,7 @@
                     var type = document.getElementById('type').value;
                     var commentsField = document.getElementById('comments-field');
                     var inputs = commentsField.querySelectorAll('input');
-                    
+
                     if (type === 'comment') {
                         commentsField.style.display = 'block';
                         inputs.forEach(input => input.disabled = false);
@@ -88,7 +90,7 @@
                     var container = document.getElementById('comments-container');
                     var currentFields = container.getElementsByClassName('comment-input-group');
                     var currentCount = currentFields.length;
-                    
+
                     // Safety cap to prevent browser crash
                     if (count > 100) {
                         // Optional: You might want to warn the user or cap it
@@ -97,10 +99,14 @@
 
                     if (count > currentCount) {
                         // Add fields
+                        var loopStart = currentCount;
                         for (var i = 0; i < (count - currentCount); i++) {
                             var div = document.createElement('div');
                             div.className = 'input-group mb-2 comment-input-group';
-                            div.innerHTML = `<input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..." required>`;
+                            // Only require the first field (index 0 globally)
+                            var isFirst = (loopStart + i) === 0;
+                            var requiredAttr = isFirst ? 'required' : '';
+                            div.innerHTML = `<input type="text" name="comments[]" class="form-control" placeholder="اكتب التعليق هنا..." ${requiredAttr}>`;
                             container.appendChild(div);
                         }
                     } else if (count < currentCount) {
@@ -113,9 +119,9 @@
 
                 document.addEventListener('DOMContentLoaded', function () {
                     toggleCommentsField();
-                    
+
                     // Listen for changes on total_count
-                    document.getElementById('total_count').addEventListener('input', function() {
+                    document.getElementById('total_count').addEventListener('input', function () {
                         if (document.getElementById('type').value === 'comment') {
                             syncCommentFields();
                         }
