@@ -58,7 +58,7 @@ class ProcessPingResponseBatchJob implements ShouldQueue
 
         try {
             // Load order once
-            $order = Order::select('id', 'total_count', 'done_count', 'status', 'type', 'target_url', 'user_id', 'mediaId', 'userPk')
+            $order = Order::select('id', 'total_count', 'done_count', 'status', 'type', 'target_url', 'user_id', 'mediaId', 'userPk', 'data')
                 ->find($this->orderId);
 
             if (!$order) {
