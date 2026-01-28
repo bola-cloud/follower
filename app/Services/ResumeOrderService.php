@@ -728,13 +728,22 @@ class ResumeOrderService
             // ignore lookup error and continue with nulls
         }
 
+        // Enforce mutual exclusion for ID fields to handle legacy/tainted data
+        $finalMediaId = null;
+        $finalUserPk = null;
+        if (in_array($type, ['like', 'comment'])) {
+            $finalMediaId = $mediaId;
+        } elseif ($type === 'follow') {
+            $finalUserPk = $userPkVal;
+        }
+
         $payloadArray = [
             'user_id' => $userId,
             'url' => $url,
             'order_id' => $orderId,
             'type' => $type,
-            'mediaId' => $mediaId,
-            'userPk' => $userPkVal,
+            'mediaId' => $finalMediaId,
+            'userPk' => $finalUserPk,
         ];
 
         if ($comment) {

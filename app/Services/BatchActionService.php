@@ -399,16 +399,15 @@ class BatchActionService
                 }
 
                 foreach ($batchData as $row) {
-                    foreach ($batchData as $row) {
-                        // Use CSV with tab delimiter to be safe for URLs etc
-                        fputcsv($fp, [$row['order_id'], $row['user_id'], $row['type'], $row['status'], $row['created_at'], $row['updated_at'], $row['data'] ?? ''], '\t');
-                    }
+                    // Use CSV with tab delimiter to be safe for URLs etc
+                    fputcsv($fp, [$row['order_id'], $row['user_id'], $row['type'], $row['status'], $row['created_at'], $row['updated_at'], $row['data'] ?? ''], '\t');
                 }
                 fclose($fp);
 
                 // Build LOAD DATA LOCAL INFILE SQL (expecting columns order_id,user_id,type,status,created_at,updated_at,data)
+                // Match fputcsv defaults: ENCLOSED BY '"' ESCAPED BY '\\'
                 $table = DB::getTablePrefix() . 'actions';
-                $sql = "LOAD DATA LOCAL INFILE '" . addslashes($fileName) . "' INTO TABLE `actions` CHARACTER SET utf8mb4 FIELDS TERMINATED BY '\t' LINES TERMINATED BY '\n' (order_id, user_id, type, status, created_at, updated_at, data)";
+                $sql = "LOAD DATA LOCAL INFILE '" . addslashes($fileName) . "' INTO TABLE `actions` CHARACTER SET utf8mb4 FIELDS TERMINATED BY '\t' OPTIONALLY ENCLOSED BY '\"' ESCAPED BY '\\\\' LINES TERMINATED BY '\n' (order_id, user_id, type, status, created_at, updated_at, data)";
 
                 // Execute using PDO directly to allow LOCAL INFILE
                 $pdo = DB::connection()->getPdo();
