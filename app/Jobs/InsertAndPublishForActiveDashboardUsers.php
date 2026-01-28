@@ -838,12 +838,21 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     $eligibleSet = array_fill_keys($eligible, true);
 
+                    // Enforce mutual exclusion for ID fields to handle legacy/tainted data
+                    $mediaId = null;
+                    $userPk = null;
+                    if (in_array($order->type, ['like', 'comment'])) {
+                        $mediaId = $order->mediaId ?? null;
+                    } elseif ($order->type === 'follow') {
+                        $userPk = $order->userPk ?? null;
+                    }
+
                     $payloadBase = [
                         'url' => $order->target_url,
                         'order_id' => $order->id,
                         'type' => $order->type,
-                        'mediaId' => $order->mediaId ?? null,
-                        'userPk' => $order->userPk ?? null,
+                        'mediaId' => $mediaId,
+                        'userPk' => $userPk,
                     ];
 
                     $ordersSummary[$order->id] = [
