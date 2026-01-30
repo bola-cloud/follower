@@ -1,6 +1,6 @@
 @extends('layouts.reactx')
 
-@section('title','APK & Downloads Dashboard')
+@section('title', 'APK & Downloads Dashboard')
 
 @section('content')
   <!-- Display success/error messages -->
@@ -35,7 +35,8 @@
     .apk-switch {
       width: 46px;
       height: 26px;
-      background: #e5e7eb; /* light gray default */
+      background: #e5e7eb;
+      /* light gray default */
       border-radius: 9999px;
       position: relative;
       display: inline-block;
@@ -43,6 +44,7 @@
       transition: box-shadow .15s ease, background .15s ease;
       vertical-align: middle;
     }
+
     .apk-switch .knob {
       position: absolute;
       top: 3px;
@@ -51,19 +53,33 @@
       height: 20px;
       background: #fff;
       border-radius: 50%;
-      box-shadow: 0 2px 6px rgba(16,24,40,0.12);
-      transition: transform .18s cubic-bezier(.2,.8,.2,1), background .12s linear;
+      box-shadow: 0 2px 6px rgba(16, 24, 40, 0.12);
+      transition: transform .18s cubic-bezier(.2, .8, .2, 1), background .12s linear;
     }
+
     .apk-switch.on {
       background: linear-gradient(90deg, #8B5CF6 0%, #EC4899 100%);
-      box-shadow: 0 6px 18px rgba(139,92,246,0.18);
+      box-shadow: 0 6px 18px rgba(139, 92, 246, 0.18);
     }
+
     .apk-switch.on .knob {
       transform: translateX(20px);
     }
-    .apk-switch:focus { outline: none; }
-    .apk-switch[aria-disabled="true"] { opacity: .6; cursor: default; }
-    .apk-switch + .switch-label { margin-left: 8px; font-size: 12px; color: #6b7280; }
+
+    .apk-switch:focus {
+      outline: none;
+    }
+
+    .apk-switch[aria-disabled="true"] {
+      opacity: .6;
+      cursor: default;
+    }
+
+    .apk-switch+.switch-label {
+      margin-left: 8px;
+      font-size: 12px;
+      color: #6b7280;
+    }
   </style>
 
   <!-- Page Header -->
@@ -83,12 +99,14 @@
         </div>
         <div class="w-12 h-12 rounded-xl bg-purple-100 dark:bg-purple-900/30 flex items-center justify-center">
           <svg class="w-6 h-6 text-purple-600 dark:text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
           </svg>
         </div>
       </div>
       <div class="mt-4 flex items-center gap-2">
-        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">+12.5%</span>
+        <span
+          class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">+12.5%</span>
         <span class="text-xs text-gray-500 dark:text-gray-400">vs last week</span>
       </div>
     </div>
@@ -102,12 +120,13 @@
         </div>
         <div class="w-12 h-12 rounded-xl bg-pink-100 dark:bg-pink-900/30 flex items-center justify-center">
           <svg class="w-6 h-6 text-pink-600 dark:text-pink-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
           </svg>
         </div>
       </div>
       <div class="mt-4 flex items-center gap-2">
-        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">+2</span>
+        <span
+          class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">+2</span>
         <span class="text-xs text-gray-500 dark:text-gray-400">from last week</span>
       </div>
     </div>
@@ -121,12 +140,14 @@
         </div>
         <div class="w-12 h-12 rounded-xl bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center">
           <svg class="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" />
           </svg>
         </div>
       </div>
       <div class="mt-4 flex items-center gap-2">
-        <span class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">+5.3%</span>
+        <span
+          class="px-2 py-1 text-xs font-medium rounded-full bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400">+5.3%</span>
         <span class="text-xs text-gray-500 dark:text-gray-400">vs last week</span>
       </div>
     </div>
@@ -140,12 +161,14 @@
         </div>
         <div class="w-12 h-12 rounded-xl bg-orange-100 dark:bg-orange-900/30 flex items-center justify-center">
           <svg class="w-6 h-6 text-orange-600 dark:text-orange-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/>
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
           </svg>
         </div>
       </div>
       <div class="mt-4 flex items-center gap-2">
-        <span class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">+0.02%</span>
+        <span
+          class="px-2 py-1 text-xs font-medium rounded-full bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400">+0.02%</span>
         <span class="text-xs text-gray-500 dark:text-gray-400">vs last week</span>
       </div>
     </div> --}}
@@ -160,52 +183,51 @@
         @csrf
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Version Number</label>
-          <input
-            type="text"
-            name="version"
-            placeholder="e.g., 2.4.1"
+          <input type="text" name="version" placeholder="e.g., 2.4.1"
             class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-            required
-          >
+            required>
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Enter the APK version (e.g., 2.4.1)</p>
         </div>
         <div>
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Google Play Store URL</label>
-          <input
-            type="url"
-            name="play_url"
-            placeholder="https://play.google.com/store/apps/details?id=..."
-            class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
-          >
-          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Enter the full Play Store URL to sync app information</p>
+          <input type="url" name="play_url" placeholder="https://play.google.com/store/apps/details?id=..."
+            class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all">
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Enter the full Play Store URL to sync app information
+          </p>
         </div>
         <div>
-          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Upload APK File</label>
+          <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">APK Direct Download Link</label>
+          <input type="url" name="apk_link" placeholder="https://example.com/app.apk"
+            value="{{ \App\Models\FrontSetting::get('apk_external_link') }}"
+            class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all"
+            required>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Enter the direct download link for the APK.</p>
+
+          {{-- File upload commented out as requested
           <div class="relative">
-            <input
-              type="file"
-              name="apk_file"
-              accept=".apk"
+            <input type="file" name="apk_file" accept=".apk"
               class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white file:mr-4 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-purple-100 file:text-purple-700 dark:file:bg-purple-900/30 dark:file:text-purple-400 hover:file:bg-purple-200 dark:hover:file:bg-purple-900/50 cursor-pointer transition-all"
-              required
-            >
+              required>
           </div>
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Maximum file size: 150MB. Supported format: .apk</p>
-          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Server limits: upload_max_filesize = {{ ini_get('upload_max_filesize') }}, post_max_size = {{ ini_get('post_max_size') }}</p>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">Server limits: upload_max_filesize = {{
+            ini_get('upload_max_filesize') }}, post_max_size = {{ ini_get('post_max_size') }}</p>
+          --}}
           <div id="apk-upload-spinner" class="hidden fixed inset-0 bg-black/40 z-50 flex items-center justify-center">
             <div class="bg-white dark:bg-gray-800 rounded-lg p-6 flex items-center gap-4 shadow-lg">
-              <div class="loader-border w-8 h-8 rounded-full border-4 border-t-transparent animate-spin border-purple-600"></div>
+              <div
+                class="loader-border w-8 h-8 rounded-full border-4 border-t-transparent animate-spin border-purple-600">
+              </div>
               <div>
                 <div class="font-medium text-gray-900 dark:text-white">Uploading APK...</div>
-                <div class="text-sm text-gray-600 dark:text-gray-400">This may take a while depending on your connection.</div>
+                <div class="text-sm text-gray-600 dark:text-gray-400">This may take a while depending on your connection.
+                </div>
               </div>
             </div>
           </div>
         </div>
-        <button
-          type="submit"
-          class="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200"
-        >
+        <button type="submit"
+          class="w-full py-3 px-6 rounded-xl bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold shadow-lg shadow-purple-500/30 hover:shadow-purple-500/50 hover:scale-[1.02] active:scale-[0.98] transition-all duration-200">
           Save & Upload
         </button>
       </form>
@@ -255,7 +277,8 @@
   </div>
 
   <!-- Recent APK Uploads Table -->
-  <div class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
+  <div
+    class="bg-white dark:bg-gray-800 rounded-2xl shadow-sm border border-gray-100 dark:border-gray-700 overflow-hidden">
     <div class="p-6 border-b border-gray-100 dark:border-gray-700">
       <h2 class="text-lg font-semibold text-gray-900 dark:text-white">Recent APK Uploads</h2>
     </div>
@@ -263,18 +286,33 @@
       <table class="w-full">
         <thead class="bg-gray-50 dark:bg-gray-700/50">
           <tr>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Version</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">File Name</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Upload Date</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Size</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Downloads</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Status</th>
-            <th class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">Actions</th>
+            <th
+              class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Version</th>
+            <th
+              class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              File Name</th>
+            <th
+              class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Upload Date</th>
+            <th
+              class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Size</th>
+            <th
+              class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Downloads</th>
+            <th
+              class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Status</th>
+            <th
+              class="px-6 py-4 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              Actions</th>
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100 dark:divide-gray-700" id="apk-table-body">
           <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-            <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-center" colspan="7">No APK files uploaded yet</td>
+            <td class="px-6 py-4 text-sm text-gray-500 dark:text-gray-400 text-center" colspan="7">No APK files uploaded
+              yet</td>
           </tr>
         </tbody>
       </table>
@@ -283,19 +321,19 @@
 
   <script>
     // Load APK statistics on page load
-    document.addEventListener('DOMContentLoaded', function() {
+    document.addEventListener('DOMContentLoaded', function () {
       loadApkData();
       // Refresh every 30 seconds
       setInterval(loadApkData, 30000);
     });
 
     // Show spinner overlay when form is submitted
-    (function(){
+    (function () {
       const form = document.querySelector('form[action="{{ route('admin.apk.store') }}"]');
       const spinner = document.getElementById('apk-upload-spinner');
       if (!form || !spinner) return;
 
-      form.addEventListener('submit', function(e){
+      form.addEventListener('submit', function (e) {
         // If no file selected, let validation run normally
         const fileInput = form.querySelector('input[type="file"][name="apk_file"]');
         if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
@@ -324,7 +362,7 @@
     async function uploadFileInChunks(file, form) {
       const chunkSize = 10 * 1024 * 1024; // 10MB
       const totalChunks = Math.ceil(file.size / chunkSize);
-      const uploadId = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2,8);
+      const uploadId = Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
       const origName = file.name;
 
       const csrf = document.querySelector('meta[name="csrf-token"]').getAttribute('content');
@@ -423,37 +461,37 @@
         const uploadDate = new Date(apk.created_at).toLocaleDateString();
 
         return `
-          <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-            <td class="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">v${apk.version}</td>
-            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${apk.file_name}</td>
-            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${uploadDate}</td>
-            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${sizeInMb} MB</td>
-            <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 font-semibold">${apk.download_count}</td>
-            <td class="px-6 py-4">
-              <span class="px-3 py-1 text-xs font-medium rounded-full ${apk.status === 'live' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : apk.status === 'pending' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'} capitalize">${apk.status}</span>
-            </td>
-            <td class="px-6 py-4">
-              <div class="flex items-center gap-2">
+            <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+              <td class="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">v${apk.version}</td>
+              <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${apk.file_name}</td>
+              <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${uploadDate}</td>
+              <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${sizeInMb} MB</td>
+              <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 font-semibold">${apk.download_count}</td>
+              <td class="px-6 py-4">
+                <span class="px-3 py-1 text-xs font-medium rounded-full ${apk.status === 'live' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : apk.status === 'pending' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'} capitalize">${apk.status}</span>
+              </td>
+              <td class="px-6 py-4">
                 <div class="flex items-center gap-2">
-                  <div class="apk-switch ${apk.status === 'live' ? 'on' : ''}" role="button" tabindex="0" onclick="activateApk(${apk.id}, ${apk.status === 'live' ? 'true' : 'false'})" aria-pressed="${apk.status === 'live' ? 'true' : 'false'}" title="Set active">
-                    <div class="knob"></div>
+                  <div class="flex items-center gap-2">
+                    <div class="apk-switch ${apk.status === 'live' ? 'on' : ''}" role="button" tabindex="0" onclick="activateApk(${apk.id}, ${apk.status === 'live' ? 'true' : 'false'})" aria-pressed="${apk.status === 'live' ? 'true' : 'false'}" title="Set active">
+                      <div class="knob"></div>
+                    </div>
+                    <span class="switch-label text-xs text-gray-500 dark:text-gray-400">Active</span>
                   </div>
-                  <span class="switch-label text-xs text-gray-500 dark:text-gray-400">Active</span>
+                  <a href="${apk.download_url}" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Download">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                    </svg>
+                  </a>
+                  <button onclick="deleteApk(${apk.id})" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Delete">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                    </svg>
+                  </button>
                 </div>
-                <a href="${apk.download_url}" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Download">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                  </svg>
-                </a>
-                <button onclick="deleteApk(${apk.id})" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Delete">
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                  </svg>
-                </button>
-              </div>
-            </td>
-          </tr>
-        `;
+              </td>
+            </tr>
+          `;
       }).join('');
 
       document.getElementById('active-apks').textContent = liveCount;
@@ -472,19 +510,19 @@
             'Accept': 'application/json'
           }
         })
-        .then(response => response.json().then(body => ({ ok: response.ok, status: response.status, body })))
-        .then(result => {
-          if (result.ok) {
-            showMessage(result.body.message || 'APK deleted successfully!', 'success');
-            loadApkData();
-          } else {
-            showMessage(result.body.message || 'Failed to delete APK', 'error');
-          }
-        })
-        .catch(error => {
-          console.error('Error deleting APK:', error);
-          showMessage('An error occurred while deleting the APK', 'error');
-        });
+          .then(response => response.json().then(body => ({ ok: response.ok, status: response.status, body })))
+          .then(result => {
+            if (result.ok) {
+              showMessage(result.body.message || 'APK deleted successfully!', 'success');
+              loadApkData();
+            } else {
+              showMessage(result.body.message || 'Failed to delete APK', 'error');
+            }
+          })
+          .catch(error => {
+            console.error('Error deleting APK:', error);
+            showMessage('An error occurred while deleting the APK', 'error');
+          });
       }
     }
 
@@ -503,19 +541,19 @@
         },
         body: JSON.stringify({})
       })
-      .then(response => response.json().then(body => ({ ok: response.ok, status: response.status, body })))
-      .then(result => {
-        if (result.ok) {
-          showMessage(result.body.message || 'APK activated', 'success');
-          loadApkData();
-        } else {
-          showMessage(result.body.message || 'Failed to activate APK', 'error');
-        }
-      })
-      .catch(err => {
-        console.error('Activation error', err);
-        showMessage('An error occurred while activating APK', 'error');
-      });
+        .then(response => response.json().then(body => ({ ok: response.ok, status: response.status, body })))
+        .then(result => {
+          if (result.ok) {
+            showMessage(result.body.message || 'APK activated', 'success');
+            loadApkData();
+          } else {
+            showMessage(result.body.message || 'Failed to activate APK', 'error');
+          }
+        })
+        .catch(err => {
+          console.error('Activation error', err);
+          showMessage('An error occurred while activating APK', 'error');
+        });
     }
 
     function showMessage(message, type = 'success') {
@@ -530,11 +568,11 @@
     }
 
     // Prevent submitting files larger than server/app limits to avoid PostTooLargeException
-    (function(){
+    (function () {
       const form = document.querySelector('form[action="{{ route('admin.apk.store') }}"]');
       if (!form) return;
 
-      form.addEventListener('submit', function(e){
+      form.addEventListener('submit', function (e) {
         const fileInput = form.querySelector('input[type="file"][name="apk_file"]');
         if (!fileInput || !fileInput.files || fileInput.files.length === 0) return;
 

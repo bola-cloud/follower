@@ -12,16 +12,14 @@ use Illuminate\Support\Facades\DB;
 class ApkController extends Controller
 {
     /**
-     * Store a newly uploaded APK file.
+     * Store a newly uploaded APK file or update external link.
      */
     public function store(Request $request)
     {
         // Use manual validator so we can return errors as JSON for AJAX requests
         $rules = [
-            'version' => 'required|string|unique:apks,version',
-            // validate as a file and size only; we'll check extension/mime manually because some servers
-            // may not report the APK mime type consistently
-            'apk_file' => 'required|file|max:153600', // 150MB (in kilobytes)
+            'version' => 'required|string',
+            'apk_link' => 'required|url',
             'play_url' => 'nullable|url',
         ];
 
@@ -33,60 +31,31 @@ class ApkController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
-        // Check the uploaded file is present and valid. If PHP limits are exceeded, the file may be missing.
-        if (!$request->hasFile('apk_file') || !$request->file('apk_file')->isValid()) {
-            $msg = 'APK file is missing or invalid. Check PHP `upload_max_filesize` and `post_max_size` settings.';
-            if ($request->wantsJson() || $request->ajax()) {
-                return response()->json(['message' => $msg], 422);
-            }
-            return redirect()->back()->with('error', $msg)->withInput();
-        }
-
-        // Additional check: some servers/clients may not present the mime type as 'apk',
-        // so validate extension or accepted mime types explicitly
-        $file = $request->file('apk_file');
-        $ext = strtolower($file->getClientOriginalExtension() ?? '');
-        $mime = strtolower($file->getClientMimeType() ?? '');
-        $allowedMimes = [
-            'application/vnd.android.package-archive',
-            'application/octet-stream',
-            'application/zip',
-            'application/x-zip-compressed'
-        ];
-
-        if ($ext !== 'apk' && !in_array($mime, $allowedMimes, true)) {
-            $msg = 'The apk file must be a valid APK file.';
-            if ($request->wantsJson() || $request->ajax()) {
-                return response()->json(['message' => $msg, 'detected_ext' => $ext, 'detected_mime' => $mime], 422);
-            }
-            return redirect()->back()->with('error', $msg)->withInput();
-        }
-
         try {
-            // Store the APK file
-            $file = $request->file('apk_file');
-            $fileName = time() . '_' . $file->getClientOriginalName();
-            $filePath = $file->storeAs('apks', $fileName, 'public');
-
-            // Get file size in bytes
-            $fileSize = Storage::disk('public')->size($filePath);
-
-            // Create APK record. New uploads default to 'pending' so admin can choose active one.
+            // Save external link to settings
+            \App\Models\FrontSetting::set('apk_external_link', $request->apk_link);
+            
+            // Create a dummy APK record for version tracking / stats if needed, 
+            // or just rely on settings. For now, we'll create a record to maintain compatibility
+            // with existing stats logic, but mark it as 'external'
             $apk = Apk::create([
                 'version' => $request->version,
-                'file_name' => $fileName,
-                'file_path' => $filePath,
-                'file_size' => $fileSize,
+                'file_name' => 'external_link',
+                'file_path' => $request->apk_link, // Storing link in path for reference
+                'file_size' => 0,
                 'play_store_url' => $request->play_url ?? null,
-                'status' => 'pending',
+                'status' => 'live',
                 'download_count' => 0,
             ]);
 
+            // Deactivate other APKs since this is now the live one
+            Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
+
             return redirect()->route('admin.reactx.dashboard')
-                ->with('success', "APK v{$apk->version} uploaded successfully!");
+                ->with('success', "APK Link v{$apk->version} updated successfully!");
         } catch (\Exception $e) {
             return redirect()->route('admin.reactx.dashboard')
-                ->with('error', 'Failed to upload APK: ' . $e->getMessage());
+                ->with('error', 'Failed to update APK Link: ' . $e->getMessage());
         }
     }
 
@@ -95,6 +64,14 @@ class ApkController extends Controller
      */
     public function downloadLatest()
     {
+        // Check for external link first
+        $externalLink = \App\Models\FrontSetting::get('apk_external_link');
+        if ($externalLink) {
+             // Increment a general counter if needed, or just redirect
+             // For now, we just redirect to the external URL
+             return redirect()->away($externalLink);
+        }
+
         $apk = Apk::where('status', 'live')->orderBy('created_at', 'desc')->first();
 
         if (!$apk) {
@@ -110,6 +87,11 @@ class ApkController extends Controller
      */
     public function download($id)
     {
+        // Check for external link first
+        $externalLink = \App\Models\FrontSetting::get('apk_external_link');
+        if ($externalLink) {
+             return redirect()->away($externalLink);
+        }
 
         $apk = Apk::findOrFail($id);
 
@@ -136,6 +118,7 @@ class ApkController extends Controller
         ];
 
         return response()->download($filePath, $apk->file_name, $headers);
+    }
 
         // $apk = Apk::findOrFail($id);
 

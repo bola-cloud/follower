@@ -14,6 +14,7 @@ class DatabaseSeeder extends Seeder
     {
         // Small example seeder (kept for backwards compatibility)
         $this->call(UsersTableSeeder::class);
+        $this->call(WebsiteUrlSettingSeeder::class);
 
         // Bulk users seeder (20k users). Disabled by default to avoid accidental long runs.
         // To run it locally set APP_ENV=local and RUN_BULK_SEED=true or run the seeder directly:
