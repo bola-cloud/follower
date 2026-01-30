@@ -34,7 +34,7 @@ class ApkController extends Controller
         try {
             // Save external link to settings
             \App\Models\FrontSetting::set('apk_external_link', $request->apk_link);
-            
+
             // Create a dummy APK record for version tracking / stats if needed, 
             // or just rely on settings. For now, we'll create a record to maintain compatibility
             // with existing stats logic, but mark it as 'external'
@@ -67,9 +67,9 @@ class ApkController extends Controller
         // Check for external link first
         $externalLink = \App\Models\FrontSetting::get('apk_external_link');
         if ($externalLink) {
-             // Increment a general counter if needed, or just redirect
-             // For now, we just redirect to the external URL
-             return redirect()->away($externalLink);
+            // Increment a general counter if needed, or just redirect
+            // For now, we just redirect to the external URL
+            return redirect()->away($externalLink);
         }
 
         $apk = Apk::where('status', 'live')->orderBy('created_at', 'desc')->first();
@@ -90,7 +90,7 @@ class ApkController extends Controller
         // Check for external link first
         $externalLink = \App\Models\FrontSetting::get('apk_external_link');
         if ($externalLink) {
-             return redirect()->away($externalLink);
+            return redirect()->away($externalLink);
         }
 
         $apk = Apk::findOrFail($id);
@@ -120,21 +120,7 @@ class ApkController extends Controller
         return response()->download($filePath, $apk->file_name, $headers);
     }
 
-        // $apk = Apk::findOrFail($id);
 
-        // // Increment download count
-        // $apk->increment('download_count');
-
-        // // Get file path
-        // $filePath = storage_path('app/public/' . $apk->file_path);
-
-        // if (!file_exists($filePath)) {
-        //     abort(404, 'File not found');
-        // }
-
-        // // Return file for download
-        // return response()->download($filePath, $apk->file_name);
-    }
 
     /**
      * Delete an APK file.

@@ -9,7 +9,8 @@
     <link rel="icon" href="{{ asset('logo.jpeg') }}" type="image/jpeg">
 
     <link rel="canonical" href="{{ url()->current() }}">
-    <meta name="keywords" content="instagram followers, free instagram likes, boost instagram, egfollow, social media growth, get followers app">
+    <meta name="keywords"
+        content="instagram followers, free instagram likes, boost instagram, egfollow, social media growth, get followers app">
     <meta name="author" content="Egfollow">
 
     <!-- Open Graph / Facebook -->
@@ -116,8 +117,11 @@
 
     @php
         // Server-side fallback: get latest APK so buttons work without JS
+        $__apkExternalLink = \App\Models\FrontSetting::get('apk_external_link');
         $__latestApk = \App\Models\Apk::orderBy('created_at', 'desc')->first();
-        $__latest_download = $__latestApk ? $__latestApk->download_url : '#';
+
+        // Use external link if set, otherwise fallback to internal download route or '#'
+        $__latest_download = $__apkExternalLink ? $__apkExternalLink : ($__latestApk ? $__latestApk->download_url : '#');
         $__latest_play = $__latestApk && $__latestApk->play_store_url ? $__latestApk->play_store_url : null;
 
         // Server-side: fetch latest published articles directly from the model
