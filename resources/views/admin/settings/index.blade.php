@@ -27,6 +27,7 @@
                         'download_link' => 'رابط التحميل',
                         'mandatory' => 'هل التحديث إلزامي؟',
                         'points_add_delay' => 'تأخير إضافة النقاط (بالدقائق)',
+                        'websiteUrl' => 'رابط الموقع',
                     ];
 
                     // keys that should render as numeric inputs

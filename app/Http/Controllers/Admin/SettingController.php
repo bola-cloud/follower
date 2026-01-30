@@ -32,6 +32,7 @@ class SettingController extends Controller
             'build_number' => 'required|integer',
             'added_points' => 'required|integer',
             'points_add_delay' => 'required|integer',
+            'websiteUrl' => 'nullable|url',
             // allow sentinel '__none__' or integer user id or empty string
             'preferred_cookie_user_id' => ['nullable'],
         ]);
