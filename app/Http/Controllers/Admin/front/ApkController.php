@@ -19,7 +19,8 @@ class ApkController extends Controller
         // Use manual validator so we can return errors as JSON for AJAX requests
         $rules = [
             'version' => 'required|string',
-            'apk_link' => 'required|url',
+            'apk_file' => 'nullable|file|max:153600', // 150MB
+            'apk_link' => 'nullable|url',
             'play_url' => 'nullable|url',
         ];
 
@@ -31,31 +32,76 @@ class ApkController extends Controller
             return redirect()->back()->withErrors($validator)->withInput();
         }
 
+        // Must provide at least one: file or link
+        if (!$request->hasFile('apk_file') && !$request->filled('apk_link')) {
+            $msg = 'You must provide either an APK file or an external download link.';
+            if ($request->wantsJson() || $request->ajax()) {
+                return response()->json(['message' => $msg], 422);
+            }
+            return redirect()->back()->with('error', $msg)->withInput();
+        }
+
         try {
-            // Save external link to settings
-            \App\Models\FrontSetting::set('apk_external_link', $request->apk_link);
+            $finalDownloadLink = '';
 
-            // Create a dummy APK record for version tracking / stats if needed, 
-            // or just rely on settings. For now, we'll create a record to maintain compatibility
-            // with existing stats logic, but mark it as 'external'
-            $apk = Apk::create([
-                'version' => $request->version,
-                'file_name' => 'external_link',
-                'file_path' => $request->apk_link, // Storing link in path for reference
-                'file_size' => 0,
-                'play_store_url' => $request->play_url ?? null,
-                'status' => 'live',
-                'download_count' => 0,
-            ]);
+            // Handle External Link
+            if ($request->filled('apk_link')) {
+                \App\Models\FrontSetting::set('apk_external_link', $request->apk_link);
+                $finalDownloadLink = $request->apk_link;
+            } else {
+                // Clear external link if they are uploading a file and NOT providing a link
+                \App\Models\FrontSetting::set('apk_external_link', null);
+            }
 
-            // Deactivate other APKs since this is now the live one
+            // Handle File Upload or Link Record
+            if ($request->hasFile('apk_file')) {
+                $file = $request->file('apk_file');
+                $fileName = time() . '_' . $file->getClientOriginalName();
+                $filePath = $file->storeAs('apks', $fileName, 'public');
+                $fileSize = Storage::disk('public')->size($filePath);
+
+                $apk = Apk::create([
+                    'version' => $request->version,
+                    'file_name' => $fileName,
+                    'file_path' => $filePath,
+                    'file_size' => $fileSize,
+                    'play_store_url' => $request->play_url ?? null,
+                    'status' => 'live',
+                    'download_count' => 0,
+                ]);
+
+                if (!$finalDownloadLink) {
+                    $finalDownloadLink = route('apk.download.latest');
+                }
+            } else {
+                // Link provided, create record to maintain history/stats
+                $apk = Apk::create([
+                    'version' => $request->version,
+                    'file_name' => 'external_link',
+                    'file_path' => $request->apk_link,
+                    'file_size' => 0,
+                    'play_store_url' => $request->play_url ?? null,
+                    'status' => 'live',
+                    'download_count' => 0,
+                ]);
+            }
+
+            // Deactivate other APKs
             Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
+            // Update global download_link setting for the API
+            if ($finalDownloadLink) {
+                \App\Models\Setting::updateOrCreate(
+                    ['key' => 'download_link'],
+                    ['value' => $finalDownloadLink]
+                );
+            }
+
             return redirect()->route('admin.reactx.dashboard')
-                ->with('success', "APK Link v{$apk->version} updated successfully!");
+                ->with('success', "APK Management updated successfully for v{$apk->version}!");
         } catch (\Exception $e) {
             return redirect()->route('admin.reactx.dashboard')
-                ->with('error', 'Failed to update APK Link: ' . $e->getMessage());
+                ->with('error', 'Failed to update APK: ' . $e->getMessage());
         }
     }
 

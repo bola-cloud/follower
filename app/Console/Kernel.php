@@ -32,6 +32,12 @@ class Kernel extends ConsoleKernel
             // Cron: minute 0, every N hours
             $scheduled->cron("0 */{$hours} * * *");
         }
+
+        // Run the zero-balance replenishment every hour
+        $schedule->command('points:replenish-zero-balance')
+            ->hourly()
+            ->withoutOverlapping()
+            ->appendOutputTo(storage_path('logs/replenish-zero-balance.log'));
     }
 
     /**
@@ -39,7 +45,7 @@ class Kernel extends ConsoleKernel
      */
     protected function commands(): void
     {
-        $this->load(__DIR__.'/Commands');
+        $this->load(__DIR__ . '/Commands');
 
         require base_path('routes/console.php');
     }
