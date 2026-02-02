@@ -47,6 +47,7 @@ class ApkController extends Controller
             $apkLink = $request->input('apk_link');
             $hasFile = $request->hasFile('apk_file');
             $apk = null;
+            $directStorageLink = null;
 
             // 1. Handle File Upload if present
             if ($hasFile) {
@@ -54,6 +55,9 @@ class ApkController extends Controller
                 $fileName = time() . '_' . $file->getClientOriginalName();
                 $filePath = $file->storeAs('apks', $fileName, 'public');
                 $fileSize = Storage::disk('public')->size($filePath);
+
+                // Absolute URL to the physical file in storage
+                $directStorageLink = url('storage/' . $filePath);
 
                 $apk = Apk::create([
                     'version' => $request->version,
@@ -65,7 +69,7 @@ class ApkController extends Controller
                     'download_count' => 0,
                 ]);
 
-                // If file is uploaded and no link is provided, clear the external link so file takes priority
+                // If file is uploaded and no external link is provided, clear it
                 if (!$apkLink) {
                     \App\Models\FrontSetting::set('apk_external_link', null);
                 }
@@ -75,7 +79,6 @@ class ApkController extends Controller
             if ($apkLink) {
                 \App\Models\FrontSetting::set('apk_external_link', $apkLink);
 
-                // If no file was uploaded, create a record for the link version
                 if (!$apk) {
                     $apk = Apk::create([
                         'version' => $request->version,
@@ -90,27 +93,30 @@ class ApkController extends Controller
             }
 
             if (!$apk) {
-                throw new \Exception('Failed to process request. Provide an APK file or a link.');
+                throw new \Exception('Please provide an APK file or a download link.');
             }
 
             // Deactivate other APKs
             Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
-            // 3. ALWAYS set global download_link to the project's internal route
-            // This ensures the API always returns a link to the server, which then redirects if needed.
-            \App\Models\Setting::updateOrCreate(
-                ['key' => 'download_link'],
-                ['value' => route('apk.download.latest', [], true)]
-            );
+            // 3. Update global settings (for API and Admin Panel)
+            // Priority: External link > Direct storage link
+            $finalUrl = $apkLink ?: $directStorageLink;
+
+            if ($finalUrl) {
+                \App\Models\Setting::updateOrCreate(['key' => 'download_link'], ['value' => $finalUrl]);
+            }
+
+            \App\Models\Setting::updateOrCreate(['key' => 'app_version'], ['value' => $request->version]);
 
             DB::commit();
 
             return redirect()->route('admin.reactx.dashboard')
-                ->with('success', "APK Management updated for v{$apk->version}. Mobile API link set to internal route.");
+                ->with('success', "APK v{$apk->version} updated! Download link: {$finalUrl}");
         } catch (\Exception $e) {
             DB::rollBack();
             return redirect()->route('admin.reactx.dashboard')
-                ->with('error', 'Failed to update APK: ' . $e->getMessage());
+                ->with('error', 'Update failed: ' . $e->getMessage());
         }
     }
 
