@@ -44,13 +44,12 @@ class ApkController extends Controller
         try {
             DB::beginTransaction();
 
-            // 1. Determine download source
             $apkLink = $request->input('apk_link');
             $hasFile = $request->hasFile('apk_file');
             $apk = null;
 
+            // 1. Handle File Upload if present
             if ($hasFile) {
-                // Handle File Upload
                 $file = $request->file('apk_file');
                 $fileName = time() . '_' . $file->getClientOriginalName();
                 $filePath = $file->storeAs('apks', $fileName, 'public');
@@ -65,48 +64,49 @@ class ApkController extends Controller
                     'status' => 'live',
                     'download_count' => 0,
                 ]);
-            } elseif ($apkLink) {
-                // Link provided, create record to maintain history/stats
-                $apk = Apk::create([
-                    'version' => $request->version,
-                    'file_name' => 'external_link',
-                    'file_path' => $apkLink,
-                    'file_size' => 0,
-                    'play_store_url' => $request->play_url ?? null,
-                    'status' => 'live',
-                    'download_count' => 0,
-                ]);
+
+                // If file is uploaded and no link is provided, clear the external link so file takes priority
+                if (!$apkLink) {
+                    \App\Models\FrontSetting::set('apk_external_link', null);
+                }
+            }
+
+            // 2. Handle External Link if present
+            if ($apkLink) {
+                \App\Models\FrontSetting::set('apk_external_link', $apkLink);
+
+                // If no file was uploaded, create a record for the link version
+                if (!$apk) {
+                    $apk = Apk::create([
+                        'version' => $request->version,
+                        'file_name' => 'external_link',
+                        'file_path' => $apkLink,
+                        'file_size' => 0,
+                        'play_store_url' => $request->play_url ?? null,
+                        'status' => 'live',
+                        'download_count' => 0,
+                    ]);
+                }
             }
 
             if (!$apk) {
-                throw new \Exception('Failed to create APK record.');
+                throw new \Exception('Failed to process request. Provide an APK file or a link.');
             }
 
             // Deactivate other APKs
             Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
-            // 2. Determine and Save Final Download Link
-            // Priority: Explicit apk_link > Direct route to this specific APK
-            $finalDownloadLink = '';
-            if ($apkLink) {
-                $finalDownloadLink = $apkLink;
-                \App\Models\FrontSetting::set('apk_external_link', $apkLink);
-            } else {
-                // Use absolute URL to the download route for this specific APK id
-                $finalDownloadLink = route('apk.download', ['id' => $apk->id], true);
-                \App\Models\FrontSetting::set('apk_external_link', null);
-            }
-
-            // Sync with global settings table for API
+            // 3. ALWAYS set global download_link to the project's internal route
+            // This ensures the API always returns a link to the server, which then redirects if needed.
             \App\Models\Setting::updateOrCreate(
                 ['key' => 'download_link'],
-                ['value' => $finalDownloadLink]
+                ['value' => route('apk.download.latest', [], true)]
             );
 
             DB::commit();
 
             return redirect()->route('admin.reactx.dashboard')
-                ->with('success', "APK v{$apk->version} updated successfully. Download link: {$finalDownloadLink}");
+                ->with('success', "APK Management updated for v{$apk->version}. Mobile API link set to internal route.");
         } catch (\Exception $e) {
             DB::rollBack();
             return redirect()->route('admin.reactx.dashboard')
