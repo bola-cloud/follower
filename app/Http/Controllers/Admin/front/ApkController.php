@@ -59,33 +59,37 @@ class ApkController extends Controller
                 // Absolute URL to the physical file in storage
                 $directStorageLink = url('storage/' . $filePath);
 
-                $apk = Apk::create([
-                    'version' => $request->version,
-                    'file_name' => $fileName,
-                    'file_path' => $filePath,
-                    'file_size' => $fileSize,
-                    'play_store_url' => $request->play_url ?? null,
-                    'external_url' => $apkLink, // Store per-version external link
-                    'status' => 'live',
-                    'download_count' => 0,
-                ]);
+                $apk = Apk::updateOrCreate(
+                    ['version' => $request->version],
+                    [
+                        'file_name' => $fileName,
+                        'file_path' => $filePath,
+                        'file_size' => $fileSize,
+                        'play_store_url' => $request->play_url ?? null,
+                        'external_url' => $apkLink,
+                        'status' => 'live',
+                        'download_count' => 0,
+                    ]
+                );
             }
 
             // 2. Sync External Link to FrontSetting (Used as a fallback for public website)
             \App\Models\FrontSetting::set('apk_external_link', $apkLink);
 
             if ($apkLink && !$apk) {
-                // If no file was uploaded, create an Apk record for the external link
-                $apk = Apk::create([
-                    'version' => $request->version,
-                    'file_name' => 'external_link',
-                    'file_path' => $apkLink,
-                    'file_size' => 0,
-                    'play_store_url' => $request->play_url ?? null,
-                    'external_url' => $apkLink, // Also store here
-                    'status' => 'live',
-                    'download_count' => 0,
-                ]);
+                // If no file was uploaded, sync settings for this version
+                $apk = Apk::updateOrCreate(
+                    ['version' => $request->version],
+                    [
+                        'file_name' => 'external_link',
+                        'file_path' => $apkLink,
+                        'file_size' => 0,
+                        'play_store_url' => $request->play_url ?? null,
+                        'external_url' => $apkLink,
+                        'status' => 'live',
+                        'download_count' => 0,
+                    ]
+                );
             }
 
             if (!$apk) {
@@ -267,7 +271,7 @@ class ApkController extends Controller
         $validator = Validator::make($request->all(), [
             'upload_id' => 'required|string',
             'total_chunks' => 'required|integer|min:1',
-            'version' => 'required|string|unique:apks,version',
+            'version' => 'required|string',
             'original_file_name' => 'required|string',
         ]);
 
@@ -307,22 +311,42 @@ class ApkController extends Controller
             // Get file size
             $fileSize = filesize($finalPath);
 
+            $apkLink = $request->input('apk_link');
+
             // Move to public storage (already in storage/app/public)
-            $apk = Apk::create([
-                'version' => $request->input('version'),
-                'file_name' => $finalName,
-                'file_path' => $finalRelPath,
-                'file_size' => $fileSize,
-                'play_store_url' => $request->input('play_url') ?? null,
-                'status' => 'pending',
-                'download_count' => 0,
-            ]);
+            $apk = Apk::updateOrCreate(
+                ['version' => $request->input('version')],
+                [
+                    'file_name' => $finalName,
+                    'file_path' => $finalRelPath,
+                    'file_size' => $fileSize,
+                    'play_store_url' => $request->input('play_url') ?? null,
+                    'external_url' => $apkLink,
+                    'status' => 'live',
+                    'download_count' => 0,
+                ]
+            );
+
+            // Deactivate other APKs
+            Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
             // Clean up tmp chunks
             for ($i = 0; $i < $total; $i++) {
                 $chunkPath = $tmpDir . DIRECTORY_SEPARATOR . $uploadId . '_' . $i;
                 @unlink($chunkPath);
             }
+
+            // Sync with Global Settings
+            \App\Models\FrontSetting::set('apk_external_link', $apkLink);
+
+            $directStorageLink = url('storage/' . $finalRelPath);
+            $finalUrl = $directStorageLink ?: $apkLink;
+
+            if ($finalUrl) {
+                \App\Models\Setting::updateOrCreate(['key' => 'download_link'], ['value' => $finalUrl]);
+            }
+
+            \App\Models\Setting::updateOrCreate(['key' => 'app_version'], ['value' => $request->input('version')]);
 
             return response()->json(['ok' => true, 'apk' => $apk], 200);
         } catch (\Exception $e) {
