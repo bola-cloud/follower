@@ -209,7 +209,6 @@
           <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Option B: External Download Link
             (Overrides File)</label>
           <input type="url" name="apk_link" placeholder="https://example.com/app.apk"
-            value="{{ (\App\Models\Apk::where('status', 'live')->latest()->first() ?: \App\Models\Apk::latest()->first())->external_url ?? \App\Models\FrontSetting::get('apk_external_link') }}"
             class="w-full px-4 py-3 rounded-xl border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white placeholder-gray-500 dark:placeholder-gray-400 focus:ring-2 focus:ring-purple-500 focus:border-transparent transition-all">
           <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">If provided, this link will be used as the download
             source.</p>
@@ -460,37 +459,37 @@
         const uploadDate = new Date(apk.created_at).toLocaleDateString();
 
         return `
-                    <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
-                      <td class="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">v${apk.version}</td>
-                      <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${apk.file_name}</td>
-                      <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${uploadDate}</td>
-                      <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${sizeInMb} MB</td>
-                      <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 font-semibold">${apk.download_count}</td>
-                      <td class="px-6 py-4">
-                        <span class="px-3 py-1 text-xs font-medium rounded-full ${apk.status === 'live' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : apk.status === 'pending' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'} capitalize">${apk.status}</span>
-                      </td>
-                      <td class="px-6 py-4">
-                        <div class="flex items-center gap-2">
+                      <tr class="hover:bg-gray-50 dark:hover:bg-gray-700/30 transition-colors">
+                        <td class="px-6 py-4 text-sm font-medium text-gray-900 dark:text-white">v${apk.version}</td>
+                        <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${apk.file_name}</td>
+                        <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${uploadDate}</td>
+                        <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300">${sizeInMb} MB</td>
+                        <td class="px-6 py-4 text-sm text-gray-600 dark:text-gray-300 font-semibold">${apk.download_count}</td>
+                        <td class="px-6 py-4">
+                          <span class="px-3 py-1 text-xs font-medium rounded-full ${apk.status === 'live' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' : apk.status === 'pending' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400' : 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'} capitalize">${apk.status}</span>
+                        </td>
+                        <td class="px-6 py-4">
                           <div class="flex items-center gap-2">
-                            <div class="apk-switch ${apk.status === 'live' ? 'on' : ''}" role="button" tabindex="0" onclick="activateApk(${apk.id}, ${apk.status === 'live' ? 'true' : 'false'})" aria-pressed="${apk.status === 'live' ? 'true' : 'false'}" title="Set active">
-                              <div class="knob"></div>
+                            <div class="flex items-center gap-2">
+                              <div class="apk-switch ${apk.status === 'live' ? 'on' : ''}" role="button" tabindex="0" onclick="activateApk(${apk.id}, ${apk.status === 'live' ? 'true' : 'false'})" aria-pressed="${apk.status === 'live' ? 'true' : 'false'}" title="Set active">
+                                <div class="knob"></div>
+                              </div>
+                              <span class="switch-label text-xs text-gray-500 dark:text-gray-400">Active</span>
                             </div>
-                            <span class="switch-label text-xs text-gray-500 dark:text-gray-400">Active</span>
+                            <a href="${apk.download_url}" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Download">
+                              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+                              </svg>
+                            </a>
+                            <button onclick="deleteApk(${apk.id})" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Delete">
+                              <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
+                              </svg>
+                            </button>
                           </div>
-                          <a href="${apk.download_url}" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Download">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                            </svg>
-                          </a>
-                          <button onclick="deleteApk(${apk.id})" class="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-600 text-gray-500 dark:text-gray-400 transition-colors" title="Delete">
-                            <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
-                            </svg>
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  `;
+                        </td>
+                      </tr>
+                    `;
       }).join('');
 
       document.getElementById('active-apks').textContent = liveCount;
