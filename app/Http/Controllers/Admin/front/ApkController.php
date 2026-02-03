@@ -49,7 +49,7 @@ class ApkController extends Controller
             $apk = null;
             $directStorageLink = null;
 
-            // 1. Handle File Upload if present
+            // 1. Handle File Upload if present (Prioritized for download_link)
             if ($hasFile) {
                 $file = $request->file('apk_file');
                 $fileName = time() . '_' . $file->getClientOriginalName();
@@ -69,15 +69,17 @@ class ApkController extends Controller
                     'download_count' => 0,
                 ]);
 
-                // If file is uploaded and no external link is provided, clear it
-                if (!$apkLink) {
-                    \App\Models\FrontSetting::set('apk_external_link', null);
-                }
+                // Clear external link setting if we are uploading a physical file
+                \App\Models\FrontSetting::set('apk_external_link', null);
             }
 
-            // 2. Handle External Link if present
+            // 2. Handle External Link if present (Fallback/Storage only)
             if ($apkLink) {
-                \App\Models\FrontSetting::set('apk_external_link', $apkLink);
+                // Only save to FrontSetting if no file was uploaded, OR if we want to keep it as a backup
+                // But the user's priority is the local file.
+                if (!$hasFile) {
+                    \App\Models\FrontSetting::set('apk_external_link', $apkLink);
+                }
 
                 if (!$apk) {
                     $apk = Apk::create([
@@ -99,9 +101,9 @@ class ApkController extends Controller
             // Deactivate other APKs
             Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
-            // 3. Update global settings (for API and Admin Panel)
-            // Priority: External link > Direct storage link
-            $finalUrl = $apkLink ?: $directStorageLink;
+            // 3. Update global settings
+            // Priority: Local Storage Link > External Link
+            $finalUrl = $directStorageLink ?: $apkLink;
 
             if ($finalUrl) {
                 \App\Models\Setting::updateOrCreate(['key' => 'download_link'], ['value' => $finalUrl]);
@@ -112,7 +114,7 @@ class ApkController extends Controller
             DB::commit();
 
             return redirect()->route('admin.reactx.dashboard')
-                ->with('success', "APK v{$apk->version} updated! Download link: {$finalUrl}");
+                ->with('success', "APK Management updated for v{$apk->version}. Link: {$finalUrl}");
         } catch (\Exception $e) {
             DB::rollBack();
             return redirect()->route('admin.reactx.dashboard')
