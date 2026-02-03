@@ -65,13 +65,13 @@ class ApkController extends Controller
                     'file_path' => $filePath,
                     'file_size' => $fileSize,
                     'play_store_url' => $request->play_url ?? null,
+                    'external_url' => $apkLink, // Store per-version external link
                     'status' => 'live',
                     'download_count' => 0,
                 ]);
             }
 
-            // 2. Sync External Link to FrontSetting (Used by Public Website buttons)
-            // We always update this to reflect the form input
+            // 2. Sync External Link to FrontSetting (Used as a fallback for public website)
             \App\Models\FrontSetting::set('apk_external_link', $apkLink);
 
             if ($apkLink && !$apk) {
@@ -82,6 +82,7 @@ class ApkController extends Controller
                     'file_path' => $apkLink,
                     'file_size' => 0,
                     'play_store_url' => $request->play_url ?? null,
+                    'external_url' => $apkLink, // Also store here
                     'status' => 'live',
                     'download_count' => 0,
                 ]);

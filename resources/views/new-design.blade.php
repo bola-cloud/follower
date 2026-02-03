@@ -116,11 +116,19 @@
 <body class="font-sans text-slate-800 antialiased bg-slate-50 overflow-x-hidden">
 
     @php
-        // For public buttons, prioritize the "External Download Link" from FrontSetting
-        $__apkExternalLink = \App\Models\FrontSetting::get('apk_external_link');
-        $__latest_download = $__apkExternalLink ?: setting('download_link', '#');
+        // PRIORITY for public website buttons:
+        // 1. Specific external_url from the latest live APK record
+        // 2. Global FrontSetting fallback (apk_external_link)
+        // 3. Global Setting fallback (download_link)
+        $__latestApk = \App\Models\Apk::where('status', 'live')->latest()->first() ?: \App\Models\Apk::latest()->first();
 
-        $__latestApk = \App\Models\Apk::orderBy('created_at', 'desc')->first();
+        $__apkExternalLink = \App\Models\FrontSetting::get('apk_external_link');
+        $__globalDownloadLink = setting('download_link');
+
+        $__latest_download = ($__latestApk && $__latestApk->external_url)
+            ? $__latestApk->external_url
+            : ($__apkExternalLink ?: ($__globalDownloadLink ?: '#'));
+
         $__latest_play = $__latestApk && $__latestApk->play_store_url ? $__latestApk->play_store_url : null;
 
         // Server-side: fetch latest published articles directly from the model
