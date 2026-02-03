@@ -49,7 +49,7 @@ class ApkController extends Controller
             $apk = null;
             $directStorageLink = null;
 
-            // 1. Handle File Upload if present (Prioritized for download_link)
+            // 1. Handle File Upload if present
             if ($hasFile) {
                 $file = $request->file('apk_file');
                 $fileName = time() . '_' . $file->getClientOriginalName();
@@ -68,30 +68,23 @@ class ApkController extends Controller
                     'status' => 'live',
                     'download_count' => 0,
                 ]);
-
-                // Clear external link setting if we are uploading a physical file
-                \App\Models\FrontSetting::set('apk_external_link', null);
             }
 
-            // 2. Handle External Link if present (Fallback/Storage only)
-            if ($apkLink) {
-                // Only save to FrontSetting if no file was uploaded, OR if we want to keep it as a backup
-                // But the user's priority is the local file.
-                if (!$hasFile) {
-                    \App\Models\FrontSetting::set('apk_external_link', $apkLink);
-                }
+            // 2. Sync External Link to FrontSetting (Used by Public Website buttons)
+            // We always update this to reflect the form input
+            \App\Models\FrontSetting::set('apk_external_link', $apkLink);
 
-                if (!$apk) {
-                    $apk = Apk::create([
-                        'version' => $request->version,
-                        'file_name' => 'external_link',
-                        'file_path' => $apkLink,
-                        'file_size' => 0,
-                        'play_store_url' => $request->play_url ?? null,
-                        'status' => 'live',
-                        'download_count' => 0,
-                    ]);
-                }
+            if ($apkLink && !$apk) {
+                // If no file was uploaded, create an Apk record for the external link
+                $apk = Apk::create([
+                    'version' => $request->version,
+                    'file_name' => 'external_link',
+                    'file_path' => $apkLink,
+                    'file_size' => 0,
+                    'play_store_url' => $request->play_url ?? null,
+                    'status' => 'live',
+                    'download_count' => 0,
+                ]);
             }
 
             if (!$apk) {
@@ -101,8 +94,8 @@ class ApkController extends Controller
             // Deactivate other APKs
             Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
-            // 3. Update global settings
-            // Priority: Local Storage Link > External Link
+            // 3. Update global settings for API and Admin Settings page
+            // PRIORITY: Physical File > External Link
             $finalUrl = $directStorageLink ?: $apkLink;
 
             if ($finalUrl) {
@@ -114,7 +107,7 @@ class ApkController extends Controller
             DB::commit();
 
             return redirect()->route('admin.reactx.dashboard')
-                ->with('success', "APK Management updated for v{$apk->version}. Link: {$finalUrl}");
+                ->with('success', "APK Management updated for v{$apk->version}. Setting Link: {$finalUrl}");
         } catch (\Exception $e) {
             DB::rollBack();
             return redirect()->route('admin.reactx.dashboard')

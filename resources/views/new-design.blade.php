@@ -116,10 +116,10 @@
 <body class="font-sans text-slate-800 antialiased bg-slate-50 overflow-x-hidden">
 
     @php
-        // Server-side fallback: get latest APK so buttons work without JS
-        // Use the global download_link setting directly (synced in ApkController)
-        $__latest_download = setting('download_link', '#');
-        
+        // For public buttons, prioritize the "External Download Link" from FrontSetting
+        $__apkExternalLink = \App\Models\FrontSetting::get('apk_external_link');
+        $__latest_download = $__apkExternalLink ?: setting('download_link', '#');
+
         $__latestApk = \App\Models\Apk::orderBy('created_at', 'desc')->first();
         $__latest_play = $__latestApk && $__latestApk->play_store_url ? $__latestApk->play_store_url : null;
 
