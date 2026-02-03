@@ -17,6 +17,7 @@ class Apk extends Model
         'play_store_url',
         'status',
         'download_count',
+        'external_url',
     ];
 
     protected $casts = [
