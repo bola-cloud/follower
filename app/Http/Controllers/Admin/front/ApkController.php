@@ -76,20 +76,26 @@ class ApkController extends Controller
             // 2. Sync External Link to FrontSetting (Used as a fallback for public website)
             \App\Models\FrontSetting::set('apk_external_link', $apkLink);
 
-            if ($apkLink && !$apk) {
-                // If no file was uploaded, sync settings for this version
+            if (!$apk) {
+                // No file uploaded? Check if version exists to preserve file data
+                $existing = Apk::where('version', $request->version)->first();
+
                 $apk = Apk::updateOrCreate(
                     ['version' => $request->version],
                     [
-                        'file_name' => 'external_link',
-                        'file_path' => $apkLink,
-                        'file_size' => 0,
-                        'play_store_url' => $request->play_url ?? null,
+                        'file_name' => $existing ? $existing->file_name : 'external_link',
+                        'file_path' => $existing ? $existing->file_path : ($apkLink ?: ''),
+                        'file_size' => $existing ? $existing->file_size : 0,
+                        'play_store_url' => $request->play_url ?? ($existing ? $existing->play_store_url : null),
                         'external_url' => $apkLink,
                         'status' => 'live',
-                        'download_count' => 0,
+                        'download_count' => $existing ? $existing->download_count : 0,
                     ]
                 );
+
+                if ($existing && $existing->file_name !== 'external_link') {
+                    $directStorageLink = url('storage/' . $existing->file_path);
+                }
             }
 
             if (!$apk) {
@@ -125,11 +131,16 @@ class ApkController extends Controller
      */
     public function downloadLatest()
     {
-        // Check for external link first
+        $apk = Apk::where('status', 'live')->orderBy('created_at', 'desc')->first();
+
+        // 1. Check for version-specific external link first
+        if ($apk && $apk->external_url) {
+            return redirect()->away($apk->external_url);
+        }
+
+        // 2. Fallback to global setting
         $externalLink = \App\Models\FrontSetting::get('apk_external_link');
         if ($externalLink) {
-            // Increment a general counter if needed, or just redirect
-            // For now, we just redirect to the external URL
             return redirect()->away($externalLink);
         }
 
