@@ -117,11 +117,10 @@
 
     @php
         // Server-side fallback: get latest APK so buttons work without JS
-        $__apkExternalLink = \App\Models\FrontSetting::get('apk_external_link');
+        // Use the global download_link setting directly (synced in ApkController)
+        $__latest_download = setting('download_link', '#');
+        
         $__latestApk = \App\Models\Apk::orderBy('created_at', 'desc')->first();
-
-        // Use external link if set, otherwise fallback to internal download route or '#'
-        $__latest_download = $__apkExternalLink ? $__apkExternalLink : ($__latestApk ? $__latestApk->download_url : '#');
         $__latest_play = $__latestApk && $__latestApk->play_store_url ? $__latestApk->play_store_url : null;
 
         // Server-side: fetch latest published articles directly from the model
@@ -163,8 +162,7 @@
                 <div class="flex items-center gap-4">
                     <a href="{{ $__latest_download }}" id="header-download-btn"
                         class="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-full font-medium transition-all hover:shadow-lg hover:scale-105 text-sm"
-                        @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download
-                        @endif>
+                        target="_blank" rel="noopener">
                         Download App
                     </a>
                     <button id="mobile-menu-btn" class="md:hidden p-2 text-slate-600 focus:outline-none">
@@ -190,7 +188,7 @@
                 <a href="#faq" class="text-xl font-medium text-slate-800 mobile-link">FAQ</a>
                 <a href="{{ $__latest_download }}" id="mobile-download-btn"
                     class="mt-4 bg-gradient-to-r from-brand-purple to-brand-pink text-white px-8 py-3 rounded-full font-bold shadow-lg mobile-link"
-                    @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download @endif>
+                    target="_blank" rel="noopener">
                     Download App
                 </a>
             </nav>
@@ -247,8 +245,7 @@
                         <!-- APK Button -->
                         <a href="{{ $__latest_download }}" id="apk-download-btn-hero"
                             class="flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-brand-purple/50 text-slate-700 px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:-translate-y-1 group"
-                            @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download
-                            @endif>
+                            target="_blank" rel="noopener">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
                                 stroke="currentColor" class="w-6 h-6 group-hover:text-brand-purple transition-colors">
                                 <path stroke-linecap="round" stroke-linejoin="round"
