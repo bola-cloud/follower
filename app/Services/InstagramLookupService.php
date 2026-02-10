@@ -96,7 +96,8 @@ class InstagramLookupService
             if (is_string($u->cookies)) {
                 $cookieKeys = preg_split('/;\s*/', $u->cookies);
                 $cookieSummary = array_map(function ($p) {
-                    return preg_replace('/=.*/', '', $p); }, $cookieKeys);
+                    return preg_replace('/=.*/', '', $p);
+                }, $cookieKeys);
             } else if (is_array($u->cookies)) {
                 $cookieSummary = array_keys($u->cookies);
             } else {
@@ -447,7 +448,8 @@ class InstagramLookupService
             if (is_string($u->cookies)) {
                 $cookieKeys = preg_split('/;\s*/', $u->cookies);
                 $cookieSummary = array_map(function ($p) {
-                    return preg_replace('/=.*/', '', $p); }, $cookieKeys);
+                    return preg_replace('/=.*/', '', $p);
+                }, $cookieKeys);
             } else if (is_array($u->cookies)) {
                 $cookieSummary = array_keys($u->cookies);
             } else {
@@ -485,16 +487,69 @@ class InstagramLookupService
                     }
                     $userPk = $json['data']['user']['id'] ?? null;
                     if ($userPk) {
-                        Log::info('[InstagramLookup] userPk found', ['user_id' => $u->id, 'userPk' => $userPk]);
+                        Log::info('[InstagramLookup] userPk found via primary endpoint', ['user_id' => $u->id, 'userPk' => $userPk]);
                         return (string) $userPk;
                     }
                 } else {
                     Log::warning('[InstagramLookup] userPk request non-OK', ['user_id' => $u->id, 'status' => $resp->status()]);
                 }
+
+                // --- Fallback: If primary fails, use search endpoint ---
+                $fallbackPk = $this->getUserPkFromSearchFallback($username, $cookieHeader, $csrf);
+                if ($fallbackPk) {
+                    return $fallbackPk;
+                }
             } catch (\Throwable $e) {
                 Log::warning('[InstagramLookup] userPk request failed', ['user_id' => $u->id, 'error' => $e->getMessage()]);
                 continue;
             }
+        }
+
+        return null;
+    }
+
+    protected function getUserPkFromSearchFallback(string $username, string $cookieHeader, ?string $csrf): ?string
+    {
+        try {
+            $url = "https://www.instagram.com/web/search/topsearch/?query=" . urlencode($username) . "&context=blended&include_reel=true";
+            $start = microtime(true);
+            $resp = Http::withHeaders([
+                'accept' => '*/*',
+                'accept-language' => 'en-US,en;q=0.9',
+                'cookie' => $cookieHeader,
+                'user-agent' => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36',
+                'x-csrftoken' => $csrf ?? '',
+                'x-requested-with' => 'XMLHttpRequest',
+                'referer' => 'https://www.instagram.com/',
+            ])->get($url);
+
+            $duration = round((microtime(true) - $start) * 1000);
+            Log::info('[InstagramLookup] userPk search fallback request completed', ['status' => $resp->status(), 'duration_ms' => $duration]);
+
+            if ($resp->ok()) {
+                $json = $resp->json();
+                $users = $json['users'] ?? null;
+                if (is_array($users) && !empty($users)) {
+                    foreach ($users as $userData) {
+                        $u = $userData['user'] ?? null;
+                        if (!$u)
+                            continue;
+
+                        $extractedUsername = $u['username'] ?? null;
+                        if (strtolower($extractedUsername) === strtolower($username)) {
+                            // Some responses use 'pk', others 'pk_id'
+                            $pk = $u['pk'] ?? $u['pk_id'] ?? null;
+                            if ($pk) {
+                                Log::info('[InstagramLookup] userPk found via search fallback', ['username' => $username, 'userPk' => $pk]);
+                                return (string) $pk;
+                            }
+                        }
+                    }
+                }
+                Log::warning('[InstagramLookup] userPk search fallback: no exact match found', ['username' => $username]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('[InstagramLookup] userPk search fallback failed', ['username' => $username, 'error' => $e->getMessage()]);
         }
 
         return null;
