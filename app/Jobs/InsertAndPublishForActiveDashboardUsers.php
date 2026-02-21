@@ -26,7 +26,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
     public function handle()
     {
-        Log::info('[InsertAndPublishForActiveDashboardUsers] started');
+        // Log::info('[InsertAndPublishForActiveDashboardUsers] started');
 
         $redis = app('redis')->connection();
 
@@ -63,7 +63,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             $activeUsers = [];
         }
 
-        Log::info('[InsertAndPublishForActiveDashboardUsers] active users count before ping', ['count' => count($activeUsers)]);
+        // Log::info('[InsertAndPublishForActiveDashboardUsers] active users count before ping', ['count' => count($activeUsers)]);
 
         // Decide whether to send an activation ping. Send only when:
         //  - there are uncompleted orders, AND
@@ -97,7 +97,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
         if ($shouldPing) {
             $coordBatchId = 'coord_' . $now . '_' . random_int(1000, 9999);
             try {
-                Log::info('[InsertAndPublishForActiveDashboardUsers] enqueuing activation ping to devices/activation/req', ['batch_id' => $coordBatchId]);
+                // Log::info('[InsertAndPublishForActiveDashboardUsers] enqueuing activation ping to devices/activation/req', ['batch_id' => $coordBatchId]);
 
                 $pingPayload = ['request' => 'ping'];
                 $job = json_encode([
@@ -120,7 +120,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
 
             // Wait a short period to allow devices/dashboard to respond and Redis to stabilize
-            Log::info('[InsertAndPublishForActiveDashboardUsers] waiting for ping responses', ['wait_seconds' => $waitSeconds]);
+            // Log::info('[InsertAndPublishForActiveDashboardUsers] waiting for ping responses', ['wait_seconds' => $waitSeconds]);
             sleep(max(1, $waitSeconds));
 
             try {
@@ -130,7 +130,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 Log::warning('[InsertAndPublishForActiveDashboardUsers] failed to re-read device_activations_set', ['error' => $e->getMessage()]);
                 $activeUsers = [];
             }
-            Log::info('[InsertAndPublishForActiveDashboardUsers] active users count after ping', ['count' => count($activeUsers)]);
+            // Log::info('[InsertAndPublishForActiveDashboardUsers] active users count after ping', ['count' => count($activeUsers)]);
         } else {
             Log::info('[InsertAndPublishForActiveDashboardUsers] skipping ping', ['has_uncompleted_orders' => $hasUncompletedOrders ?? false, 'active_count' => $activeCount ?? 0, 'time_since_last_ping' => $timeSinceLastPing ?? null]);
         }
@@ -182,14 +182,14 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             $lastRotatingId = 0;
         }
 
-        Log::info('[InsertAndPublishForActiveDashboardUsers] dynamic rotating window strategy', [
-            'total_limit' => $effectiveOrdersLimit,
-            'oldest_count' => $oldestCount,
-            'newest_count' => $newestCount,
-            'rotating_count' => $rotatingCount,
-            'last_rotating_id' => $lastRotatingId,
-            'percentages' => "{$oldestPercentage}% oldest / {$rotatingPercentage}% rotating / {$newestPercentage}% newest"
-        ]);
+        // Log::info('[InsertAndPublishForActiveDashboardUsers] dynamic rotating window strategy', [
+        //     'total_limit' => $effectiveOrdersLimit,
+        //     'oldest_count' => $oldestCount,
+        //     'newest_count' => $newestCount,
+        //     'rotating_count' => $rotatingCount,
+        //     'last_rotating_id' => $lastRotatingId,
+        //     'percentages' => "{$oldestPercentage}% oldest / {$rotatingPercentage}% rotating / {$newestPercentage}% newest"
+        // ]);
 
         $orders = collect();
 
@@ -226,10 +226,10 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
             // If we got fewer than requested, we've reached the end - restart from beginning
             if ($rotatingOrders->count() < $rotatingCount && $lastRotatingId > 0) {
-                Log::info('[InsertAndPublishForActiveDashboardUsers] rotating window reached end, restarting from beginning', [
-                    'fetched' => $rotatingOrders->count(),
-                    'needed' => $rotatingCount
-                ]);
+                // Log::info('[InsertAndPublishForActiveDashboardUsers] rotating window reached end, restarting from beginning', [
+                //     'fetched' => $rotatingOrders->count(),
+                //     'needed' => $rotatingCount
+                // ]);
 
                 $remaining = $rotatingCount - $rotatingOrders->count();
                 $restartOrders = Order::where('status', 'active')
@@ -265,12 +265,12 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
             }
 
             $orders = $orders->merge($rotatingOrders);
-            Log::info('[InsertAndPublishForActiveDashboardUsers] fetched rotating window orders', [
-                'count' => $rotatingOrders->count(),
-                'first_id' => $rotatingOrders->first()->id ?? null,
-                'last_id' => $rotatingOrders->last()->id ?? null,
-                'new_window_position' => $rotatingOrders->last()->id ?? $lastRotatingId
-            ]);
+            // Log::info('[InsertAndPublishForActiveDashboardUsers] fetched rotating window orders', [
+            //     'count' => $rotatingOrders->count(),
+            //     'first_id' => $rotatingOrders->first()->id ?? null,
+            //     'last_id' => $rotatingOrders->last()->id ?? null,
+            //     'new_window_position' => $rotatingOrders->last()->id ?? $lastRotatingId
+            // ]);
         }
 
         // 3. Fetch NEWEST orders (ensure fresh orders start processing)
@@ -285,22 +285,22 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                 ->get();
 
             $orders = $orders->merge($newestOrders);
-            Log::info('[InsertAndPublishForActiveDashboardUsers] fetched newest orders', [
-                'count' => $newestOrders->count(),
-                'first_id' => $newestOrders->first()->id ?? null,
-                'last_id' => $newestOrders->last()->id ?? null
-            ]);
+            // Log::info('[InsertAndPublishForActiveDashboardUsers] fetched newest orders', [
+            //     'count' => $newestOrders->count(),
+            //     'first_id' => $newestOrders->first()->id ?? null,
+            //     'last_id' => $newestOrders->last()->id ?? null
+            // ]);
         }
 
         // Remove duplicates (order may appear in multiple batches)
         $orders = $orders->unique('id');
 
-        Log::info('[InsertAndPublishForActiveDashboardUsers] orders selected (initial)', [
-            'total_count' => $orders->count(),
-            'oldest_batch' => $oldestCount,
-            'rotating_batch' => $rotatingCount,
-            'newest_batch' => $newestCount
-        ]);
+        // Log::info('[InsertAndPublishForActiveDashboardUsers] orders selected (initial)', [
+        //     'total_count' => $orders->count(),
+        //     'oldest_batch' => $oldestCount,
+        //     'rotating_batch' => $rotatingCount,
+        //     'newest_batch' => $newestCount
+        // ]);
 
         // Global publish collection to enforce total and per-user caps
         $publishList = []; // each item: ['user_id' => int, 'order_id' => int, 'payload' => array]
@@ -341,7 +341,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
         foreach ($orders as $order) {
             try {
-                Log::info('[InsertAndPublishForActiveDashboardUsers] preparing order', ['order_id' => $order->id, 'total_count' => $order->total_count]);
+                // Log::info('[InsertAndPublishForActiveDashboardUsers] preparing order', ['order_id' => $order->id, 'total_count' => $order->total_count]);
 
                 $doneCount = DB::table('actions')
                     ->where('order_id', $order->id)
@@ -349,7 +349,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
                     ->count();
 
                 $available = max(0, $order->total_count - $doneCount);
-                Log::info('[InsertAndPublishForActiveDashboardUsers] order capacity', ['order_id' => $order->id, 'done' => $doneCount, 'available' => $available]);
+                // Log::info('[InsertAndPublishForActiveDashboardUsers] order capacity', ['order_id' => $order->id, 'done' => $doneCount, 'available' => $available]);
 
                 if ($available <= 0) {
                     continue;
@@ -451,7 +451,7 @@ class InsertAndPublishForActiveDashboardUsers implements ShouldQueue
 
                     $t1 = microtime(true);
                     $elapsedMs = round(($t1 - $t0) * 1000, 2);
-                    Log::info('[ResumeOrderService] batchCheckEligibility completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs, 'eligible_count' => count($eligibleIdsAll)]);
+                    // Log::info('[ResumeOrderService] batchCheckEligibility completed', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs, 'eligible_count' => count($eligibleIdsAll)]);
                     if ($elapsedMs > 500) {
                         Log::warning('[ResumeOrderService] batchCheckEligibility slow', ['order_id' => $order->id, 'elapsed_ms' => $elapsedMs]);
                     }

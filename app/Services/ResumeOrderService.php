@@ -239,11 +239,11 @@ class ResumeOrderService
         $targetId = strtolower(preg_replace('#^.*/#', '', $normalizedTarget));
 
         // DEBUG: Log normalization details
-        Log::info('[batchCheckEligibility] URL normalization', [
-            'order_id' => $order->id,
-            'original_url' => $order->target_url,
-            'normalized_url' => $normalizedTarget
-        ]);
+        // Log::info('[batchCheckEligibility] URL normalization', [
+        //     'order_id' => $order->id,
+        //     'original_url' => $order->target_url,
+        //     'normalized_url' => $normalizedTarget
+        // ]);
 
         // Get pending users for this order (intersected with candidates)
         $pendingUserIds = DB::table('actions')
@@ -374,11 +374,11 @@ class ResumeOrderService
         $result = array_values(array_unique(array_merge($pendingUserIds, $eligibleUserIds)));
 
         $elapsed = round((microtime(true) - $startTime) * 1000, 2);
-        Log::info('[ResumeOrderService] batchCheckEligibility completed', [
-            'order_id' => $order->id,
-            'elapsed_ms' => $elapsed,
-            'eligible_count' => count($result)
-        ]);
+        // Log::info('[ResumeOrderService] batchCheckEligibility completed', [
+        //     'order_id' => $order->id,
+        //     'elapsed_ms' => $elapsed,
+        //     'eligible_count' => count($result)
+        // ]);
 
         if ($elapsed > 5000) {
             Log::warning('[ResumeOrderService] batchCheckEligibility slow', [
