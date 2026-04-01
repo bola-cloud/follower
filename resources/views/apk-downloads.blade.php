@@ -178,7 +178,7 @@
                         </div>
 
                         <div class="space-y-2">
-                            <a href="${apk.download_url}" class="w-full py-3 px-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
+                            <a href="#" onclick="downloadApk(event, ${apk.id})" class="w-full py-3 px-4 bg-gradient-to-r from-purple-600 to-pink-600 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity flex items-center justify-center gap-2">
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
                                 </svg>
@@ -194,6 +194,38 @@
                     </div>
                 `;
             }).join('');
+        }
+
+        function downloadApk(e, apkId) {
+            if (e) e.preventDefault();
+            if (!apkId) return;
+
+            const btn = e.currentTarget;
+            
+            // Add loading state
+            const originalOpacity = btn.style.opacity;
+            btn.style.opacity = '0.7';
+            btn.style.pointerEvents = 'none';
+
+            fetch(`/api/apk/generate-link/${apkId}`)
+                .then(res => res.json())
+                .then(data => {
+                    // Revert state
+                    btn.style.opacity = originalOpacity || '1';
+                    btn.style.pointerEvents = 'auto';
+
+                    if (data.status === 'success') {
+                        window.location.href = data.url;
+                    } else {
+                        alert(data.message || 'Error generating download link.');
+                    }
+                })
+                .catch(err => {
+                    btn.style.opacity = originalOpacity || '1';
+                    btn.style.pointerEvents = 'auto';
+                    alert('An error occurred while generating the secure download link.');
+                    console.error(err);
+                });
         }
     </script>
 </body>

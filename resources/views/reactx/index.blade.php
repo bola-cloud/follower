@@ -321,6 +321,10 @@
   <script>
     // Load APK statistics on page load
     document.addEventListener('DOMContentLoaded', function () {
+      // Explicitly clear the external download link field at start as requested
+      const apkLinkInput = document.querySelector('input[name="apk_link"]');
+      if (apkLinkInput) apkLinkInput.value = '';
+      
       loadApkData();
       // Refresh every 30 seconds
       setInterval(loadApkData, 30000);

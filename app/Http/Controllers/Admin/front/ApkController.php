@@ -106,8 +106,8 @@ class ApkController extends Controller
             Apk::where('status', 'live')->where('id', '!=', $apk->id)->update(['status' => 'pending']);
 
             // 3. Update global settings for API and Admin Settings page
-            // PRIORITY: Physical File > External Link
-            $finalUrl = $directStorageLink ?: $apkLink;
+            // PRIORITY: External Link > Physical File (matching the label "Overrides File")
+            $finalUrl = $apkLink ?: $directStorageLink;
 
             if ($finalUrl) {
                 \App\Models\Setting::updateOrCreate(['key' => 'download_link'], ['value' => $finalUrl]);
@@ -152,6 +152,40 @@ class ApkController extends Controller
         }
 
         return $this->download($apk->id);
+    }
+
+    /**
+     * Generate a secure download link (JSON response for AJAX triggers)
+     */
+    public function generateDownloadLink($id)
+    {
+        $apk = Apk::findOrFail($id);
+
+        // Get user identifier (IP + User-Agent) to prevent duplicate counts from same client
+        $userIdentifier = md5($_SERVER['REMOTE_ADDR'] . ($_SERVER['HTTP_USER_AGENT'] ?? ''));
+        $cacheKey = "download_{$id}_{$userIdentifier}";
+
+        // Only increment if this user hasn't downloaded this APK in the last 30 seconds
+        if (!cache()->has($cacheKey)) {
+            $apk->increment('download_count');
+            cache()->put($cacheKey, true, now()->addSeconds(30));
+        }
+
+        // Determine final URL (Local first, then External)
+        if ($apk->file_path && Storage::disk('public')->exists($apk->file_path)) {
+            $url = asset('storage/' . $apk->file_path);
+        } else {
+            $url = $apk->external_url ?: \App\Models\FrontSetting::get('apk_external_link');
+        }
+
+        if (!$url || $url === '#') {
+            return response()->json(['status' => 'error', 'message' => 'No download link available.'], 404);
+        }
+
+        return response()->json([
+            'status' => 'success',
+            'url' => $url
+        ]);
     }
 
     /**
@@ -351,7 +385,7 @@ class ApkController extends Controller
             \App\Models\FrontSetting::set('apk_external_link', $apkLink);
 
             $directStorageLink = url('storage/' . $finalRelPath);
-            $finalUrl = $directStorageLink ?: $apkLink;
+            $finalUrl = $apkLink ?: $directStorageLink;
 
             if ($finalUrl) {
                 \App\Models\Setting::updateOrCreate(['key' => 'download_link'], ['value' => $finalUrl]);

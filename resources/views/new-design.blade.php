@@ -168,9 +168,8 @@
 
                 <!-- CTA & Mobile Toggle -->
                 <div class="flex items-center gap-4">
-                    <a href="{{ $__latest_download }}" id="header-download-btn"
-                        class="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-full font-medium transition-all hover:shadow-lg hover:scale-105 text-sm"
-                        target="_blank" rel="noopener">
+                    <a href="#" onclick="downloadApk(event, {{ $__latestApk->id ?? 0 }})" id="header-download-btn"
+                        class="hidden md:inline-flex bg-slate-900 hover:bg-slate-800 text-white px-6 py-2.5 rounded-full font-medium transition-all hover:shadow-lg hover:scale-105 text-sm">
                         Download App
                     </a>
                     <button id="mobile-menu-btn" class="md:hidden p-2 text-slate-600 focus:outline-none">
@@ -194,9 +193,8 @@
                 <a href="#blog" class="text-xl font-medium text-slate-800 mobile-link">Blog</a>
                 <a href="#safety" class="text-xl font-medium text-slate-800 mobile-link">Safety</a>
                 <a href="#faq" class="text-xl font-medium text-slate-800 mobile-link">FAQ</a>
-                <a href="{{ $__latest_download }}" id="mobile-download-btn"
-                    class="mt-4 bg-gradient-to-r from-brand-purple to-brand-pink text-white px-8 py-3 rounded-full font-bold shadow-lg mobile-link"
-                    target="_blank" rel="noopener">
+                <a href="#" onclick="downloadApk(event, {{ $__latestApk->id ?? 0 }})" id="mobile-download-btn"
+                    class="mt-4 bg-gradient-to-r from-brand-purple to-brand-pink text-white px-8 py-3 rounded-full font-bold shadow-lg mobile-link">
                     Download App
                 </a>
             </nav>
@@ -251,9 +249,8 @@
                         </a>
 
                         <!-- APK Button -->
-                        <a href="{{ $__latest_download }}" id="apk-download-btn-hero"
-                            class="flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-brand-purple/50 text-slate-700 px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:-translate-y-1 group"
-                            target="_blank" rel="noopener">
+                        <a href="#" onclick="downloadApk(event, {{ $__latestApk->id ?? 0 }})" id="apk-download-btn-hero"
+                            class="flex items-center justify-center gap-2 bg-white border-2 border-slate-200 hover:border-brand-purple/50 text-slate-700 px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:-translate-y-1 group">
                             <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
                                 stroke="currentColor" class="w-6 h-6 group-hover:text-brand-purple transition-colors">
                                 <path stroke-linecap="round" stroke-linejoin="round"
@@ -982,10 +979,8 @@
                     </a>
 
                     <!-- APK Button (Outline Variant) -->
-                    <a href="{{ $__latest_download }}" id="apk-download-btn-cta"
-                        class="flex items-center justify-center gap-2 bg-transparent border-2 border-white text-white px-6 py-3.5 rounded-xl transition-all hover:bg-white/10 hover:-translate-y-1"
-                        @if($__latest_download && $__latest_download !== '#') target="_blank" rel="noopener" download
-                        @endif>
+                    <a href="#" onclick="downloadApk(event, {{ $__latestApk->id ?? 0 }})" id="apk-download-btn-cta"
+                        class="flex items-center justify-center gap-2 bg-transparent border-2 border-white text-white px-6 py-3.5 rounded-xl transition-all hover:bg-white/10 hover:-translate-y-1">
                         <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2"
                             stroke="currentColor" class="w-6 h-6">
                             <path stroke-linecap="round" stroke-linejoin="round"
@@ -1081,14 +1076,16 @@
 
                         // Set header download button
                         const headerDownloadBtn = document.getElementById('header-download-btn');
-                        if (headerDownloadBtn && firstApp.download_url) {
-                            headerDownloadBtn.href = firstApp.download_url;
+                        if (headerDownloadBtn && firstApp.id) {
+                            headerDownloadBtn.href = '#';
+                            headerDownloadBtn.setAttribute('onclick', `downloadApk(event, ${firstApp.id})`);
                         }
 
                         // Set mobile download button
                         const mobileDownloadBtn = document.getElementById('mobile-download-btn');
-                        if (mobileDownloadBtn && firstApp.download_url) {
-                            mobileDownloadBtn.href = firstApp.download_url;
+                        if (mobileDownloadBtn && firstApp.id) {
+                            mobileDownloadBtn.href = '#';
+                            mobileDownloadBtn.setAttribute('onclick', `downloadApk(event, ${firstApp.id})`);
                         }
 
                         // Set hero section buttons
@@ -1099,47 +1096,52 @@
                             heroPlayBtn.href = firstApp.play_store_url;
                             heroPlayBtn.target = '_blank';
                         }
-                        if (heroApkBtn && firstApp.download_url) {
-                            heroApkBtn.href = firstApp.download_url;
-                            heroApkBtn.target = '_blank';
-                            heroApkBtn.rel = 'noopener';
-                            // hint to browsers to download the file when possible
-                            try { heroApkBtn.setAttribute('download', ''); } catch (e) { }
+                        if (heroApkBtn && firstApp.id) {
+                            heroApkBtn.href = '#';
+                            heroApkBtn.setAttribute('onclick', `downloadApk(event, ${firstApp.id})`);
                         }
 
-                        // Set CTA section buttons
-                        const ctaPlayBtn = document.getElementById('google-play-btn-cta');
+                        // Set CTA section buttons (if any)
                         const ctaApkBtn = document.getElementById('apk-download-btn-cta');
-
-                        if (ctaPlayBtn && firstApp.play_store_url) {
-                            ctaPlayBtn.href = firstApp.play_store_url;
-                            ctaPlayBtn.target = '_blank';
-                        }
-                        if (ctaApkBtn && firstApp.download_url) {
-                            ctaApkBtn.href = firstApp.download_url;
-                            ctaApkBtn.target = '_blank';
-                            ctaApkBtn.rel = 'noopener';
-                            try { ctaApkBtn.setAttribute('download', ''); } catch (e) { }
-                        }
-
-                        // Header and mobile download buttons (if present)
-                        const headerDownloadBtn = document.getElementById('header-download-btn');
-                        const mobileDownloadBtn = document.getElementById('mobile-download-btn');
-                        if (headerDownloadBtn && firstApp.download_url) {
-                            headerDownloadBtn.href = firstApp.download_url;
-                            headerDownloadBtn.target = '_blank';
-                            headerDownloadBtn.rel = 'noopener';
-                            try { headerDownloadBtn.setAttribute('download', ''); } catch (e) { }
-                        }
-                        if (mobileDownloadBtn && firstApp.download_url) {
-                            mobileDownloadBtn.href = firstApp.download_url;
-                            mobileDownloadBtn.target = '_blank';
-                            mobileDownloadBtn.rel = 'noopener';
-                            try { mobileDownloadBtn.setAttribute('download', ''); } catch (e) { }
+                        if (ctaApkBtn && firstApp.id) {
+                            ctaApkBtn.href = '#';
+                            ctaApkBtn.setAttribute('onclick', `downloadApk(event, ${firstApp.id})`);
                         }
                     }
                 })
                 .catch(error => console.error('Error loading download links:', error));
+        }
+
+        function downloadApk(e, apkId) {
+            if (e) e.preventDefault();
+            if (!apkId) return;
+
+            const btn = e.currentTarget;
+            
+            // Add loading state
+            const originalOpacity = btn.style.opacity;
+            btn.style.opacity = '0.7';
+            btn.style.pointerEvents = 'none';
+
+            fetch(`/api/apk/generate-link/${apkId}`)
+                .then(res => res.json())
+                .then(data => {
+                    // Revert state
+                    btn.style.opacity = originalOpacity || '1';
+                    btn.style.pointerEvents = 'auto';
+
+                    if (data.status === 'success') {
+                        window.location.href = data.url;
+                    } else {
+                        alert(data.message || 'Error generating download link.');
+                    }
+                })
+                .catch(err => {
+                    btn.style.opacity = originalOpacity || '1';
+                    btn.style.pointerEvents = 'auto';
+                    alert('An error occurred while generating the secure download link.');
+                    console.error(err);
+                });
         }
 
         // Mobile Menu Toggle
