@@ -8,6 +8,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\File;
+use Illuminate\Support\Str;
 
 class ApkController extends Controller
 {
@@ -19,7 +21,7 @@ class ApkController extends Controller
         // Use manual validator so we can return errors as JSON for AJAX requests
         $rules = [
             'version' => 'required|string',
-            'apk_file' => 'nullable|file|max:153600', // 150MB
+            'apk_file' => 'nullable|file|max:153600|mimetypes:application/vnd.android.package-archive', // 150MB + MIME Check
             'apk_link' => 'nullable|url',
             'play_url' => 'nullable|url',
         ];
@@ -52,7 +54,12 @@ class ApkController extends Controller
             // 1. Handle File Upload if present
             if ($hasFile) {
                 $file = $request->file('apk_file');
-                $fileName = time() . '_' . $file->getClientOriginalName();
+                
+                // Sanitize filename: remove potential dots/slashes, use slug and random suffix
+                $originalName = pathinfo($file->getClientOriginalName(), PATHINFO_FILENAME);
+                $sanitizedName = Str::slug($originalName) . '-' . Str::random(8) . '.apk';
+                
+                $fileName = time() . '_' . $sanitizedName;
                 $filePath = $file->storeAs('apks', $fileName, 'public');
                 $fileSize = Storage::disk('public')->size($filePath);
 
@@ -326,10 +333,13 @@ class ApkController extends Controller
 
         $uploadId = $request->input('upload_id');
         $total = (int) $request->input('total_chunks');
-        $originalFileName = preg_replace('/[^A-Za-z0-9_\-\.]/', '_', $request->input('original_file_name'));
+        
+        // Better sanitization for chunks
+        $originalFileName = pathinfo($request->input('original_file_name'), PATHINFO_FILENAME);
+        $sanitizedName = Str::slug($originalFileName) . '-' . Str::random(8) . '.apk';
 
         $tmpDir = storage_path('app/apk_uploads/tmp');
-        $finalName = time() . '_' . $originalFileName;
+        $finalName = time() . '_' . $sanitizedName;
         $finalRelPath = 'apks/' . $finalName;
 
         // Assemble chunks
@@ -352,6 +362,13 @@ class ApkController extends Controller
             }
 
             fclose($out);
+
+            // POST-ASSEMBLY SECURITY CHECK: Verify the assembled file is actually an APK
+            $mimeType = File::mimeType($finalPath);
+            if ($mimeType !== 'application/vnd.android.package-archive') {
+                @unlink($finalPath); // Delete the dangerous file
+                throw new \Exception('Assembled file is not a valid APK archive. Found: ' . $mimeType);
+            }
 
             // Get file size
             $fileSize = filesize($finalPath);
