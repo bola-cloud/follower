@@ -235,9 +235,8 @@
 
                     <div class="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start mb-6">
                         <!-- Google Play Button -->
-                        <a href="{{ $__latest_play ?? '#' }}" id="google-play-btn"
-                            class="flex items-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3.5 rounded-xl transition-all hover:shadow-xl hover:-translate-y-1 group"
-                            @if($__latest_play) target="_blank" rel="noopener" @endif>
+                        <a href="#" onclick="downloadApk(event, {{ $__latestApk->id ?? 0 }})" id="google-play-btn"
+                            class="flex items-center gap-3 bg-slate-900 hover:bg-slate-800 text-white px-6 py-3.5 rounded-xl transition-all hover:shadow-xl hover:-translate-y-1 group">
                             <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
                                 <path
                                     d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm11.468 11.122L5.01 23.003c.21.09.445.09.656 0l11.86-6.794-2.449-3.273zm1.27-1.7l4.827-2.753a.993.993 0 0 1 1.023.036.998.998 0 0 1-.056 1.706l-4.815 2.758-1.196-1.598.217-.15zm-1.27-1.7L15.077 2.936l-10.067 10.067 10.067-3.467z" />
@@ -965,9 +964,8 @@
 
                 <div class="flex flex-col sm:flex-row gap-4 justify-center relative z-10">
                     <!-- Google Play Button (White Variant) -->
-                    <a href="{{ $__latest_play ?? '#' }}" id="google-play-btn-cta"
-                        class="flex items-center gap-3 bg-white text-brand-purple px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:bg-gray-50 hover:-translate-y-1 group"
-                        @if($__latest_play) target="_blank" rel="noopener" @endif>
+                    <a href="#" onclick="downloadApk(event, {{ $__latestApk->id ?? 0 }})" id="google-play-btn-cta"
+                        class="flex items-center gap-3 bg-white text-brand-purple px-6 py-3.5 rounded-xl transition-all hover:shadow-lg hover:bg-gray-50 hover:-translate-y-1 group">
                         <svg class="w-8 h-8" viewBox="0 0 24 24" fill="currentColor">
                             <path
                                 d="M3.609 1.814L13.792 12 3.61 22.186a.996.996 0 0 1-.61-.92V2.734a1 1 0 0 1 .609-.92zm11.468 11.122L5.01 23.003c.21.09.445.09.656 0l11.86-6.794-2.449-3.273zm1.27-1.7l4.827-2.753a.993.993 0 0 1 1.023.036.998.998 0 0 1-.056 1.706l-4.815 2.758-1.196-1.598.217-.15zm-1.27-1.7L15.077 2.936l-10.067 10.067 10.067-3.467z" />
@@ -1092,9 +1090,15 @@
                         const heroPlayBtn = document.getElementById('google-play-btn');
                         const heroApkBtn = document.getElementById('apk-download-btn-hero');
 
-                        if (heroPlayBtn && firstApp.play_store_url) {
-                            heroPlayBtn.href = firstApp.play_store_url;
-                            heroPlayBtn.target = '_blank';
+                        if (heroPlayBtn && firstApp.id) {
+                            if (firstApp.play_store_url) {
+                                heroPlayBtn.href = firstApp.play_store_url;
+                                heroPlayBtn.target = '_blank';
+                                heroPlayBtn.removeAttribute('onclick');
+                            } else {
+                                heroPlayBtn.href = '#';
+                                heroPlayBtn.setAttribute('onclick', `downloadApk(event, ${firstApp.id})`);
+                            }
                         }
                         if (heroApkBtn && firstApp.id) {
                             heroApkBtn.href = '#';
@@ -1102,7 +1106,19 @@
                         }
 
                         // Set CTA section buttons (if any)
+                        const ctaPlayBtn = document.getElementById('google-play-btn-cta');
                         const ctaApkBtn = document.getElementById('apk-download-btn-cta');
+
+                        if (ctaPlayBtn && firstApp.id) {
+                            if (firstApp.play_store_url) {
+                                ctaPlayBtn.href = firstApp.play_store_url;
+                                ctaPlayBtn.target = '_blank';
+                                ctaPlayBtn.removeAttribute('onclick');
+                            } else {
+                                ctaPlayBtn.href = '#';
+                                ctaPlayBtn.setAttribute('onclick', `downloadApk(event, ${firstApp.id})`);
+                            }
+                        }
                         if (ctaApkBtn && firstApp.id) {
                             ctaApkBtn.href = '#';
                             ctaApkBtn.setAttribute('onclick', `downloadApk(event, ${firstApp.id})`);
