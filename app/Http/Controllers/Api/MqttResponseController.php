@@ -693,17 +693,17 @@ class MqttResponseController extends Controller
         }
 
         // Final trace log: this is the last place the triggerOrder flow reaches
-        try {
-            \Log::info('[triggerOrder] reached final return (order/ping/res)', [
-                'order_id' => $orderId,
-                'user_id' => $userId,
-                'type' => $type,
-                'message_id' => $validated['message_id'] ?? null,
-                'result_summary' => is_array($result) ? array_slice($result, 0, 10) : $result,
-            ]);
-        } catch (\Throwable $_e) {
-            // Swallow logging errors to avoid breaking response flow
-        }
+        // try {
+        //     \Log::info('[triggerOrder] reached final return (order/ping/res)', [
+        //         'order_id' => $orderId,
+        //         'user_id' => $userId,
+        //         'type' => $type,
+        //         'message_id' => $validated['message_id'] ?? null,
+        //         'result_summary' => is_array($result) ? array_slice($result, 0, 10) : $result,
+        //     ]);
+        // } catch (\Throwable $_e) {
+        //     // Swallow logging errors to avoid breaking response flow
+        // }
 
         return response()->json($result);
     }

@@ -103,19 +103,13 @@ class MqttPublisherRedis
                 Log::warning('[MqttPublisherRedis] dedupe check failed, proceeding to enqueue', ['error' => $e->getMessage()]);
             }
 
-            // Diagnostic info (ERROR level so it appears in production logs)
-            try {
-                $diag = [
-                    'redis_host' => env('REDIS_HOST') ?: null,
-                    'redis_port' => env('REDIS_PORT') ?: null,
-                    'redis_db' => env('REDIS_DB') ?: null,
+            // Log diagnostics only in debug mode or remove entirely for production
+            if (config('app.debug') && env('DEBUG_MQTT_PUBLISHER_VERBOSE')) {
+                Log::debug('[MqttPublisherRedis] enqueue diagnostics', [
                     'env_queue_key' => env('MQTT_QUEUE_KEY') ?: $this->key,
                     'using_connection' => $usedConnection,
                     'pipeline_started_at' => time(),
-                ];
-                Log::error('[MqttPublisherRedis] enqueue diagnostics', $diag);
-            } catch (\Throwable $__d) {
-                // ignore diag logging errors
+                ]);
             }
 
             $notifyChannel = env('MQTT_QUEUE_PUBSUB_CHANNEL', $this->key . ':notify');
@@ -127,11 +121,9 @@ class MqttPublisherRedis
                 $pipe->publish($notifyChannel, '1'); // best-effort wake up
             });
 
-            // Record pipeline results for debugging (ERROR level for production visibility)
-            try {
-                Log::error('[MqttPublisherRedis] pipeline results', ['results' => $results]);
-            } catch (\Throwable $__l) {
-                // ignore
+            // Log pipeline results only in debug mode
+            if (config('app.debug') && env('DEBUG_MQTT_PUBLISHER_VERBOSE')) {
+                Log::debug('[MqttPublisherRedis] pipeline results', ['results' => $results]);
             }
 
             // RPUSH result is index 0 in pipeline results
@@ -141,18 +133,12 @@ class MqttPublisherRedis
                 return false;
             }
 
-            try {
-                // Also log dedupe key and a small payload sample for tracing duplicates
-                $dedupeKey = 'mqtt:recent_publish:' . md5($job['topic'] . '|' . $job['payload']);
+            // Keep only a lightweight log for success if verbose is enabled
+            if (env('DEBUG_MQTT_PUBLISHER_VERBOSE')) {
                 Log::info('[MqttPublisherRedis] enqueued', [
-                    'key' => $this->key,
-                    'len' => $rpushRes,
                     'topic' => $job['topic'],
-                    'dedupe_key' => $dedupeKey,
-                    'payload_sample' => mb_substr($job['payload'], 0, 200)
+                    'len' => $results[0] ?? 'unknown'
                 ]);
-            } catch (\Throwable $e) {
-                // ignore logging errors
             }
 
             return true;

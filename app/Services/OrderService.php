@@ -85,10 +85,7 @@ class OrderService
      */
     public function getEligibleUsers(Order $order)
     {
-        Log::error('[ResumeOrderService] getEligibleUsers start', [
-            'order_id' => $order->id ?? null,
-            'target_url' => $order->target_url ?? null
-        ]);
+        // Removed noisy entry log
 
         // Get pending users and new eligible users similar to resume method
         $pendingUserIds = DB::table('actions')
@@ -160,10 +157,7 @@ class OrderService
 
     private function createPendingActions(Order $order, $eligibleUsers)
     {
-        Log::error('[OrderService] createPendingActions start', [
-            'order_id' => $order->id ?? null,
-            'eligible_users_count' => $eligibleUsers->count()
-        ]);
+        // Removed noisy entry log
         if ($eligibleUsers->isEmpty()) {
             return;
         }
@@ -210,12 +204,7 @@ class OrderService
      */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
-        Log::info('[ResumeOrderService] publishOrderAnnouncement start', [
-            'order_id' => $orderId ?? null,
-            'user_id'  => $userId ?? null,
-            'type'     => $type ?? null,
-            'url'      => $url ?? null
-        ]);
+        // Removed noisy entry log
 
         // Skip paused orders
         try {
@@ -254,7 +243,7 @@ class OrderService
             'mediaId'  => $mediaId,
             'userPk'   => $userPkVal,
         ];
-        Log::info('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
+        // Removed noisy payload log
 
         // 1) Fast path: enqueue to Redis worker
         $enqueued = false;
@@ -292,10 +281,7 @@ class OrderService
 
     private function publishToMqtt($topic, $data)
     {
-        Log::error('[OrderService] publishToMqtt start', [
-            'topic' => $topic ?? null,
-            'data_sample' => is_array($data) ? array_slice($data,0,5) : null
-        ]);
+        // Removed noisy entry log
         $json = json_encode($data, JSON_UNESCAPED_UNICODE);
         $command = "mosquitto_pub -h 109.199.112.65 -p 1883 -t {$topic} -m " . escapeshellarg($json) . " -q 1";
         exec($command . " > /dev/null 2>&1 &");
@@ -303,10 +289,7 @@ class OrderService
 
     private function checkUserEligibility(Order $order, User $user): bool
     {
-        Log::error('[OrderService] checkUserEligibility start', [
-            'order_id' => $order->id ?? null,
-            'user_id' => $user->id ?? null
-        ]);
+        // Removed noisy entry log
         $eligibleUsers = $this->getEligibleUsers($order);
 
         // Use a more efficient lookup by creating an array of eligible user IDs
@@ -319,11 +302,7 @@ class OrderService
     public function handle(Order $order, User $user): array
     {
         // Clear, focused logging for create operation
-        \Log::error('[OrderService] handle start', [
-            'user_id' => $user->id ?? null,
-            'order_id' => $order->id ?? null,
-            'order_type' => $order->type ?? null
-        ]);
+        // Removed noisy entry log
         // No transaction or lock needed here - triggerOrder already validated slots and eligibility
         // Just check basic eligibility and create the action
 

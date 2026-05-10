@@ -203,10 +203,7 @@ class ResumeOrderService
      */
     public function batchInsertPendingAction(Order $order, array $userIds): array
     {
-        Log::error('[ResumeOrderService] batchInsertPendingAction start', [
-            'order_id' => $order->id ?? null,
-            'user_ids_count' => count($userIds)
-        ]);
+        // Removed noisy entry log
 
         // Delegate batch insertion to the centralized BatchActionService
         $batchService = app(\App\Services\BatchActionService::class);
@@ -392,10 +389,7 @@ class ResumeOrderService
 
     public function checkUserEligibility(Order $order, User $user): bool
     {
-        Log::error('[ResumeOrderService] checkUserEligibility start', [
-            'order_id' => $order->id ?? null,
-            'user_id' => $user->id ?? null
-        ]);
+        // Removed noisy entry log
 
         // Use the centralized batch eligibility check for single user
         $eligibleUserIds = $this->batchCheckEligibility($order, [$user->id]);
@@ -677,12 +671,7 @@ class ResumeOrderService
      */
     private function publishOrderAnnouncement($userId, $orderId, $type, $url)
     {
-        Log::info('[ResumeOrderService] publishOrderAnnouncement start', [
-            'order_id' => $orderId ?? null,
-            'user_id' => $userId ?? null,
-            'type' => $type ?? null,
-            'url' => $url ?? null
-        ]);
+        // Removed noisy entry log
 
         // Skip paused orders
         try {
@@ -749,7 +738,7 @@ class ResumeOrderService
         if ($comment) {
             $payloadArray['comment'] = $comment;
         }
-        Log::error('[ResumeOrderService] publishOrderAnnouncement payload', $payloadArray);
+        // Removed noisy payload log
 
         // 1) Fast path: enqueue to Redis worker
         $enqueued = false;
@@ -761,7 +750,10 @@ class ResumeOrderService
         }
 
         if ($enqueued) {
-            Log::error('[ResumeOrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId, 'queue_key' => env('MQTT_QUEUE_KEY', env('REDIS_QUEUE_KEY', 'mqtt:publish'))]);
+            // Log only if verbose debugging is enabled
+            if (env('DEBUG_MQTT_PUBLISHER_VERBOSE')) {
+                Log::info('[ResumeOrderService] Enqueued publish job (queue mode)', ['order_id' => $orderId, 'user_id' => $userId]);
+            }
             return;
         }
 

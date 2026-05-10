@@ -454,13 +454,17 @@ client.on('connect', () => {
 });
 
 client.on('message', async (topic, message) => {
-  // CRITICAL: Log EVERY message received (even before parsing)
-  console.log(`🔔 MQTT RAW MESSAGE -> topic: ${topic} | size: ${message.length} bytes`);
+  // Log only in debug mode to avoid saturating PM2 logs
+  if (DEBUG) {
+    console.log(`🔔 MQTT RAW MESSAGE -> topic: ${topic} | size: ${message.length} bytes`);
+  }
 
   let payload;
   try {
     payload = JSON.parse(message.toString());
-    console.log(`🔔 MQTT PARSED -> topic: ${topic} | payload: ${JSON.stringify(payload).substring(0, 200)}`);
+    if (DEBUG) {
+      console.log(`🔔 MQTT PARSED -> topic: ${topic} | payload: ${JSON.stringify(payload).substring(0, 200)}`);
+    }
   } catch (err) {
     console.error('❌ Failed to parse JSON message:', err.message, 'raw:', message.toString().substring(0, 100));
     return;
@@ -610,8 +614,10 @@ client.on('message', async (topic, message) => {
     const user_id = parseInt(respMatch[2], 10);
     const { status } = payload;
 
-    // Always log order responses to track if devices are responding
-    console.log(`📨 order/res received: order_id=${order_id}, user_id=${user_id}, status=${status}, ORDER_RES_BATCH_ENABLED=${ORDER_RES_BATCH_ENABLED}, batch_size=${orderResponseBatch.length}`);
+    // Log order responses only in debug or periodically
+    if (DEBUG || orderResponseBatch.length % 100 === 0) {
+      console.log(`📨 order/res received: order_id=${order_id}, user_id=${user_id}, status=${status}`);
+    }
 
     if (!status || Number.isNaN(order_id) || Number.isNaN(user_id)) {
       console.warn('⚠️ Missing fields in order response payload:', { topic, payload });
@@ -637,7 +643,9 @@ client.on('message', async (topic, message) => {
     // ✅ BATCH MODE: Accumulate order responses for batch processing
     if (ORDER_RES_BATCH_ENABLED) {
       orderResponseBatch.push(actionData);
-      console.log(`📊 Order response added to batch: ${orderResponseBatch.length}/${ORDER_RES_BATCH_SIZE} (order_id=${order_id}, user_id=${user_id})`);
+      if (DEBUG || orderResponseBatch.length % 100 === 0) {
+        console.log(`📊 Order response added to batch: ${orderResponseBatch.length}/${ORDER_RES_BATCH_SIZE}`);
+      }
 
       // Flush immediately if batch is full
       if (orderResponseBatch.length >= ORDER_RES_BATCH_SIZE) {
