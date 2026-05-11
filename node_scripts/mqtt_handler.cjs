@@ -92,9 +92,10 @@ function sleep(ms) {
 async function checkSystemHealth() {
   try {
     const response = await axios.get(`${API_BASE}/api/health/system`, {
-      timeout: 5000,
-      headers: { 'Accept': 'application/json' }
-    });
+            timeout: 10000,
+            headers: { 'Accept': 'application/json' },
+            validateStatus: (status) => status < 400 // Allow redirects but treat as success if < 400
+        });
 
     const health = response.data;
     systemHealth = {
@@ -605,10 +606,14 @@ client.on('message', async (topic, message) => {
     return;
   }
 
-  // order/res/{order_id}/{user_id} — final device response (task done/external)
-  console.log(`🔍 Checking if topic matches order/res pattern: ${topic}`);
+  // Silence noisy regex trace logs in production
+  if (DEBUG) {
+    console.log(`🔍 Checking if topic matches order/res pattern: ${topic}`);
+  }
   const respMatch = topic.match(/^order\/res\/(\d+)\/(\d+)$/);
-  console.log(`🔍 Regex match result: ${respMatch ? 'MATCHED' : 'NO MATCH'}`);
+  if (DEBUG) {
+    console.log(`🔍 Regex match result: ${respMatch ? 'MATCHED' : 'NO MATCH'}`);
+  }
 
   if (respMatch) {
     const order_id = parseInt(respMatch[1], 10);

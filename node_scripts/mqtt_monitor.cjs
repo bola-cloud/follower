@@ -56,7 +56,8 @@ async function checkSystemHealth() {
     try {
         const response = await axios.get(`${API_BASE}/api/health/system`, {
             timeout: 10000,
-            headers: { 'Accept': 'application/json' }
+            headers: { 'Accept': 'application/json' },
+            validateStatus: (status) => status < 400 // Allow redirects
         });
 
         return response.data;
