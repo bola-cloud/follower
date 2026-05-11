@@ -145,14 +145,17 @@ async function checkSystemHealth() {
       }
     }
 
+    if (DEBUG) console.error('❌ Health check failed:', err.message);
+
+    // 💡 IMPROVEMENT: Don't choke the system if health check fails due to network/SSL
+    // Keep last known status but mark it as 'unknown' to avoid aggressive throttling
     systemHealth = {
-      status: 'error',
+      ...systemHealth,
+      status: 'unknown',
       lastCheck: Date.now(),
-      circuitOpen: true, // Assume circuit open if health check fails
+      // circuitOpen: false, // Don't force circuit open on connection errors
       error: err.message
     };
-
-    if (DEBUG) console.error('❌ Health check failed:', err.message);
     return null;
   }
 }
@@ -342,10 +345,8 @@ if (ORDER_RES_BATCH_ENABLED) {
   console.log(`⏰ ORDER RESPONSE BATCH TIMER STARTED: Will flush every ${ORDER_RES_BATCH_TIMEOUT}ms`);
   setInterval(() => {
     if (orderResponseBatch.length > 0) {
-      console.log(`⏰ Timer triggered: Flushing ${orderResponseBatch.length} order responses (reason: timer_interval)`);
+      if (DEBUG) console.log(`⏰ Timer triggered: Flushing ${orderResponseBatch.length} order responses (reason: timer_interval)`);
       flushOrderResponseBatch('timer_interval');
-    } else {
-      console.log(`⏰ Timer triggered: No order responses to flush`);
     }
   }, ORDER_RES_BATCH_TIMEOUT);
 }
@@ -405,10 +406,10 @@ async function postWithRetries(url, data, retries = 4, backoff = 300) {
 async function throttledPost(url, data) {
   // Dynamic concurrency control based on system health
   let maxConcurrent = MAX_INFLIGHT;
-  if (systemHealth.circuitOpen) {
-    maxConcurrent = Math.floor(MAX_INFLIGHT * 0.3); // Reduce to 30% when circuit is open
-  } else if (systemHealth.load === 'high') {
-    maxConcurrent = Math.floor(MAX_INFLIGHT * 0.6); // Reduce to 60% when load is high
+  // 🚀 HIGH THROUGHPUT: Only throttle if we are CERTAIN of high load
+  // If health check is failing (status unknown), assume server is fine and keep speed up
+  if (systemHealth.status === 'unhealthy' || (systemHealth.circuitOpen && systemHealth.load === 'high')) {
+    maxConcurrent = Math.floor(MAX_INFLIGHT * 0.5);
   }
 
   while (inflightRequests >= maxConcurrent) {
